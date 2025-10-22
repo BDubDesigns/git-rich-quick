@@ -1,0 +1,10 @@
+{
+  "name": "git-rich-quick-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo for git-rich-quick project",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ]
+}
