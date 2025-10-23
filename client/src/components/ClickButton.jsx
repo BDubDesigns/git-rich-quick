@@ -10,16 +10,22 @@ export function ClickButton() {
   // State management for floating texts and bounce animation
   const [floatingTexts, setFloatingTexts] = useState([]);
   const [bounceKey, setBounceKey] = useState(0);
+  const [transformOrigin, setTransformOrigin] = useState("center center");
 
   const handleClick = (event) => {
     // Get click position
     const x = event.nativeEvent.clientX;
     const y = event.nativeEvent.clientY;
-
+    // Calculate transform origin for bounce effect
+    const button = event.currentTarget;
+    const rect = button.getBoundingClientRect();
     // create unique id for floating text
     const id = Date.now() + Math.random();
     const newFloatingText = { id, text: "+10", x, y };
     setFloatingTexts([...floatingTexts, newFloatingText]);
+
+    // Store these values in state
+    setTransformOrigin(`${x - rect.left}px ${y - rect.top}px`);
     setBounceKey(bounceKey + 1);
     dispatch({ type: "WRITE_CODE" });
   };
@@ -35,6 +41,7 @@ export function ClickButton() {
       <button
         key={bounceKey}
         onClick={handleClick}
+        style={{ transformOrigin }}
         className="
         ml-2
         inline-flex items-center justify-center
