@@ -22,7 +22,7 @@ export function ButtonBox() {
 
   return (
     <div className="mx-2">
-      <div className="flex justify-items-normal gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
+      <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
         <div className="flex-2">
           <ClickButton />
         </div>

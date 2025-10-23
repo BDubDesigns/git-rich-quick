@@ -2,11 +2,14 @@ import { useGameContext } from "../context/GameContext";
 import { HiMiniCodeBracket } from "react-icons/hi2";
 import { useState } from "react";
 import { FloatingText } from "./FloatingText";
+import "./ClickButton.css";
 
 export function ClickButton() {
   const { dispatch } = useGameContext();
 
+  // State management for floating texts and bounce animation
   const [floatingTexts, setFloatingTexts] = useState([]);
+  const [bounceKey, setBounceKey] = useState(0);
 
   const handleClick = (event) => {
     // Get click position
@@ -17,17 +20,20 @@ export function ClickButton() {
     const id = Date.now() + Math.random();
     const newFloatingText = { id, text: "+10", x, y };
     setFloatingTexts([...floatingTexts, newFloatingText]);
-
+    setBounceKey(bounceKey + 1);
     dispatch({ type: "WRITE_CODE" });
   };
 
+  // Remove floating text after animation ends
   const handleAnimationEnd = (id) => {
     setFloatingTexts(floatingTexts.filter((ft) => ft.id !== id));
   };
 
   return (
     <>
+      {/* We set a key and increment it each click so that the button re-renders and re-triggers the animation on each click */}
       <button
+        key={bounceKey}
         onClick={handleClick}
         className="
         ml-2
@@ -37,11 +43,12 @@ export function ClickButton() {
         text-sm font-bold leading-5
         rounded-md
         text-white
-        bg-green-600
-        hover:bg-green-700
+        bg-green-700
+        hover:bg-green-500
         focus:outline-none 
         disabled:opacity-60 disabled:cursor-not-allowed
         transition ease-in-out duration-150
+        button-bounce
       "
       >
         <span>Commit Code &nbsp;</span>
