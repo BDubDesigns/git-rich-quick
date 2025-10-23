@@ -1,8 +1,8 @@
 import { useReducer, useContext, createContext } from "react";
 const GameContext = createContext();
 
-// Immutable generator configuration
-export const GENERATOR_CONFIGS = {
+// Immutable employee configuration
+export const EMPLOYEE_CONFIGS = {
   intern: {
     name: "Intern",
     baseCost: 10,
@@ -65,9 +65,9 @@ const initialState = {
   totalLinesOfCode: 0,
   money: 500,
 
-  // Generators (count only - config comes from GENERATOR_CONFIGS)
-  generators: {
-    // eventually these will be populated from GENERATOR_CONFIGS
+  // Employees (count only - config comes from EMPLOYEE_CONFIGS)
+  employees: {
+    // eventually these will be populated from EMPLOYEE_CONFIGS
     // dynamically, but for now, for testing, we hard code
     intern: { count: 0 },
     junior: { count: 0 },
@@ -102,31 +102,31 @@ function gameReducer(state, action) {
         linesOfCode: state.linesOfCode + 10,
       };
 
-    // Buy a generator (intern, junior, or senior)
-    case "BUY_GENERATOR": {
-      const { generatorType } = action.payload;
-      const config = GENERATOR_CONFIGS[generatorType];
-      const generator = state.generators[generatorType];
+    // Buy an employee (intern, junior, or senior)
+    case "BUY_EMPLOYEE": {
+      const { employeeType } = action.payload;
+      const config = EMPLOYEE_CONFIGS[employeeType];
+      const employee = state.employees[employeeType];
 
-      if (!config || !generator) {
-        console.warn(`Unknown generator type: ${generatorType}`);
+      if (!config || !employee) {
+        console.warn(`Unknown employee type: ${employeeType}`);
         return state;
       }
 
       // Calculate current cost (increases with each purchase)
       const currentCost =
-        config.baseCost * Math.pow(config.costMultiplier, generator.count);
+        config.baseCost * Math.pow(config.costMultiplier, employee.count);
 
       // Check if player has enough money
       if (state.money >= currentCost) {
         return {
           ...state,
           money: state.money - currentCost,
-          generators: {
-            ...state.generators,
-            [generatorType]: {
-              ...generator,
-              count: generator.count + 1,
+          employees: {
+            ...state.employees,
+            [employeeType]: {
+              ...employee,
+              count: employee.count + 1,
             },
           },
         };
@@ -159,13 +159,13 @@ function gameReducer(state, action) {
       }
     }
 
-    // Game tick: called every second to generate LOC from generators
+    // Game tick: called every second to generate LOC from employees
     case "GAME_TICK": {
       // Calculate passive LOC generation
       let passiveLOC = 0;
-      Object.entries(state.generators).forEach(([generatorType, generator]) => {
-        const config = GENERATOR_CONFIGS[generatorType];
-        passiveLOC += config.locPerSecond * generator.count;
+      Object.entries(state.employees).forEach(([employeeType, employee]) => {
+        const config = EMPLOYEE_CONFIGS[employeeType];
+        passiveLOC += config.locPerSecond * employee.count;
       });
 
       // Add passive LOC to total and current
@@ -181,6 +181,13 @@ function gameReducer(state, action) {
       return state;
     }
   }
+}
+
+export function getTotalEmployeeCount(state) {
+  return Object.values(state.employees).reduce(
+    (total, employee) => total + employee.count,
+    0
+  );
 }
 
 export function GameProvider({ children }) {

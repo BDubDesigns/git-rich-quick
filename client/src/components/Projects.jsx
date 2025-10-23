@@ -14,32 +14,16 @@ export function Projects() {
   };
 
   return (
-    <div
-      style={{
-        marginTop: "1rem",
-        border: "1px solid #ccc",
-        padding: "1rem",
-        borderRadius: "1rem",
-      }}
-    >
-      <h2 style={{ marginTop: "0" }}>Freelance Projects</h2>
+    <div className="mt-4 border border-gray-300 p-4 rounded-2xl">
+      <h2 className="mt-0">Freelance Projects</h2>
       <p>Convert LOC to Money by completing projects</p>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "1rem",
-        }}
-      >
+      <div className="grid grid-cols-3 gap-4">
         {Object.entries(FREELANCE_PROJECTS_CONFIG).map(
           ([projectKey, project]) => {
             const canComplete = state.linesOfCode >= project.loc;
 
             return (
-              <div
-                key={projectKey}
-                style={{ border: "1px solid #999", padding: "1rem" }}
-              >
+              <div key={projectKey} className="border border-gray-500 p-4">
                 <h3>{project.name}</h3>
                 <p>{project.description}</p>
                 <p>Requires: {project.loc} LOC</p>
@@ -47,10 +31,11 @@ export function Projects() {
                 <button
                   onClick={() => handleCompleteProject(projectKey)}
                   disabled={!canComplete}
-                  style={{
-                    opacity: canComplete ? 1 : 0.5,
-                    cursor: canComplete ? "pointer" : "not-allowed",
-                  }}
+                  className={`${
+                    canComplete
+                      ? "opacity-100 cursor-pointer"
+                      : "opacity-50 cursor-not-allowed"
+                  }`}
                 >
                   Complete Project
                 </button>

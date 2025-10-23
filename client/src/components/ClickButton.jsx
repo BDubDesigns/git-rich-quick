@@ -1,4 +1,5 @@
 import { useGameContext } from "../context/GameContext";
+import { HiMiniCodeBracket } from "react-icons/hi2";
 
 export function ClickButton() {
   const { dispatch } = useGameContext();
@@ -11,10 +12,11 @@ export function ClickButton() {
     <button
       onClick={handleClick}
       class="
+      ml-2
     inline-flex items-center justify-center
     px-4 py-2
     border border-transparent
-    text-sm font-medium leading-5
+    text-sm font-bold leading-5
     rounded-md
     text-white
     bg-green-600
@@ -24,7 +26,8 @@ export function ClickButton() {
     transition ease-in-out duration-150
   "
     >
-      Commit changes
+      Commit Code &nbsp;
+      <HiMiniCodeBracket size={24} />
     </button>
   );
 }
