@@ -2,6 +2,7 @@ import {
   useGameContext,
   FREELANCE_PROJECTS_CONFIG,
 } from "../context/GameContext";
+import { formatMoney } from "../utils/currency.js";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -27,7 +28,7 @@ export function Projects() {
                 <h3>{project.name}</h3>
                 <p>{project.description}</p>
                 <p>Requires: {project.loc} LOC</p>
-                <p>Reward: ${project.reward}</p>
+                <p>Reward: ${formatMoney(project.reward)}</p>
                 <button
                   onClick={() => handleCompleteProject(projectKey)}
                   disabled={!canComplete}

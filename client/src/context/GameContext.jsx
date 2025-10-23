@@ -2,59 +2,62 @@ import { useReducer, useContext, createContext } from "react";
 const GameContext = createContext();
 
 // Immutable employee configuration
+// All costs are in CENTS to avoid floating-point errors in idle games
 export const EMPLOYEE_CONFIGS = {
   intern: {
     name: "Intern",
-    baseCost: 10,
+    baseCost: 1000, // $10.00
     locPerSecond: 1,
     costMultiplier: 1.1,
   },
   junior: {
     name: "Junior Developer",
-    baseCost: 50,
+    baseCost: 5000, // $50.00
     locPerSecond: 5,
     costMultiplier: 1.15,
   },
   senior: {
     name: "Senior Developer",
-    baseCost: 200,
+    baseCost: 20000, // $200.00
     locPerSecond: 20,
     costMultiplier: 1.2,
   },
 };
 
 // Immutable AI assistant configuration
+// All costs are in CENTS to avoid floating-point errors in idle games
 export const AI_ASSISTANT_CONFIGS = {
   noPilot: {
     name: "GitNub NoPilot",
-    baseCost: 1000,
+    baseCost: 100000, // $1000.00
     multiplier: 0.05,
     costMultiplier: 1.5,
   },
 };
 
 // Immutable freelance projects configuration
+// All rewards are in CENTS to avoid floating-point errors in idle games
 export const FREELANCE_PROJECTS_CONFIG = {
   toDoListApp: {
     name: "To Do List App",
     description:
       "A simple to-do list application. Cuz that's never been done before. Ever.",
     loc: 100,
-    reward: 50,
+    reward: 5000, // $50.00
   },
   hobbyWebsite: {
     name: "Hobby Website",
     description:
       "A personal website for a client to showcase their hobbies. The world needs to know about Bob's passion for stamp collecting.",
     loc: 750,
-    reward: 150,
+    reward: 15000, // $150.00
   },
   paradigmShiftingBlockchainProject: {
     name: "Paradigm-Shifting Blockchain Project",
     description:
       "A very useful project that leverages the blockchain to convert hype, overpromises, and investor's money into your money.",
     loc: 2000,
-    reward: 500,
+    reward: 50000, // $500.00
   },
 };
 
@@ -63,7 +66,7 @@ const initialState = {
   // Core currencies
   linesOfCode: 0,
   totalLinesOfCode: 0,
-  money: 500,
+  money: 50000, // $500.00 in cents
 
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
   employees: {
@@ -113,9 +116,11 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // Calculate current cost (increases with each purchase)
-      const currentCost =
-        config.baseCost * Math.pow(config.costMultiplier, employee.count);
+      // Calculate current cost in cents (increases with each purchase)
+      // Round to nearest cent to avoid floating-point errors
+      const currentCost = Math.round(
+        config.baseCost * Math.pow(config.costMultiplier, employee.count)
+      );
 
       // Check if player has enough money
       if (state.money >= currentCost) {
@@ -183,11 +188,22 @@ function gameReducer(state, action) {
   }
 }
 
+// Calculate total number of employees
 export function getTotalEmployeeCount(state) {
   return Object.values(state.employees).reduce(
     (total, employee) => total + employee.count,
     0
   );
+}
+
+// Calculate current LOC per second from all employees
+export function getCurrentLOCPerSecond(state) {
+  let locPerSecond = 0;
+  Object.entries(state.employees).forEach(([employeeType, employee]) => {
+    const config = EMPLOYEE_CONFIGS[employeeType];
+    locPerSecond += config.locPerSecond * employee.count;
+  });
+  return locPerSecond;
 }
 
 export function GameProvider({ children }) {

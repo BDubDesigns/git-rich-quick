@@ -1,4 +1,5 @@
 import { useGameContext, EMPLOYEE_CONFIGS } from "../context/GameContext";
+import { formatMoney } from "../utils/currency.js";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -22,8 +23,9 @@ export function Shop() {
       <div className="grid grid-cols-3 gap-4">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
           const employee = state.employees[employeeType];
-          const currentCost =
-            config.baseCost * Math.pow(config.costMultiplier, employee.count);
+          const currentCost = Math.round(
+            config.baseCost * Math.pow(config.costMultiplier, employee.count)
+          );
           const canAfford = state.money >= currentCost;
 
           return (
@@ -31,7 +33,7 @@ export function Shop() {
               <h3>{config.name}</h3>
               <p>Owned: {employee.count}</p>
               <p>Production: {config.locPerSecond} LOC/sec</p>
-              <p>Cost: ${currentCost.toFixed(2)}</p>
+              <p>Cost: ${formatMoney(currentCost)}</p>
               <button
                 onClick={() => handleBuyEmployee(employeeType)}
                 disabled={!canAfford}

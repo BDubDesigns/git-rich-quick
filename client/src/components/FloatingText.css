@@ -1,0 +1,19 @@
+@keyframes float-up {
+  from {
+    /* Start at y0, original position, fully opaque */
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    /* End at y-50, fully transparent */
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+}
+
+.animate-float-up {
+  animation-name: float-up;
+  animation-duration: 1s;
+  animation-timing-function: ease-out; /* Start fast and end slow */
+  animation-fill-mode: forwards; /* Ensure that the element retains the final styles after the animation ends */
+}
