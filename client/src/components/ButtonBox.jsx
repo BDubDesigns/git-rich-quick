@@ -21,35 +21,37 @@ export function ButtonBox() {
       : MdOutlineEmojiPeople;
 
   return (
-    <div className="flex items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
-      <div className="flex-1">
-        <ClickButton />
-      </div>
+    <div className="mx-2">
+      <div className="flex justify-items-normal gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
+        <div className="flex-2">
+          <ClickButton />
+        </div>
 
-      <p className="flex-1">
-        <b className="inline-flex items-center gap-1">
-          LOC <HiMiniCodeBracket size={20} />:
-        </b>{" "}
-        {state.linesOfCode}
-      </p>
-      <p className="flex-1">
-        <b className="inline-flex items-center gap-1">
-          <LiaMoneyBillWaveAltSolid size={20} />:
-        </b>{" "}
-        ${formatMoney(state.money)}
-      </p>
-      <p className="flex-1">
-        <b className="inline-flex items-center gap-1">
-          <PeopleIcon size={20} />:
-        </b>{" "}
-        {totalEmployees}
-      </p>
-      <p className="flex-1">
-        <b className="inline-flex items-center gap-1">
-          <TbUserCode size={20} />:
-        </b>{" "}
-        {getCurrentLOCPerSecond(state)} / sec
-      </p>
+        <p className="flex-1">
+          <b className="inline-flex items-center gap-1">
+            LOC <HiMiniCodeBracket size={20} />:
+          </b>{" "}
+          {state.linesOfCode}
+        </p>
+        <p className="flex-1">
+          <b className="inline-flex items-center gap-1">
+            <LiaMoneyBillWaveAltSolid size={20} />:
+          </b>{" "}
+          ${formatMoney(state.money)}
+        </p>
+        <p className="flex-1">
+          <b className="inline-flex items-center gap-1">
+            <PeopleIcon size={20} />:
+          </b>{" "}
+          {totalEmployees}
+        </p>
+        <p className="flex-1">
+          <b className="inline-flex items-center gap-1">
+            <TbUserCode size={20} />:
+          </b>{" "}
+          {getCurrentLOCPerSecond(state)} / sec
+        </p>
+      </div>
     </div>
   );
 }
