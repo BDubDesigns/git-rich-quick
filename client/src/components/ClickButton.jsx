@@ -27,6 +27,8 @@ export function ClickButton() {
     // Store these values in state
     setTransformOrigin(`${x - rect.left}px ${y - rect.top}px`);
     setBounceKey(bounceKey + 1);
+
+    // Dispatch the WRITE_CODE action
     dispatch({ type: "WRITE_CODE" });
   };
 

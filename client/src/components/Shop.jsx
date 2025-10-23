@@ -1,5 +1,6 @@
 import { useGameContext, EMPLOYEE_CONFIGS } from "../context/GameContext";
 import { formatMoney } from "../utils/currency.js";
+import { ActionButton } from "./ActionButton.jsx";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -29,22 +30,20 @@ export function Shop() {
           const canAfford = state.money >= currentCost;
 
           return (
-            <div key={employeeType} className="border border-gray-600 p-2">
+            <div
+              key={employeeType}
+              className="border rounded-md border-gray-300 p-4 flex flex-col"
+            >
               <h3>{config.name}</h3>
               <p>Owned: {employee.count}</p>
               <p>Production: {config.locPerSecond} LOC/sec</p>
               <p>Cost: ${formatMoney(currentCost)}</p>
-              <button
+              <ActionButton
                 onClick={() => handleBuyEmployee(employeeType)}
                 disabled={!canAfford}
-                className={`${
-                  canAfford
-                    ? "opacity-100 cursor-pointer"
-                    : "opacity-50 cursor-not-allowed"
-                }`}
               >
                 Hire 1 {config.name}
-              </button>
+              </ActionButton>
             </div>
           );
         })}

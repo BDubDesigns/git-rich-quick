@@ -3,6 +3,7 @@ import {
   FREELANCE_PROJECTS_CONFIG,
 } from "../context/GameContext";
 import { formatMoney } from "../utils/currency.js";
+import { ActionButton } from "./ActionButton.jsx";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -24,22 +25,20 @@ export function Projects() {
             const canComplete = state.linesOfCode >= project.loc;
 
             return (
-              <div key={projectKey} className="border border-gray-500 p-4">
+              <div
+                key={projectKey}
+                className="border rounded-md border-gray-300 p-4 flex flex-col"
+              >
                 <h3>{project.name}</h3>
                 <p>{project.description}</p>
                 <p>Requires: {project.loc} LOC</p>
                 <p>Reward: ${formatMoney(project.reward)}</p>
-                <button
+                <ActionButton
                   onClick={() => handleCompleteProject(projectKey)}
                   disabled={!canComplete}
-                  className={`${
-                    canComplete
-                      ? "opacity-100 cursor-pointer"
-                      : "opacity-50 cursor-not-allowed"
-                  }`}
                 >
-                  Complete Project
-                </button>
+                  Ship Project
+                </ActionButton>
               </div>
             );
           }
