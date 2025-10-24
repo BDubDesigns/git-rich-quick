@@ -41,6 +41,7 @@ export function Shop() {
               <ActionButton
                 onClick={() => handleBuyEmployee(employeeType)}
                 disabled={!canAfford}
+                floatText="+1 👩‍💻"
               >
                 Hire 1 {config.name}
               </ActionButton>

@@ -36,6 +36,7 @@ export function Projects() {
                 <ActionButton
                   onClick={() => handleCompleteProject(projectKey)}
                   disabled={!canComplete}
+                  floatText={`$${formatMoney(project.reward)}`}
                 >
                   Ship Project
                 </ActionButton>
