@@ -61,6 +61,35 @@ export const FREELANCE_PROJECTS_CONFIG = {
   },
 };
 
+export const OPEN_SOURCE_PROJECTS_CONFIG = {
+  overReactFramework: {
+    name: "OverReact Framework",
+    description:
+      "An open-source JavaScript framework that makes building web applications unnecessarily complex and bloated.",
+    // No unlock condition for this one, available from start
+    levels: [
+      { locCost: 1000, bonus: { type: "CLICK_BOOST", value: 0.1 } },
+      { locCost: 5000, bonus: { type: "CLICK_BOOST", value: 0.2 } },
+      { locCost: 30000, bonus: { type: "CLICK_BOOST", value: 0.3 } },
+    ],
+  },
+  nodeRuntime: {
+    name: "Node Runtime",
+    description:
+      "Uses a `node_modules` folder that's heavier than a black hole. It lets frontend developers write backend code, for better or for worse.",
+    unlockCondition: {
+      type: "EMPLOYEE_COUNT",
+      employeeType: "junior",
+      count: 5,
+    },
+    levels: [
+      { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.05 } },
+      { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 0.07 } },
+      { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 0.1 } },
+    ],
+  },
+};
+
 // Initial state of the game
 const initialState = {
   // Core currencies
@@ -92,17 +121,26 @@ const initialState = {
     hobbyWebsite: 0,
     paradigmShiftingBlockchainProject: 0,
   },
+
+  openSourceProjects: {
+    // track levels of each open source project
+    // eventually these will be populated from OPEN_SOURCE_PROJECTS_CONFIG
+    overReactFramework: { level: 0 },
+    nodeRuntime: { level: 0 },
+  },
 };
 
 function gameReducer(state, action) {
   switch (action.type) {
+    // Player clicks the "Write Code" button
     case "WRITE_CODE":
-      // Player clicks the "Write Code" button
+      const clickBonus = getTotalClickBonus(state);
+      const locPerClick = 10 * (1 + clickBonus);
       return {
         // spread the state to keep other properties unchanged
         ...state,
-        // increment linesOfCode by 10 for now, later by a dynamic value
-        linesOfCode: state.linesOfCode + 10,
+        // increment linesOfCode by dynamic locPerClick
+        linesOfCode: state.linesOfCode + locPerClick,
       };
 
     // Buy an employee (intern, junior, or senior)
@@ -167,20 +205,61 @@ function gameReducer(state, action) {
     // Game tick: called every second to generate LOC from employees
     case "GAME_TICK": {
       // Calculate passive LOC generation
-      let passiveLOC = 0;
-      Object.entries(state.employees).forEach(([employeeType, employee]) => {
-        const config = EMPLOYEE_CONFIGS[employeeType];
-        passiveLOC += config.locPerSecond * employee.count;
-      });
+      const locFromEmployees = getCurrentLOCPerSecond(state);
+      const passiveBonus = getTotalPassiveBonus(state);
+      const totalPassiveLOC = locFromEmployees * (1 + passiveBonus);
 
-      // Add passive LOC to total and current
+      // Add passive LOC to total and current and log to console
+      console.log(
+        `Generated ${totalPassiveLOC.toFixed(
+          2
+        )} LOC this tick. Breakdown: ${locFromEmployees.toFixed(
+          2
+        )} LOC from employees, +${(locFromEmployees * passiveBonus).toFixed(
+          2
+        )} LOC from bonuses.`
+      );
       return {
         ...state,
-        linesOfCode: state.linesOfCode + passiveLOC,
-        totalLinesOfCode: state.totalLinesOfCode + passiveLOC,
+        linesOfCode: state.linesOfCode + totalPassiveLOC,
+        totalLinesOfCode: state.totalLinesOfCode + totalPassiveLOC,
       };
     }
 
+    // contribute to open source project
+    case "CONTRIBUTE_TO_PROJECT": {
+      // deconstruct projectId from action payload
+      const { projectId } = action.payload;
+      // get project state and config
+      const projectState = state.openSourceProjects[projectId];
+      const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
+
+      // check if there is a next level
+      if (projectState.level >= projectConfig.levels.length) {
+        return state; // already max level, return state unchanged
+      }
+
+      // get next level config
+      const nextLevelConfig = projectConfig.levels[projectState.level];
+      const cost = nextLevelConfig.locCost;
+      // check if player has enough LOC to contribute
+      if (state.linesOfCode < cost) {
+        return state; // not enough LOC, return state unchanged
+      }
+
+      // deduct LOC cost and increase project level
+      return {
+        ...state,
+        linesOfCode: state.linesOfCode - cost,
+        openSourceProjects: {
+          ...state.openSourceProjects,
+          [projectId]: {
+            ...projectState,
+            level: projectState.level + 1,
+          },
+        },
+      };
+    }
     // if action type doesn't make sense, just return current state
     default: {
       return state;
@@ -188,7 +267,25 @@ function gameReducer(state, action) {
   }
 }
 
-// Calculate total number of employees
+/**
+ * ========================================
+ * Helper Functions
+ * ========================================
+ * Utility functions for calculating and retrieving game state values.
+ * These functions provide convenient ways to derive information from the
+ * current game state without modifying it.
+ */
+
+/**
+ * Calculates the total number of employees across all employee types.
+ *
+ * Iterates through all employees in the state and sums their individual counts
+ * to get the total number of hired employees (interns, juniors, and seniors).
+ *
+ * @param {Object} state - The game state object containing employees data
+ * @param {Object} state.employees - Object mapping employee types to their counts
+ * @returns {number} The total count of all employees
+ */
 export function getTotalEmployeeCount(state) {
   return Object.values(state.employees).reduce(
     (total, employee) => total + employee.count,
@@ -196,7 +293,64 @@ export function getTotalEmployeeCount(state) {
   );
 }
 
+/**
+ * Calculates the total click bonus from all open source projects based on their current levels.
+ *
+ * Iterates through each project in the configuration, and for each project level that has been
+ * unlocked, accumulates any bonuses of type "CLICK_BOOST" into the total bonus value.
+ *
+ * @param {Object} state - The game state object containing openSourceProjects data
+ * @param {Object} state.openSourceProjects - Object mapping project IDs to their current state (includes level property)
+ * @returns {number} The total accumulated click bonus value from all projects
+ */
+export function getTotalClickBonus(state) {
+  let totalBonus = 0;
+  for (const projectId in OPEN_SOURCE_PROJECTS_CONFIG) {
+    const projectState = state.openSourceProjects[projectId];
+    const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
+    for (let i = 0; i < projectState.level; i++) {
+      const levelBonus = projectConfig.levels[i].bonus;
+      if (levelBonus.type === "CLICK_BOOST") {
+        totalBonus += levelBonus.value;
+      }
+    }
+  }
+  return totalBonus;
+}
+
+/**
+ * Calculates the total passive bonus from all open source projects based on their current levels.
+ *
+ * Iterates through each project and its levels, summing up all bonuses of type "PASSIVE_BOOST".
+ *
+ * @param {Object} state - The game state object containing open source projects data
+ * @param {Object} state.openSourceProjects - Collection of open source projects with their current levels
+ * @returns {number} The total accumulated passive bonus value from all projects
+ */
+export function getTotalPassiveBonus(state) {
+  let totalBonus = 0;
+  for (const projectId in OPEN_SOURCE_PROJECTS_CONFIG) {
+    const projectState = state.openSourceProjects[projectId];
+    const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
+    for (let i = 0; i < projectState.level; i++) {
+      const levelBonus = projectConfig.levels[i].bonus;
+      if (levelBonus.type === "PASSIVE_BOOST") {
+        totalBonus += levelBonus.value;
+      }
+    }
+  }
+  return totalBonus;
+}
+
 // Calculate current LOC per second from all employees
+/**
+ * Calculates the total lines of code (LOC) generated per second based on current employees.
+ *
+ * @param {Object} state - The game state object containing employee data
+ * @param {Object} state.employees - Object mapping employee types to employee objects
+ * @param {number} state.employees[employeeType].count - Number of employees of a given type
+ * @returns {number} Total lines of code generated per second across all employees
+ */
 export function getCurrentLOCPerSecond(state) {
   let locPerSecond = 0;
   Object.entries(state.employees).forEach(([employeeType, employee]) => {
@@ -206,6 +360,7 @@ export function getCurrentLOCPerSecond(state) {
   return locPerSecond;
 }
 
+// GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(gameReducer, initialState);
 
@@ -216,6 +371,7 @@ export function GameProvider({ children }) {
   );
 }
 
+// Custom hook to use the GameContext
 export function useGameContext() {
   const context = useContext(GameContext);
 

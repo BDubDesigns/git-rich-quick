@@ -5,6 +5,7 @@ import { ButtonBox } from "./components/ButtonBox";
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { Footer } from "./components/Footer";
+import { OpenSource } from "./components/openSource";
 
 function App() {
   const { dispatch, state } = useGameContext();
@@ -28,6 +29,7 @@ function App() {
         <Shop />
         <Projects />
       </div>
+      <OpenSource />
 
       <br />
       <br />
