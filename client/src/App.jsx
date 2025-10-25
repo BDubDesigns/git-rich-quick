@@ -5,7 +5,7 @@ import { ButtonBox } from "./components/ButtonBox";
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { Footer } from "./components/Footer";
-import { OpenSource } from "./components/openSource";
+import { OpenSource } from "./components/OpenSource";
 
 function App() {
   const { dispatch, state } = useGameContext();
