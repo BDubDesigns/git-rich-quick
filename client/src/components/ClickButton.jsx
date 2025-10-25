@@ -45,6 +45,7 @@ export function ClickButton() {
         onClick={handleClick}
         style={{ transformOrigin }}
         className="
+        select-none
         ml-2
         inline-flex items-center justify-center
         px-4 py-2

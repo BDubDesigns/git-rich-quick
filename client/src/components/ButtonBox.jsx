@@ -31,7 +31,7 @@ export function ButtonBox() {
           <b className="inline-flex items-center gap-1">
             LOC <HiMiniCodeBracket size={20} />:
           </b>{" "}
-          {state.linesOfCode}
+          {Math.floor(state.linesOfCode)}
         </p>
         <p className="flex-1">
           <b className="inline-flex items-center gap-1">

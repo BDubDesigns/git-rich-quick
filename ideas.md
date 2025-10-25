@@ -8,3 +8,4 @@ alternating which side of the commit code button you click will slowly increase 
 adding random popups on the screen for the user to click on for a big bonus of loc or a 2 minute boost to loc per second etc. Cuz that's the other thing I miss the most from cookie clicker lol. Those will pop up every 20 seconds to 2 minjtes or something like that, I may need to adjust that with play testing.
 I also want to lock hiring the higher level devs behind having 10 of the previous level dev, so for example you won't see the junior dev or the senior dev at the start only the intern. Once you've bought 10 interns it will show the junior devs so there's a sense of progression, but idk if that will be too hand holdy
 next thing to work on is making the floating text +10 show the actual amount per click, as well as showing amount gained per click somewhere visible to user.
+news as a twitter feed? perhaps like reddit posts or hackernews?
