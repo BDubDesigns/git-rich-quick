@@ -1,6 +1,7 @@
 import { useGameContext, EMPLOYEE_CONFIGS } from "../context/GameContext";
 import { formatMoney } from "../utils/currency.js";
 import { ActionButton } from "./ActionButton.jsx";
+import { getTotalClickBonus } from "../context/GameContext.jsx";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -11,7 +12,8 @@ export function Shop() {
       payload: { employeeType },
     });
   };
-
+  const clickBonus = getTotalClickBonus(state);
+  const locPerClick = 10 * (1 + clickBonus);
   return (
     <div className="mt-4 rounded-xl border border-gray-300 p-4">
       <h2 className="mt-0">Hire Devs</h2>
@@ -41,7 +43,8 @@ export function Shop() {
               <ActionButton
                 onClick={() => handleBuyEmployee(employeeType)}
                 disabled={!canAfford}
-                floatText="+1 👩‍💻"
+                floatText="+1"
+                icon={config.icon}
               >
                 Hire 1 {config.name}
               </ActionButton>

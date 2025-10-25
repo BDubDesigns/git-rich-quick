@@ -4,6 +4,7 @@ import {
 } from "../context/GameContext";
 import { formatMoney } from "../utils/currency.js";
 import { ActionButton } from "./ActionButton.jsx";
+import { HiOutlineBanknotes } from "react-icons/hi2";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -36,7 +37,8 @@ export function Projects() {
                 <ActionButton
                   onClick={() => handleCompleteProject(projectKey)}
                   disabled={!canComplete}
-                  floatText={`$${formatMoney(project.reward)}`}
+                  floatText={`+$${formatMoney(project.reward)}`}
+                  icon={<HiOutlineBanknotes size={20} />}
                 >
                   Ship Project
                 </ActionButton>

@@ -8,6 +8,7 @@ export function ActionButton({
   disabled,
   children,
   floatText = "+10",
+  icon,
 }) {
   // State management for floating texts and bounce animation
   const [floatingTexts, setFloatingTexts] = useState([]);
@@ -25,8 +26,8 @@ export function ActionButton({
     // Create unique identifier for this floating text
     const id = Date.now() + Math.random();
 
-    // Create the floating text object
-    const newFloatingText = { id, text: floatText, x, y };
+    // Create the floating text object (with icon if provided)
+    const newFloatingText = { id, text: floatText, icon, x, y };
 
     // Add to floating texts array (immutably)
     setFloatingTexts([...floatingTexts, newFloatingText]);
@@ -68,6 +69,7 @@ export function ActionButton({
           x={floatingText.x}
           y={floatingText.y}
           text={floatingText.text}
+          icon={floatingText.icon}
           onAnimationEnd={() => handleAnimationEnd(floatingText.id)}
         />
       ))}

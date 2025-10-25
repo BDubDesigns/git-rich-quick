@@ -21,7 +21,10 @@ export function ClickButton() {
     const rect = button.getBoundingClientRect();
     // create unique id for floating text
     const id = Date.now() + Math.random();
-    const newFloatingText = { id, text: "+10", x, y };
+    // Create icon element
+    const icon = <HiMiniCodeBracket size={20} />;
+
+    const newFloatingText = { id, text: "+10", icon, x, y };
     setFloatingTexts([...floatingTexts, newFloatingText]);
 
     // Store these values in state
@@ -70,6 +73,7 @@ export function ClickButton() {
           x={floatingText.x}
           y={floatingText.y}
           text={floatingText.text}
+          icon={floatingText.icon}
           onAnimationEnd={() => handleAnimationEnd(floatingText.id)}
         />
       ))}
