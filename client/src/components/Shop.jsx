@@ -2,6 +2,8 @@ import { useGameContext, EMPLOYEE_CONFIGS } from "../context/GameContext";
 import { formatMoney } from "../utils/currency.js";
 import { ActionButton } from "./ActionButton.jsx";
 import { getTotalClickBonus } from "../context/GameContext.jsx";
+// Import createElement to dynamically recreate icon components with custom sizes
+import { createElement } from "react";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -37,7 +39,14 @@ export function Shop() {
               className="border rounded-md border-gray-300 p-4 flex flex-col"
             >
               <h3>{config.name}</h3>
-              <p className="flex justify-center w-full">{config.icon}</p>
+              <p className="flex justify-center w-full">
+                {/* Recreate icon component with size 48 instead of default 20 for better visibility */}
+                {createElement(config.icon.type, {
+                  ...config.icon.props,
+                  size: 48,
+                })}
+                {/* We spread the original icon's props to preserve any additional properties */}
+              </p>
               <p>Owned: {employee.count}</p>
               <p>Production: {config.locPerSecond} LOC/sec</p>
               <p>Cost: ${formatMoney(currentCost)}</p>
