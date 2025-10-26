@@ -91,8 +91,8 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = {
     },
     levels: [
       { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.05 } },
-      { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 0.07 } },
-      { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 0.1 } },
+      { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 0.1 } },
+      { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 0.15 } },
     ],
   },
 };
