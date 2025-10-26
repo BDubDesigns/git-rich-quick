@@ -1,6 +1,7 @@
 import { useReducer, useContext, createContext } from "react";
 import { GiPlasticDuck } from "react-icons/gi";
-import { HiOutlineBriefcase, HiStar } from "react-icons/hi2";
+import { BsBackpack } from "react-icons/bs";
+import { BiCoffeeTogo } from "react-icons/bi";
 
 const GameContext = createContext();
 
@@ -19,14 +20,14 @@ export const EMPLOYEE_CONFIGS = {
     baseCost: 5000, // $50.00
     locPerSecond: 5,
     costMultiplier: 1.15,
-    icon: <HiOutlineBriefcase size={20} />,
+    icon: <BsBackpack size={20} />,
   },
   senior: {
     name: "Senior Developer",
     baseCost: 20000, // $200.00
     locPerSecond: 20,
     costMultiplier: 1.2,
-    icon: <HiStar size={20} />,
+    icon: <BiCoffeeTogo size={20} />,
   },
 };
 

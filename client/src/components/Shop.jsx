@@ -37,6 +37,7 @@ export function Shop() {
               className="border rounded-md border-gray-300 p-4 flex flex-col"
             >
               <h3>{config.name}</h3>
+              <p className="flex justify-center w-full">{config.icon}</p>
               <p>Owned: {employee.count}</p>
               <p>Production: {config.locPerSecond} LOC/sec</p>
               <p>Cost: ${formatMoney(currentCost)}</p>
