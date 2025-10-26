@@ -13,21 +13,21 @@ export const EMPLOYEE_CONFIGS = {
     baseCost: 1000, // $10.00
     locPerSecond: 1,
     costMultiplier: 1.1,
-    icon: <GiPlasticDuck size={20} />,
+    icon: <GiPlasticDuck size={20} color="orange" />,
   },
   junior: {
     name: "Junior Developer",
     baseCost: 5000, // $50.00
     locPerSecond: 5,
     costMultiplier: 1.15,
-    icon: <BsBackpack size={20} />,
+    icon: <BsBackpack size={20} color="brown" />,
   },
   senior: {
     name: "Senior Developer",
     baseCost: 20000, // $200.00
     locPerSecond: 20,
     costMultiplier: 1.2,
-    icon: <BiCoffeeTogo size={20} />,
+    icon: <BiCoffeeTogo size={20} color="green" />,
   },
 };
 
