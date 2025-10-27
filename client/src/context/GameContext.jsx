@@ -160,11 +160,8 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // Calculate current cost in cents (increases with each purchase)
-      // Round to nearest cent to avoid floating-point errors
-      const currentCost = Math.round(
-        config.baseCost * Math.pow(config.costMultiplier, employee.count)
-      );
+      // Calculate current cost
+      const currentCost = getEmployeeCost(employeeType, state);
 
       // Check if player has enough money
       if (state.money >= currentCost) {
@@ -289,23 +286,28 @@ export function getTotalEmployeeCount(state) {
 }
 
 /**
- * Calculates the total click bonus from all open source projects based on their current levels.
+ * Private helper function to calculate total bonuses of a specific type.
  *
- * Iterates through each project in the configuration, and for each project level that has been
- * unlocked, accumulates any bonuses of type "CLICK_BOOST" into the total bonus value.
+ * This function extracts the common logic from getTotalClickBonus and getTotalPassiveBonus.
+ * It iterates through all open source projects and their unlocked levels, accumulating
+ * bonuses that match the specified type.
+ *
+ * NOT exported - for internal use only by getTotalClickBonus and getTotalPassiveBonus.
  *
  * @param {Object} state - The game state object containing openSourceProjects data
- * @param {Object} state.openSourceProjects - Object mapping project IDs to their current state (includes level property)
- * @returns {number} The total accumulated click bonus value from all projects
+ * @param {string} bonusType - The type of bonus to filter for (e.g., "CLICK_BOOST", "PASSIVE_BOOST")
+ * @returns {number} The total accumulated bonus value for the specified type
+ *
+ * @private
  */
-export function getTotalClickBonus(state) {
+function getTotalBonusByType(state, bonusType) {
   let totalBonus = 0;
   for (const projectId in OPEN_SOURCE_PROJECTS_CONFIG) {
     const projectState = state.openSourceProjects[projectId];
     const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
     for (let i = 0; i < projectState.level; i++) {
       const levelBonus = projectConfig.levels[i].bonus;
-      if (levelBonus.type === "CLICK_BOOST") {
+      if (levelBonus.type === bonusType) {
         totalBonus += levelBonus.value;
       }
     }
@@ -314,27 +316,29 @@ export function getTotalClickBonus(state) {
 }
 
 /**
+ * Calculates the total click bonus from all open source projects based on their current levels.
+ *
+ * This is a convenience wrapper around getTotalBonusByType filtered for click bonuses.
+ * See getTotalBonusByType for implementation details.
+ *
+ * @param {Object} state - The game state object containing openSourceProjects data
+ * @returns {number} The total accumulated click bonus value from all projects
+ */
+export function getTotalClickBonus(state) {
+  return getTotalBonusByType(state, "CLICK_BOOST");
+}
+
+/**
  * Calculates the total passive bonus from all open source projects based on their current levels.
  *
- * Iterates through each project and its levels, summing up all bonuses of type "PASSIVE_BOOST".
+ * This is a convenience wrapper around getTotalBonusByType filtered for passive bonuses.
+ * See getTotalBonusByType for implementation details.
  *
- * @param {Object} state - The game state object containing open source projects data
- * @param {Object} state.openSourceProjects - Collection of open source projects with their current levels
+ * @param {Object} state - The game state object containing openSourceProjects data
  * @returns {number} The total accumulated passive bonus value from all projects
  */
 export function getTotalPassiveBonus(state) {
-  let totalBonus = 0;
-  for (const projectId in OPEN_SOURCE_PROJECTS_CONFIG) {
-    const projectState = state.openSourceProjects[projectId];
-    const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
-    for (let i = 0; i < projectState.level; i++) {
-      const levelBonus = projectConfig.levels[i].bonus;
-      if (levelBonus.type === "PASSIVE_BOOST") {
-        totalBonus += levelBonus.value;
-      }
-    }
-  }
-  return totalBonus;
+  return getTotalBonusByType(state, "PASSIVE_BOOST");
 }
 
 /**
@@ -401,6 +405,21 @@ export function getCurrentLOCPerSecond(state) {
   return locPerSecond;
 }
 
+// Get Employee Cost
+export function getEmployeeCost(employeeType, state) {
+  const config = EMPLOYEE_CONFIGS[employeeType];
+  const employee = state.employees[employeeType];
+
+  if (!config || !employee) {
+    console.warn(`Unknown employee type: ${employeeType}`);
+    return 0;
+  }
+
+  // Calculate current cost in cents (increases with each purchase)
+  return Math.round(
+    config.baseCost * Math.pow(config.costMultiplier, employee.count)
+  );
+}
 // GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(gameReducer, initialState);

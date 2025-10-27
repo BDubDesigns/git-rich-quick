@@ -1,7 +1,10 @@
-import { useGameContext, EMPLOYEE_CONFIGS } from "../context/GameContext";
+import {
+  useGameContext,
+  EMPLOYEE_CONFIGS,
+  getEmployeeCost,
+} from "../context/GameContext";
 import { formatMoney } from "../utils/currency.js";
 import { ActionButton } from "./ActionButton.jsx";
-import { getTotalClickBonus } from "../context/GameContext.jsx";
 // Import createElement to dynamically recreate icon components with custom sizes
 import { createElement } from "react";
 
@@ -14,8 +17,7 @@ export function Shop() {
       payload: { employeeType },
     });
   };
-  const clickBonus = getTotalClickBonus(state);
-  const locPerClick = 10 * (1 + clickBonus);
+
   return (
     <div className="mt-4 rounded-xl border border-gray-300 p-4">
       <h2 className="mt-0">Hire Devs</h2>
@@ -28,9 +30,7 @@ export function Shop() {
       <div className="grid grid-cols-3 gap-4">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
           const employee = state.employees[employeeType];
-          const currentCost = Math.round(
-            config.baseCost * Math.pow(config.costMultiplier, employee.count)
-          );
+          const currentCost = getEmployeeCost(employeeType, state);
           const canAfford = state.money >= currentCost;
 
           return (
