@@ -4,7 +4,10 @@ import { MdOutlineEmojiPeople } from "react-icons/md"; // one person
 import { IoPeople } from "react-icons/io5"; // 2 people
 import { FaPeopleGroup } from "react-icons/fa6"; // 3 people
 import { TbUserCode } from "react-icons/tb"; // for the loc per second
-import { getTotalEmployeeCount } from "../context/GameContext.jsx";
+import {
+  calculateLOCPerClick,
+  getTotalEmployeeCount,
+} from "../context/GameContext.jsx";
 import { useGameContext } from "../context/GameContext.jsx";
 import { ClickButton } from "./ClickButton.jsx";
 import { getCurrentLOCPerSecond } from "../context/GameContext.jsx";
@@ -21,35 +24,36 @@ export function ButtonBox() {
       : MdOutlineEmojiPeople;
 
   return (
-    <div className="mx-2">
+    <div className="mx-2 select-none">
       <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
-        <div className="flex-2">
+        <div className="flex-2 flex flex-col items-center">
           <ClickButton />
+          <p>LOC Per Click: {calculateLOCPerClick(state)}</p>
         </div>
 
         <p className="flex-1">
           <b className="inline-flex items-center gap-1">
             LOC <HiMiniCodeBracket size={20} />:
           </b>{" "}
-          {Math.floor(state.linesOfCode)}
+          <p>{Math.floor(state.linesOfCode)}</p>
         </p>
         <p className="flex-1">
           <b className="inline-flex items-center gap-1">
             <LiaMoneyBillWaveAltSolid size={20} />:
           </b>{" "}
-          ${formatMoney(state.money)}
+          <p>${formatMoney(state.money)}</p>
         </p>
         <p className="flex-1">
           <b className="inline-flex items-center gap-1">
             <PeopleIcon size={20} />:
           </b>{" "}
-          {totalEmployees}
+          <p>{totalEmployees}</p>
         </p>
         <p className="flex-1">
           <b className="inline-flex items-center gap-1">
             <TbUserCode size={20} />:
           </b>{" "}
-          {getCurrentLOCPerSecond(state)} / sec
+          <p>{getCurrentLOCPerSecond(state)} / sec</p>
         </p>
       </div>
     </div>

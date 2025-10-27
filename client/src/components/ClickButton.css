@@ -23,3 +23,14 @@
     animation: none;
   }
 }
+
+/* .text-outline {
+  -webkit-text-stroke-width: 1px; 
+  -webkit-text-stroke-color: black;
+  -webkit-text-fill-color: white; 
+}
+.text-outline-dark {
+  -webkit-text-stroke-width: 1px;
+  -webkit-text-stroke-color: white;
+  -webkit-text-fill-color: black;
+} */

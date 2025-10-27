@@ -141,8 +141,7 @@ function gameReducer(state, action) {
   switch (action.type) {
     // Player clicks the "Write Code" button
     case "WRITE_CODE":
-      const clickBonus = getTotalClickBonus(state);
-      const locPerClick = 10 * (1 + clickBonus);
+      const locPerClick = calculateLOCPerClick(state);
       return {
         // spread the state to keep other properties unchanged
         ...state,
@@ -212,20 +211,9 @@ function gameReducer(state, action) {
     // Game tick: called every second to generate LOC from employees
     case "GAME_TICK": {
       // Calculate passive LOC generation
-      const locFromEmployees = getCurrentLOCPerSecond(state);
-      const passiveBonus = getTotalPassiveBonus(state);
-      const totalPassiveLOC = locFromEmployees * (1 + passiveBonus);
+      const totalPassiveLOC = calculateLOCPerSecond(state);
 
-      // Add passive LOC to total and current and log to console
-      console.log(
-        `Generated ${totalPassiveLOC.toFixed(
-          2
-        )} LOC this tick. Breakdown: ${locFromEmployees.toFixed(
-          2
-        )} LOC from employees, +${(locFromEmployees * passiveBonus).toFixed(
-          2
-        )} LOC from bonuses.`
-      );
+      // Add passive LOC to total and current
       return {
         ...state,
         linesOfCode: state.linesOfCode + totalPassiveLOC,
@@ -347,6 +335,52 @@ export function getTotalPassiveBonus(state) {
     }
   }
   return totalBonus;
+}
+
+/**
+ * Calculates the total lines of code (LOC) generated from a single click.
+ *
+ * This formula combines the base LOC per click with all active click bonuses
+ * from open source projects. Uses the same calculation pattern as passive LOC:
+ * Final LOC = Base LOC × (1 + Total Click Bonus Multiplier)
+ *
+ * @param {Object} state - The game state object
+ * @returns {number} Total LOC generated from one click, including bonuses
+ *
+ * @example
+ * // With no bonuses:
+ * calculateLOCPerClick(state) // returns 10
+ *
+ * // With click bonuses totaling 0.3:
+ * calculateLOCPerClick(state) // returns 13 (10 * 1.3)
+ */
+export function calculateLOCPerClick(state) {
+  const baseLOC = 10;
+  const clickBonus = getTotalClickBonus(state);
+  return baseLOC * (1 + clickBonus);
+}
+
+/**
+ * Calculates the total lines of code (LOC) generated per second from all employees.
+ *
+ * This formula combines the base passive LOC generation (from all employees)
+ * with all active passive bonuses from open source projects. Uses the same
+ * calculation pattern as click LOC: Final LOC = Base LOC × (1 + Total Passive Bonus Multiplier)
+ *
+ * @param {Object} state - The game state object
+ * @returns {number} Total LOC generated per second from employees, including bonuses
+ *
+ * @example
+ * // With 3 interns (3 LOC/sec each) and no bonuses:
+ * calculateLOCPerSecond(state) // returns 9 (3 * 3 * 1.0)
+ *
+ * // Same setup with passive bonuses totaling 0.15:
+ * calculateLOCPerSecond(state) // returns 10.35 (9 * 1.15)
+ */
+export function calculateLOCPerSecond(state) {
+  const basePassiveLOC = getCurrentLOCPerSecond(state);
+  const passiveBonus = getTotalPassiveBonus(state);
+  return basePassiveLOC * (1 + passiveBonus);
 }
 
 // Calculate current LOC per second from all employees
