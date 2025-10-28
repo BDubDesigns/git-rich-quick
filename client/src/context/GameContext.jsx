@@ -137,7 +137,7 @@ const initialState = {
 
   // Click tracking for CPS calculation
   clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
-  currentCPS: 1110, // Cached CPS for display
+  currentCPS: 0, // Cached CPS for display
 
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
   employees: {
