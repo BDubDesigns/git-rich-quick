@@ -12,6 +12,7 @@ import { useGameContext } from "../context/GameContext.jsx";
 import { ClickButton } from "./ClickButton.jsx";
 import { getCurrentLOCPerSecond } from "../context/GameContext.jsx";
 import { formatMoney } from "../utils/currency.js";
+import { CPSMeter } from "./CPSMeter.jsx";
 
 export function ButtonBox() {
   const { state } = useGameContext();
@@ -27,8 +28,9 @@ export function ButtonBox() {
     <div className="mx-2 select-none">
       <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
         <div className="flex-2 flex flex-col items-center">
-          <ClickButton />
           <p>LOC Per Click: {calculateLOCPerClick(state)}</p>
+          <ClickButton />
+          <CPSMeter />
         </div>
 
         <p className="flex-1">

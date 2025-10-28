@@ -27,10 +27,10 @@ const GameContext = createContext();
 export const GAME_BALANCE_CONFIG = Object.freeze({
   // ==== Game Mechanics ====
   TICK_INTERVAL: 1000, // Game tick interval in milliseconds
-  BASE_LOC_PER_CLICK: 10, // Base lines of code per click
+  BASE_LOC_PER_CLICK: 1, // Base lines of code per click
 
   // ==== Starting Resources ====
-  STARTING_MONEY: 50000, // $500.00 in cents
+  STARTING_MONEY: 0, // $0.00 in cents
   STARTING_LOC: 0, // Starting lines of code
 });
 
@@ -39,14 +39,14 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
 export const EMPLOYEE_CONFIGS = Object.freeze({
   intern: {
     name: "Intern",
-    baseCost: 1000, // $10.00
+    baseCost: 2500, // $25.00
     locPerSecond: 1,
     costMultiplier: 1.1,
     icon: <GiPlasticDuck size={20} color="orange" />,
   },
   junior: {
     name: "Junior Developer",
-    baseCost: 5000, // $50.00
+    baseCost: 20000, // $200.00
     locPerSecond: 5,
     costMultiplier: 1.15,
     icon: <BsBackpack size={20} color="brown" />,
@@ -78,8 +78,8 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
     name: "To Do List App",
     description:
       "A simple to-do list application. Cuz that's never been done before. Ever.",
-    loc: 100,
-    reward: 5000, // $50.00
+    loc: 50,
+    reward: 2500, // $25.00
   },
   hobbyWebsite: {
     name: "Hobby Website",
@@ -104,9 +104,9 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
       "An open-source JavaScript framework that makes building web applications unnecessarily complex and bloated.",
     // No unlock condition for this one, available from start
     levels: [
-      { locCost: 1000, bonus: { type: "CLICK_BOOST", value: 0.1 } },
-      { locCost: 5000, bonus: { type: "CLICK_BOOST", value: 0.2 } },
-      { locCost: 30000, bonus: { type: "CLICK_BOOST", value: 0.3 } },
+      { locCost: 100, bonus: { type: "CLICK_BOOST", value: 1 } },
+      { locCost: 500, bonus: { type: "CLICK_BOOST", value: 1 } },
+      { locCost: 3000, bonus: { type: "CLICK_BOOST", value: 2 } },
     ],
   },
   nodeRuntime: {
@@ -119,9 +119,9 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
       count: 5,
     },
     levels: [
-      { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.05 } },
-      { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 0.1 } },
-      { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 0.15 } },
+      { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.5 } },
+      { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 1 } },
+      { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 1.5 } },
     ],
   },
 });
@@ -134,6 +134,10 @@ const initialState = {
   linesOfCode: GAME_BALANCE_CONFIG.STARTING_LOC,
   totalLinesOfCode: 0, // cumulative LOC written over time, never decreases
   money: GAME_BALANCE_CONFIG.STARTING_MONEY,
+
+  // Click tracking for CPS calculation
+  clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
+  currentCPS: 1110, // Cached CPS for display
 
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
   employees: {
@@ -171,15 +175,26 @@ const initialState = {
 function gameReducer(state, action) {
   switch (action.type) {
     // Player clicks the "Write Code" button
-    case "WRITE_CODE":
+    case "WRITE_CODE": {
       const locPerClick = calculateLOCPerClick(state);
+      // Update click history for CPS calculation
+      const newClickHistory = [...state.clickHistory, Date.now()];
+      // Clean up old clicks (older than 10 seconds to save memory)
+      // We are saving more than 1 second for history to allow players to choose
+      // longer timeframes for CPS if desired in future features
+      const cleanedHistory = newClickHistory.filter(
+        (ts) => ts > Date.now() - 10000
+      );
       return {
         // spread the state to keep other properties unchanged
         ...state,
         // increment linesOfCode by dynamic locPerClick
         linesOfCode: state.linesOfCode + locPerClick,
+        totalLinesOfCode: state.totalLinesOfCode + locPerClick,
+        clickHistory: cleanedHistory,
+        currentCPS: calculateCPS(cleanedHistory),
       };
-
+    }
     // Buy an employee (intern, junior, or senior)
     case "BUY_EMPLOYEE": {
       const { employeeType } = action.payload;
@@ -240,12 +255,17 @@ function gameReducer(state, action) {
     case "GAME_TICK": {
       // Calculate passive LOC generation
       const totalPassiveLOC = calculateLOCPerSecond(state);
-
+      // Clean up old click history
+      const cleanedHistory = state.clickHistory.filter(
+        (ts) => ts > Date.now() - 10000
+      );
       // Add passive LOC to total and current
       return {
         ...state,
         linesOfCode: state.linesOfCode + totalPassiveLOC,
         totalLinesOfCode: state.totalLinesOfCode + totalPassiveLOC,
+        clickHistory: cleanedHistory,
+        currentCPS: calculateCPS(cleanedHistory),
       };
     }
 
@@ -294,10 +314,32 @@ function gameReducer(state, action) {
  * ========================================
  * Helper Functions
  * ========================================
- * Utility functions for calculating and retrieving game state values.
- * These functions provide convenient ways to derive information from the
- * current game state without modifying it.
+ * Utility functions for calculating and retrieving
+ * game state values.
+ * These functions provide convenient ways to derive
+ * information from the current game state without modifying it.
+ * ========================================
  */
+
+/** * Calculates the current Clicks Per Second (CPS) based on click history.
+ *
+ * This function filters the clickHistory array to count only clicks
+ * that occurred in the last second.
+ *
+ * @param {Array} clickHistory - Array of click timestamps
+ * @returns {number} The calculated CPS value
+ */
+export function calculateCPS(clickHistory) {
+  const now = Date.now();
+  const oneSecondAgo = now - 1000;
+
+  // Filter clicks in the past 1 second
+  const recentClicks = clickHistory.filter(
+    (timestamp) => timestamp > oneSecondAgo
+  );
+
+  return recentClicks.length;
+}
 
 /**
  * Calculates the total number of employees across all employee types.

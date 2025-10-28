@@ -6,6 +6,7 @@ import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { Footer } from "./components/Footer";
 import { OpenSource } from "./components/OpenSource";
+import { GAME_BALANCE_CONFIG } from "./context/GameContext";
 
 function App() {
   const { dispatch, state } = useGameContext();
@@ -14,7 +15,7 @@ function App() {
     // Set up a game tick every 1000ms
     const interval = setInterval(() => {
       dispatch({ type: "GAME_TICK" });
-    }, 1000);
+    }, GAME_BALANCE_CONFIG.TICK_INTERVAL);
 
     // Cleanup function to prevent memory leaks
     return () => clearInterval(interval);
