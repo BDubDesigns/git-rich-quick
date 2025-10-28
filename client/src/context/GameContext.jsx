@@ -3,11 +3,40 @@ import { GiPlasticDuck } from "react-icons/gi";
 import { BsBackpack } from "react-icons/bs";
 import { BiCoffeeTogo } from "react-icons/bi";
 
+/**
+ * ========================================
+ * ARCHITECTURE: Config + State Separation
+ * ========================================
+ *
+ * All game balance data lives in IMMUTABLE CONFIG OBJECTS.
+ * State stores only COUNTS and CURRENCY.
+ *
+ * This separation:
+ * - Makes rebalancing easy (adjust config, game instantly rebalances)
+ * - Keeps the reducer clean and predictable
+ * - Prevents bugs from state-level balance changes
+ *
+ * NEVER add game balance constants to initialState or functions.
+ * Add them to a CONFIG object instead. See GAME_BALANCE_CONFIG below.
+ *
+ * Pattern: `export const THING_CONFIG = Object.freeze({ ... })`
+ */
+
 const GameContext = createContext();
+// ===== GAME BALANCE CONFIGURATIONS =====
+export const GAME_BALANCE_CONFIG = Object.freeze({
+  // ==== Game Mechanics ====
+  TICK_INTERVAL: 1000, // Game tick interval in milliseconds
+  BASE_LOC_PER_CLICK: 10, // Base lines of code per click
+
+  // ==== Starting Resources ====
+  STARTING_MONEY: 50000, // $500.00 in cents
+  STARTING_LOC: 0, // Starting lines of code
+});
 
 // Immutable employee configuration
 // All costs are in CENTS to avoid floating-point errors in idle games
-export const EMPLOYEE_CONFIGS = {
+export const EMPLOYEE_CONFIGS = Object.freeze({
   intern: {
     name: "Intern",
     baseCost: 1000, // $10.00
@@ -29,22 +58,22 @@ export const EMPLOYEE_CONFIGS = {
     costMultiplier: 1.2,
     icon: <BiCoffeeTogo size={20} color="green" />,
   },
-};
+});
 
 // Immutable AI assistant configuration
 // All costs are in CENTS to avoid floating-point errors in idle games
-export const AI_ASSISTANT_CONFIGS = {
+export const AI_ASSISTANT_CONFIGS = Object.freeze({
   noPilot: {
     name: "GitNub NoPilot",
     baseCost: 100000, // $1000.00
     multiplier: 0.05,
     costMultiplier: 1.5,
   },
-};
+});
 
 // Immutable freelance projects configuration
 // All rewards are in CENTS to avoid floating-point errors in idle games
-export const FREELANCE_PROJECTS_CONFIG = {
+export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
   toDoListApp: {
     name: "To Do List App",
     description:
@@ -66,9 +95,9 @@ export const FREELANCE_PROJECTS_CONFIG = {
     loc: 2000,
     reward: 50000, // $500.00
   },
-};
+});
 
-export const OPEN_SOURCE_PROJECTS_CONFIG = {
+export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   overReactFramework: {
     name: "OverReact Framework",
     description:
@@ -95,14 +124,16 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = {
       { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 0.15 } },
     ],
   },
-};
+});
 
 // Initial state of the game
+// All monetary values are in CENTS to avoid floating-point errors
+// Initial values are derived from GAME_BALANCE_CONFIG
 const initialState = {
   // Core currencies
-  linesOfCode: 0,
-  totalLinesOfCode: 0,
-  money: 50000, // $500.00 in cents
+  linesOfCode: GAME_BALANCE_CONFIG.STARTING_LOC,
+  totalLinesOfCode: 0, // cumulative LOC written over time, never decreases
+  money: GAME_BALANCE_CONFIG.STARTING_MONEY,
 
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
   employees: {
@@ -359,7 +390,7 @@ export function getTotalPassiveBonus(state) {
  * calculateLOCPerClick(state) // returns 13 (10 * 1.3)
  */
 export function calculateLOCPerClick(state) {
-  const baseLOC = 10;
+  const baseLOC = GAME_BALANCE_CONFIG.BASE_LOC_PER_CLICK;
   const clickBonus = getTotalClickBonus(state);
   return baseLOC * (1 + clickBonus);
 }
