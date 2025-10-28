@@ -44,13 +44,6 @@
   - Improve visuals: colored icons, consistent alignment (stacked or left-aligned).
   - Reuse ActionButton / FloatingText for interactions.
 
-## UX / Metrics
-
-- HIGH PRIORITY: Clicks-per-second (CPS) meter
-  - Simple numeric display initially (clicks in last second or configurable window).
-  - Future: color from green → red as CPS increases; optional RPM-style dial.
-  - Implementation: sample clicks over sliding window (1s / 5s toggle), render in lightweight component.
-
 ## Implementation Notes / Constraints
 
 - Follow Config + State separation:
@@ -63,7 +56,6 @@
 
 ## Priorities
 
-- P0: CPS meter, floating click text shows actual value.
 - P1: Floating "+X" SVG for passive LOC, tier lock for hires.
 - P2: Random clickable popups, version check UI.
 - P3: News feed, buttonbox UI polish, secret click-side multiplier polish.

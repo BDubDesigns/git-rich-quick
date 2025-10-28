@@ -36,9 +36,11 @@ export function Shop() {
           return (
             <div
               key={employeeType}
-              className="border rounded-md border-gray-300 p-4 flex flex-col"
+              className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col"
             >
-              <h3>{config.name}</h3>
+              <h3 className="-rotate-3 text-red-700 font-semibold">
+                {config.name}
+              </h3>
               <p className="flex justify-center w-full">
                 {/* Recreate icon component with size 48 instead of default 20 for better visibility */}
                 {createElement(config.icon.type, {

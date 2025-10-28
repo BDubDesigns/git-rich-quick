@@ -105,8 +105,8 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     // No unlock condition for this one, available from start
     levels: [
       { locCost: 100, bonus: { type: "CLICK_BOOST", value: 1 } },
-      { locCost: 500, bonus: { type: "CLICK_BOOST", value: 1 } },
-      { locCost: 3000, bonus: { type: "CLICK_BOOST", value: 2 } },
+      { locCost: 500, bonus: { type: "CLICK_BOOST", value: 2 } },
+      { locCost: 3000, bonus: { type: "CLICK_BOOST", value: 4 } },
     ],
   },
   nodeRuntime: {
@@ -140,13 +140,10 @@ const initialState = {
   currentCPS: 0, // Cached CPS for display
 
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
-  employees: {
-    // eventually these will be populated from EMPLOYEE_CONFIGS
-    // dynamically, but for now, for testing, we hard code
-    intern: { count: 0 },
-    junior: { count: 0 },
-    senior: { count: 0 },
-  },
+  employees: Object.keys(EMPLOYEE_CONFIGS).reduce((acc, key) => {
+    acc[key] = { count: 0 };
+    return acc;
+  }, {}),
 
   // AI Assistants (count only - config comes from AI_ASSISTANT_CONFIGS)
   aiAssistants: {
@@ -155,21 +152,20 @@ const initialState = {
     noPilot: { count: 0 },
   },
 
-  freelanceProjectsCompleted: {
-    // track number of times each project is completed
-    // eventually these will be populated from FREELANCE_PROJECTS_CONFIG
-    // dynamically, but for now, for testing, we hard code
-    toDoListApp: 0,
-    hobbyWebsite: 0,
-    paradigmShiftingBlockchainProject: 0,
-  },
-
-  openSourceProjects: {
-    // track levels of each open source project
-    // eventually these will be populated from OPEN_SOURCE_PROJECTS_CONFIG
-    overReactFramework: { level: 0 },
-    nodeRuntime: { level: 0 },
-  },
+  freelanceProjectsCompleted: Object.keys(FREELANCE_PROJECTS_CONFIG).reduce(
+    (acc, key) => {
+      acc[key] = 0;
+      return acc;
+    },
+    {}
+  ),
+  openSourceProjects: Object.keys(OPEN_SOURCE_PROJECTS_CONFIG).reduce(
+    (acc, key) => {
+      acc[key] = { level: 0 };
+      return acc;
+    },
+    {}
+  ),
 };
 
 function gameReducer(state, action) {

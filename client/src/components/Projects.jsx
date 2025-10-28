@@ -28,9 +28,11 @@ export function Projects() {
             return (
               <div
                 key={projectKey}
-                className="border rounded-md border-gray-300 p-4 flex flex-col"
+                className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col"
               >
-                <h3>{project.name}</h3>
+                <h3 className="-rotate-3 text-blue-800 font-semibold mb-1">
+                  {project.name}
+                </h3>
                 <p>{project.description}</p>
                 <p>Requires: {project.loc} LOC</p>
                 <p>Reward: ${formatMoney(project.reward)}</p>
