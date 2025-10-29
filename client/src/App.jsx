@@ -22,7 +22,7 @@ function App() {
   }, [dispatch]);
 
   return (
-    <div>
+    <div className="cascadia-font">
       <Header />
       <ButtonBox />
 
