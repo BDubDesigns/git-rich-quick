@@ -1,53 +1,33 @@
 import { calculateLOCPerClick, useGameContext } from "../context/GameContext";
 import { HiMiniCodeBracket } from "react-icons/hi2";
-import { useState } from "react";
 import { FloatingText } from "./FloatingText";
+import { useClickAnimation } from "../hooks/useClickAnimation.js";
 import "./ClickButton.css";
 
 export function ClickButton() {
   const { dispatch, state } = useGameContext();
 
-  // State management for floating texts and bounce animation
-  const [floatingTexts, setFloatingTexts] = useState([]);
-  const [bounceKey, setBounceKey] = useState(0);
-  const [transformOrigin, setTransformOrigin] = useState("center center");
-
-  const handleClick = (event) => {
-    // Get click position
-    const x = event.nativeEvent.clientX;
-    const y = event.nativeEvent.clientY;
-    // Calculate transform origin for bounce effect
-    const button = event.currentTarget;
-    const rect = button.getBoundingClientRect();
-    // create unique id for floating text
-    const id = Date.now() + Math.random();
-    // Create icon element
-    const icon = <HiMiniCodeBracket size={20} />;
-    // get loc per click value
-    const locPerClick = calculateLOCPerClick(state);
-    // Add new floating text
-    const newFloatingText = { id, text: `+${locPerClick}`, icon, x, y };
-    setFloatingTexts([...floatingTexts, newFloatingText]);
-
-    // Store these values in state
-    setTransformOrigin(`${x - rect.left}px ${y - rect.top}px`);
-    setBounceKey(bounceKey + 1);
-
-    // Dispatch the WRITE_CODE action
+  const {
+    floatingTexts,
+    bounceKey,
+    transformOrigin,
+    handleClick,
+    handleAnimationEnd,
+  } = useClickAnimation((event) => {
     dispatch({ type: "WRITE_CODE" });
-  };
+  });
 
-  // Remove floating text after animation ends
-  const handleAnimationEnd = (id) => {
-    setFloatingTexts(floatingTexts.filter((ft) => ft.id !== id));
+  const handleButtonClick = (event) => {
+    const locPerClick = calculateLOCPerClick(state);
+    const icon = <HiMiniCodeBracket size={20} />;
+    handleClick(event, `+${locPerClick}`, icon);
   };
 
   return (
     <>
-      {/* We set a key and increment it each click so that the button re-renders and re-triggers the animation on each click */}
       <button
         key={bounceKey}
-        onClick={handleClick}
+        onClick={handleButtonClick}
         style={{ transformOrigin }}
         className="
         select-none

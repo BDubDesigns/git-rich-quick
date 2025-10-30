@@ -1,8 +1,7 @@
-import { useState } from "react";
-//import clickbutton.css for the bounce effect
 import "./ClickButton.css";
-//import the FloatingText component
 import { FloatingText } from "./FloatingText.jsx";
+import { useClickAnimation } from "../hooks/useClickAnimation";
+
 export function ActionButton({
   onClick,
   disabled,
@@ -10,49 +9,27 @@ export function ActionButton({
   floatText = "+10",
   icon,
 }) {
-  // State management for floating texts and bounce animation
-  const [floatingTexts, setFloatingTexts] = useState([]);
-  const [bounceKey, setBounceKey] = useState(0);
-  const [transformOrigin, setTransformOrigin] = useState("center center");
-  const handleClick = (event) => {
-    //  Extract click coordinates from the browser event
-    const x = event.nativeEvent.clientX;
-    const y = event.nativeEvent.clientY;
-
-    // Get button element and its position
-    const button = event.currentTarget;
-    const rect = button.getBoundingClientRect();
-
-    // Create unique identifier for this floating text
-    const id = Date.now() + Math.random();
-
-    // Create the floating text object (with icon if provided)
-    const newFloatingText = { id, text: floatText, icon, x, y };
-
-    // Add to floating texts array (immutably)
-    setFloatingTexts([...floatingTexts, newFloatingText]);
-
-    // Calculate transform origin relative to button
-    setTransformOrigin(`${x - rect.left}px ${y - rect.top}px`);
-
-    // Increment bounce key to force animation re-trigger
-    setBounceKey(bounceKey + 1);
-
-    // Call the parent's onClick handler (game action)
+  const {
+    floatingTexts,
+    bounceKey,
+    transformOrigin,
+    handleClick,
+    handleAnimationEnd,
+  } = useClickAnimation((event) => {
     if (onClick) {
       onClick(event);
     }
+  });
+
+  const handleButtonClick = (event) => {
+    handleClick(event, floatText, icon);
   };
 
-  const handleAnimationEnd = (id) => {
-    // Remove floating text with matching id from state
-    setFloatingTexts(floatingTexts.filter((ft) => ft.id !== id));
-  };
   return (
     <div className="flex justify-center w-full mt-auto">
       <button
         key={bounceKey}
-        onClick={handleClick}
+        onClick={handleButtonClick}
         disabled={disabled}
         style={{ transformOrigin }}
         className={`${
