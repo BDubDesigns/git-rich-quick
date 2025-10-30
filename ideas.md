@@ -18,6 +18,16 @@
   - Alternating which side of the "Commit Code" button is clicked slowly increases a multiplier up to 2×.
   - Design: intentionally undocumented to encourage discovery; keep configurability in GameContext as a tunable flag.
 
+- Konami Code Easter Egg (↑ ↓ ← → B A Enter)
+
+  - Click button quadrants in the correct sequence: up, down, left, right (directional), then press `B`, `A`, then `Enter`.
+  - Reward: 1.5× click multiplier for 30 seconds.
+  - Design: intentionally hard pattern to encourage discovery and skill expression. Players must balance pattern execution with actual clicking during active play.
+  - Why it works: Optional optimization (not mandatory), rewards exploration, breaks monotony of passive clicking, and provides skill-based power moments.
+  - Implementation: Track quadrant clicks + keyboard input in GameContext; store pattern state and active duration; display activation feedback (e.g., "KONAMI ACTIVATED" notification).
+  - Config tuning: `KONAMI_CODE_CONFIG = { multiplier: 1.5, durationSeconds: 30, patternResetTimeMs: 5000 }` (reset pattern if player waits too long between inputs).
+  - Trade-off note: "Sub-optimal play" concern is actually a feature—mastering the pattern creates skill ceiling and makes skilled play satisfying.
+
 - Random clickable popups (like Cookie Clicker)
 
   - Spawn every ~20s–2m (playtest to tune).

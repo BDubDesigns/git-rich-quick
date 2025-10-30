@@ -53,7 +53,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
   },
   senior: {
     name: "Senior Developer",
-    baseCost: 20000, // $200.00
+    baseCost: 150000, // $200.00
     locPerSecond: 20,
     costMultiplier: 1.2,
     icon: <BiCoffeeTogo size={20} color="green" />,
@@ -73,27 +73,28 @@ export const AI_ASSISTANT_CONFIGS = Object.freeze({
 
 // Immutable freelance projects configuration
 // All rewards are in CENTS to avoid floating-point errors in idle games
+// Design: Smaller projects have higher $/LOC to reward clicking, larger projects have lower $/LOC to encourage bulk sales
 export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
   toDoListApp: {
     name: "To Do List App",
     description:
       "A simple to-do list application. Cuz that's never been done before. Ever.",
     loc: 50,
-    reward: 2500, // $25.00
+    reward: 3000, // $30.00 ($0.60/LOC - best deal, rewards grinding)
   },
   hobbyWebsite: {
     name: "Hobby Website",
     description:
       "A personal website for a client to showcase their hobbies. The world needs to know about Bob's passion for stamp collecting.",
     loc: 750,
-    reward: 15000, // $150.00
+    reward: 36000, // $360.00 ($0.48/LOC - middle ground)
   },
   paradigmShiftingBlockchainProject: {
     name: "Paradigm-Shifting Blockchain Project",
     description:
       "A very useful project that leverages the blockchain to convert hype, overpromises, and investor's money into your money.",
     loc: 2000,
-    reward: 50000, // $500.00
+    reward: 80000, // $800.00 ($0.40/LOC - lazy button, lower $/LOC)
   },
 });
 
