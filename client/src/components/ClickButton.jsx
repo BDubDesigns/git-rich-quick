@@ -1,26 +1,40 @@
 import { calculateLOCPerClick, useGameContext } from "../context/GameContext";
 import { HiMiniCodeBracket } from "react-icons/hi2";
 import { FloatingText } from "./FloatingText";
-import { useClickAnimation } from "../hooks/useClickAnimation.js";
+import { useFloatingText } from "../hooks/useFloatingText.js";
+import { useButtonBounce } from "../hooks/useButtonBounce.js";
 import "./ClickButton.css";
 
 export function ClickButton() {
   const { dispatch, state } = useGameContext();
 
+  // Initialize floating text hook
+  const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
+    useFloatingText();
+
+  // Initialize button bounce hook
   const {
-    floatingTexts,
     bounceKey,
     transformOrigin,
-    handleClick,
-    handleAnimationEnd,
-  } = useClickAnimation((event) => {
+    handleClick: handleClickBounce,
+  } = useButtonBounce(() => {
     dispatch({ type: "WRITE_CODE" });
   });
 
   const handleButtonClick = (event) => {
     const locPerClick = calculateLOCPerClick(state);
     const icon = <HiMiniCodeBracket size={20} />;
-    handleClick(event, `+${locPerClick}`, icon);
+    const floatText = `+${locPerClick}`;
+
+    // Extract click position from event
+    const x = event.nativeEvent.clientX;
+    const y = event.nativeEvent.clientY;
+
+    // Trigger floating text animation
+    triggerFloatingText(x, y, floatText, icon);
+
+    // Trigger button bounce animation (also calls the dispatch via callback)
+    handleClickBounce(event);
   };
 
   return (
@@ -49,6 +63,8 @@ export function ClickButton() {
         <span>Commit Code &nbsp;</span>
         <HiMiniCodeBracket size={24} />
       </button>
+
+      {/* Render floating text animations */}
       {floatingTexts.map((floatingText) => (
         <FloatingText
           key={floatingText.id}
