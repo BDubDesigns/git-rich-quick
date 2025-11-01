@@ -1,5 +1,5 @@
-import { HiMiniCodeBracket } from "react-icons/hi2";
-import { LiaMoneyBillWaveAltSolid } from "react-icons/lia";
+import { HiMiniCodeBracket } from "react-icons/hi2"; // LOC icon
+import { LiaMoneyBillWaveAltSolid } from "react-icons/lia"; // money icon
 import { MdOutlineEmojiPeople } from "react-icons/md"; // one person
 import { IoPeople } from "react-icons/io5"; // 2 people
 import { FaPeopleGroup } from "react-icons/fa6"; // 3 people
@@ -13,9 +13,14 @@ import { ClickButton } from "./ClickButton.jsx";
 import { getCurrentLOCPerSecond } from "../context/GameContext.jsx";
 import { formatMoney } from "../utils/currency.js";
 import { CPSMeter } from "./CPSMeter.jsx";
-
+import { useRef, useEffect } from "react";
+import { FloatingText } from "./FloatingText.jsx";
+import { useFloatingText } from "../hooks/useFloatingText.js";
 export function ButtonBox() {
   const { state } = useGameContext();
+  const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
+    useFloatingText();
+  const buttonBoxRef = useRef(null);
   const totalEmployees = getTotalEmployeeCount(state);
   const PeopleIcon =
     totalEmployees > 99
@@ -24,40 +29,73 @@ export function ButtonBox() {
       ? IoPeople
       : MdOutlineEmojiPeople;
 
-  return (
-    <div className="mx-2 select-none">
-      <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
-        <div className="flex-2 flex flex-col items-center">
-          <p>LOC Per Click: {calculateLOCPerClick(state)}</p>
-          <ClickButton />
-          <CPSMeter />
-        </div>
+  // Listen for game tick animation event
+  useEffect(() => {
+    const handleGameTick = (event) => {
+      const { amount } = event.detail;
 
-        <p className="flex-1">
-          <b className="inline-flex items-center gap-1">
-            LOC <HiMiniCodeBracket size={20} />:
-          </b>{" "}
-          <p>{Math.floor(state.linesOfCode)}</p>
-        </p>
-        <p className="flex-1">
-          <b className="inline-flex items-center gap-1">
-            <LiaMoneyBillWaveAltSolid size={20} />:
-          </b>{" "}
-          <p>${formatMoney(state.money)}</p>
-        </p>
-        <p className="flex-1">
-          <b className="inline-flex items-center gap-1">
-            <PeopleIcon size={20} />:
-          </b>{" "}
-          <p>{totalEmployees}</p>
-        </p>
-        <p className="flex-1">
-          <b className="inline-flex items-center gap-1">
-            <TbUserCode size={20} />:
-          </b>{" "}
-          <p>{getCurrentLOCPerSecond(state)} / sec</p>
-        </p>
+      if (buttonBoxRef.current) {
+        const rect = buttonBoxRef.current.getBoundingClientRect();
+        const startX = rect.left;
+        const startY = rect.top - 10;
+
+        const icon = <HiMiniCodeBracket size={20} color="gray" />;
+        triggerFloatingText(startX, startY, `+${amount}`, icon);
+      }
+    };
+
+    window.addEventListener("gameTickAnimation", handleGameTick);
+    return () =>
+      window.removeEventListener("gameTickAnimation", handleGameTick);
+  }, [triggerFloatingText]);
+
+  return (
+    <>
+      <div className="mx-2 select-none">
+        <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
+          <div className="flex-2 flex flex-col items-center">
+            <p>LOC Per Click: {calculateLOCPerClick(state)}</p>
+            <ClickButton />
+            <CPSMeter />
+          </div>
+
+          <p className="flex-1">
+            <b className="inline-flex items-center gap-1">
+              LOC <HiMiniCodeBracket size={20} />:
+            </b>{" "}
+            <p>{Math.floor(state.linesOfCode)}</p>
+          </p>
+          <p className="flex-1">
+            <b className="inline-flex items-center gap-1">
+              <LiaMoneyBillWaveAltSolid size={20} />:
+            </b>{" "}
+            <p>${formatMoney(state.money)}</p>
+          </p>
+          <p className="flex-1">
+            <b className="inline-flex items-center gap-1">
+              <PeopleIcon size={20} />:
+            </b>{" "}
+            <p>{totalEmployees}</p>
+          </p>
+          <p className="flex-1">
+            <b className="inline-flex items-center gap-1">
+              <TbUserCode size={20} />:
+            </b>{" "}
+            <p ref={buttonBoxRef}>{getCurrentLOCPerSecond(state)} / sec</p>
+          </p>
+        </div>
       </div>
-    </div>
+
+      {floatingTexts.map((floatingText) => (
+        <FloatingText
+          key={floatingText.id}
+          x={floatingText.x}
+          y={floatingText.y}
+          text={floatingText.text}
+          icon={floatingText.icon}
+          onAnimationEnd={() => handleAnimationEnd(floatingText.id)}
+        />
+      ))}
+    </>
   );
 }

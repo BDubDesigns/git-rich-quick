@@ -7,19 +7,31 @@ import { Projects } from "./components/Projects";
 import { Footer } from "./components/Footer";
 import { OpenSource } from "./components/OpenSource";
 import { GAME_BALANCE_CONFIG } from "./context/GameContext";
+import { getCurrentLOCPerSecond } from "./context/GameContext";
 
 function App() {
   const { dispatch, state } = useGameContext();
 
   useEffect(() => {
-    // Set up a game tick every 1000ms
     const interval = setInterval(() => {
+      // Calculate LOC amount BEFORE dispatching
+      const locAmount = getCurrentLOCPerSecond(state);
+
+      // Dispatch the game tick
       dispatch({ type: "GAME_TICK" });
+
+      // Emit animation event if there's passive LOC
+      if (locAmount > 0) {
+        window.dispatchEvent(
+          new CustomEvent("gameTickAnimation", {
+            detail: { amount: locAmount },
+          })
+        );
+      }
     }, GAME_BALANCE_CONFIG.TICK_INTERVAL);
 
-    // Cleanup function to prevent memory leaks
     return () => clearInterval(interval);
-  }, [dispatch]);
+  }, [dispatch, state]);
 
   return (
     <div className="cascadia-font">
