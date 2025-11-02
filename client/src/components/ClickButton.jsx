@@ -5,12 +5,8 @@ import { useFloatingText } from "../hooks/useFloatingText.js";
 import { useButtonBounce } from "../hooks/useButtonBounce.js";
 import "./ClickButton.css";
 
-export function ClickButton() {
+export function ClickButton({ triggerFloatingText }) {
   const { dispatch, state } = useGameContext();
-
-  // Initialize floating text hook
-  const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
-    useFloatingText();
 
   // Initialize button bounce hook
   const {
@@ -38,12 +34,11 @@ export function ClickButton() {
   };
 
   return (
-    <>
-      <button
-        key={bounceKey}
-        onClick={handleButtonClick}
-        style={{ transformOrigin }}
-        className="
+    <button
+      key={bounceKey}
+      onClick={handleButtonClick}
+      style={{ transformOrigin }}
+      className="
         select-none
         cursor-pointer
         inline-flex items-center justify-center
@@ -59,22 +54,9 @@ export function ClickButton() {
         transition ease-in-out duration-150
         button-bounce
       "
-      >
-        <span>Commit Code &nbsp;</span>
-        <HiMiniCodeBracket size={24} />
-      </button>
-
-      {/* Render floating text animations */}
-      {floatingTexts.map((floatingText) => (
-        <FloatingText
-          key={floatingText.id}
-          x={floatingText.x}
-          y={floatingText.y}
-          text={floatingText.text}
-          icon={floatingText.icon}
-          onAnimationEnd={() => handleAnimationEnd(floatingText.id)}
-        />
-      ))}
-    </>
+    >
+      <span>Commit Code &nbsp;</span>
+      <HiMiniCodeBracket size={24} />
+    </button>
   );
 }
