@@ -15,13 +15,12 @@ import { formatMoney } from "../utils/currency.js";
 import { CPSMeter } from "./CPSMeter.jsx";
 import { useRef, useEffect } from "react";
 import { FloatingText } from "./FloatingText.jsx";
+import { useFloatingText } from "../hooks/useFloatingText.js";
 
-export function ButtonBox({
-  floatingTexts,
-  triggerFloatingText,
-  handleAnimationEnd,
-}) {
+export function ButtonBox() {
   const { state } = useGameContext();
+  const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
+    useFloatingText();
   const buttonBoxRef = useRef(null);
   const totalEmployees = getTotalEmployeeCount(state);
   const PeopleIcon =
@@ -34,7 +33,6 @@ export function ButtonBox({
   // Listen for game tick animation event
   useEffect(() => {
     const handleGameTick = (event) => {
-      console.log("ButtonBox received gameTickAnimation event", event.detail);
       const { amount } = event.detail;
 
       if (buttonBoxRef.current) {
@@ -43,23 +41,14 @@ export function ButtonBox({
         const startY = rect.top - 10;
 
         const icon = <HiMiniCodeBracket size={20} color="gray" />;
-        console.log(
-          "Calling triggerFloatingText with:",
-          startX,
-          startY,
-          `+${amount}`
-        );
         triggerFloatingText(startX, startY, `+${amount}`, icon);
       }
     };
 
-    console.log("ButtonBox: Setting up gameTickAnimation listener");
     window.addEventListener("gameTickAnimation", handleGameTick);
-    return () => {
-      console.log("ButtonBox: Removing gameTickAnimation listener");
+    return () =>
       window.removeEventListener("gameTickAnimation", handleGameTick);
-    };
-  }, [triggerFloatingText]);
+  }, []);
 
   return (
     <>
@@ -67,7 +56,7 @@ export function ButtonBox({
         <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
           <div className="flex-2 flex flex-col items-center">
             <p>LOC Per Click: {calculateLOCPerClick(state)}</p>
-            <ClickButton triggerFloatingText={triggerFloatingText} />
+            <ClickButton />
             <CPSMeter />
           </div>
 
