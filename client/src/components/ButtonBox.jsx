@@ -10,7 +10,7 @@ import {
 } from "../context/GameContext.jsx";
 import { useGameContext } from "../context/GameContext.jsx";
 import { ClickButton } from "./ClickButton.jsx";
-import { getCurrentLOCPerSecond } from "../context/GameContext.jsx";
+import { calculateLOCPerSecond } from "../context/GameContext.jsx";
 import { formatMoney } from "../utils/currency.js";
 import { CPSMeter } from "./CPSMeter.jsx";
 import { useRef, useEffect } from "react";
@@ -82,7 +82,7 @@ export function ButtonBox() {
             <b className="inline-flex items-center gap-1">
               <TbUserCode size={20} />:
             </b>{" "}
-            <p ref={buttonBoxRef}>{getCurrentLOCPerSecond(state)} / sec</p>
+            <p ref={buttonBoxRef}>{calculateLOCPerSecond(state)} / sec</p>
           </p>
         </div>
       </div>

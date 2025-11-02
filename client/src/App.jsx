@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { useGameContext } from "./context/GameContext";
 // Import game balance and LOC calculation
 import { GAME_BALANCE_CONFIG } from "./context/GameContext";
-import { getCurrentLOCPerSecond } from "./context/GameContext";
+import { calculateLOCPerSecond } from "./context/GameContext";
 // Import components
 import { Header } from "./components/Header";
 import { ButtonBox } from "./components/ButtonBox";
@@ -27,7 +27,7 @@ function App() {
   useEffect(() => {
     const interval = setInterval(() => {
       // Calculate LOC amount BEFORE dispatching - use ref to get current state
-      const locAmount = getCurrentLOCPerSecond(stateRef.current);
+      const locAmount = calculateLOCPerSecond(stateRef.current);
 
       // Dispatch the game tick
       dispatch({ type: "GAME_TICK" });
