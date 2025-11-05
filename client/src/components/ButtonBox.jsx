@@ -1,102 +1,96 @@
-import { HiMiniCodeBracket } from "react-icons/hi2"; // LOC icon
-import { LiaMoneyBillWaveAltSolid } from "react-icons/lia"; // money icon
-import { MdOutlineEmojiPeople } from "react-icons/md"; // one person
-import { IoPeople } from "react-icons/io5"; // 2 people
-import { FaPeopleGroup } from "react-icons/fa6"; // 3 people
-import { TbUserCode } from "react-icons/tb"; // for the loc per second
+import { useRef } from "react";
+import { HiMiniCodeBracket } from "react-icons/hi2"; // Lines of Code icon
+import { LiaMoneyBillWaveAltSolid } from "react-icons/lia"; // Currency icon
+import { TbUserCode } from "react-icons/tb"; // Employee/passive generation icon
+
 import {
   calculateLOCPerClick,
   getTotalEmployeeCount,
+  calculateLOCPerSecond,
 } from "../context/GameContext.jsx";
 import { useGameContext } from "../context/GameContext.jsx";
-import { ClickButton } from "./ClickButton.jsx";
-import { calculateLOCPerSecond } from "../context/GameContext.jsx";
 import { formatMoney } from "../utils/currency.js";
-import { CPSMeter } from "./CPSMeter.jsx";
-import { useRef, useEffect } from "react";
-import { FloatingText } from "./FloatingText.jsx";
-import { useFloatingText } from "../hooks/useFloatingText.js";
 
+// UI Components for the button box layout
+import { ClickSection } from "./ClickSection.jsx";
+import { StatDisplay } from "./StatDisplay.jsx";
+import { EmployeeCountIcon } from "./EmployeeCountIcon.jsx";
+import { PassiveAnimationLayer } from "./PassiveAnimationLayer.jsx";
+
+/**
+ * ButtonBox Component
+ *
+ * Main control center for the game's primary interactions. Renders:
+ * 1. The "Commit Code" click button and CPS (LOC/sec) indicator
+ * 2. Real-time game stats (LOC, Money, Employees, LOC/sec)
+ * 3. Floating text animations for passive LOC generation
+ *
+ * Uses the ref pattern to position floating text animations relative to the LOC/sec display.
+ * This component calculates all derived game values once to avoid prop drilling and
+ * ensure consistent calculations across child components.
+ */
 export function ButtonBox() {
   const { state } = useGameContext();
-  const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
-    useFloatingText();
-  const buttonBoxRef = useRef(null);
+
+  // Calculate all derived game values from the current game state
+  // These are computed once here and passed down to avoid redundant calculations in child components
+  const locPerClick = calculateLOCPerClick(state);
+  const locPerSecond = calculateLOCPerSecond(state);
   const totalEmployees = getTotalEmployeeCount(state);
-  const PeopleIcon =
-    totalEmployees > 99
-      ? FaPeopleGroup
-      : totalEmployees > 9
-      ? IoPeople
-      : MdOutlineEmojiPeople;
 
-  // Listen for game tick animation event
-  useEffect(() => {
-    const handleGameTick = (event) => {
-      const { amount } = event.detail;
+  // Format display values for human-readable output
+  const displayMoney = formatMoney(state.money);
+  const displayLoc = Math.floor(state.linesOfCode);
 
-      if (buttonBoxRef.current) {
-        const rect = buttonBoxRef.current.getBoundingClientRect();
-        const startX = rect.left;
-        const startY = rect.top - 10;
-
-        const icon = <HiMiniCodeBracket size={20} color="gray" />;
-        triggerFloatingText(startX, startY, `+${amount}`, icon);
-      }
-    };
-
-    window.addEventListener("gameTickAnimation", handleGameTick);
-    return () =>
-      window.removeEventListener("gameTickAnimation", handleGameTick);
-  }, []);
+  // Create ref for the LOC/sec stat display element
+  // This is used by PassiveAnimationLayer to position floating text animations
+  // relative to where the passive LOC generation indicator is displayed
+  const locPerSecondRef = useRef(null);
 
   return (
     <>
       <div className="mx-2 select-none">
         <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
-          <div className="flex-2 flex flex-col items-center">
-            <p>LOC Per Click: {calculateLOCPerClick(state)}</p>
-            <ClickButton />
-            <CPSMeter />
-          </div>
+          {/* Primary interaction zone: Click button and CPS meter */}
+          <ClickSection locPerClick={locPerClick} />
 
-          <p className="flex-1">
-            <b className="inline-flex items-center gap-1">
-              LOC <HiMiniCodeBracket size={20} />:
-            </b>{" "}
-            <p>{Math.floor(state.linesOfCode)}</p>
-          </p>
-          <p className="flex-1">
-            <b className="inline-flex items-center gap-1">
-              <LiaMoneyBillWaveAltSolid size={20} />:
-            </b>{" "}
-            <p>${formatMoney(state.money)}</p>
-          </p>
-          <p className="flex-1">
-            <b className="inline-flex items-center gap-1">
-              <PeopleIcon size={20} />:
-            </b>{" "}
-            <p>{totalEmployees}</p>
-          </p>
-          <p className="flex-1">
-            <b className="inline-flex items-center gap-1">
-              <TbUserCode size={20} />:
-            </b>{" "}
-            <p ref={buttonBoxRef}>{calculateLOCPerSecond(state)} / sec</p>
-          </p>
+          {/* Game stat displays: LOC currency */}
+          <StatDisplay
+            label="LOC"
+            icon={<HiMiniCodeBracket size={20} />}
+            value={displayLoc}
+          />
+
+          {/* Game stat displays: Money currency (in dollars) */}
+          <StatDisplay
+            label="Money"
+            icon={<LiaMoneyBillWaveAltSolid size={20} />}
+            value={`$${displayMoney}`}
+          />
+
+          {/* Game stat displays: Total employee count across all job levels */}
+          <StatDisplay
+            label="Employees"
+            icon={<EmployeeCountIcon count={totalEmployees} />}
+            value={totalEmployees}
+          />
+
+          {/* Game stat displays: Passive LOC generation per second (employees' production)
+              This element has a ref attached so PassiveAnimationLayer can position 
+              floating text animations relative to it */}
+          <StatDisplay
+            ref={locPerSecondRef}
+            label="LOC/sec"
+            icon={<TbUserCode size={20} />}
+            value={locPerSecond}
+          />
         </div>
       </div>
 
-      {floatingTexts.map((floatingText) => (
-        <FloatingText
-          key={floatingText.id}
-          x={floatingText.x}
-          y={floatingText.y}
-          text={floatingText.text}
-          icon={floatingText.icon}
-          onAnimationEnd={() => handleAnimationEnd(floatingText.id)}
-        />
-      ))}
+      {/* Floating text animation layer for passive LOC generation
+          Displays "+X LOC" animations that originate from the LOC/sec stat display.
+          Uses the ref to calculate animation start position */}
+      <PassiveAnimationLayer locPerSecondRef={locPerSecondRef} />
     </>
   );
 }
