@@ -1,57 +1,41 @@
-import "./ClickButton.css";
-import { FloatingText } from "./FloatingText.jsx";
-import { useFloatingText } from "../hooks/useFloatingText.js";
+import { BouncyButton } from "./BouncyButton.jsx";
 
+/**
+ * ActionButton
+ *
+ * Wrapper component that centers a full-width BouncyButton inside a flex container.
+ * Designed to be used as a footer/action control that can include an icon, optional
+ * floating text, and children content (label or nodes). The visual style is controlled
+ * by the `variant` prop which defaults to "blue".
+ *
+ * @param {Object} props - Component props.
+ * @param {(event?: any) => void} [props.onClick] - Click handler invoked when the button is activated.
+ * @param {boolean} [props.disabled=false] - If true, disables the button and prevents interaction.
+ * @param {React.ReactNode} [props.children] - Content to render inside the button (text, elements).
+ * @param {string} [props.floatText] - Optional floating text passed through to the BouncyButton.
+ * @param {React.ReactNode} [props.icon] - Optional icon element to render inside the BouncyButton.
+ * @param {string} [props.variant="blue"] - Visual variant name forwarded to the BouncyButton for styling.
+ * @returns {JSX.Element} A centered, full-width action button wrapped in a container.
+ */
 export function ActionButton({
   onClick,
   disabled,
   children,
-  floatText = "+10",
+  floatText,
   icon,
+  variant = "blue",
 }) {
-  // Initialize floating text hook
-  const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
-    useFloatingText();
-
-  const handleButtonClick = (event) => {
-    // Extract click coordinates
-    const x = event.nativeEvent.clientX;
-    const y = event.nativeEvent.clientY;
-
-    // Trigger floating text at click position
-    triggerFloatingText(x, y, floatText, icon);
-
-    // Call parent's onClick handler
-    if (onClick) {
-      onClick(event);
-    }
-  };
-
   return (
     <div className="flex justify-center w-full mt-auto">
-      <button
-        onClick={handleButtonClick}
+      <BouncyButton
+        onClick={onClick}
         disabled={disabled}
-        className={`${
-          disabled
-            ? "opacity-50 cursor-not-allowed"
-            : "opacity-100 cursor-pointer"
-        } p-1 border border-blue-800 rounded-md bg-blue-700 text-white hover:bg-blue-500 transition duration-150 ease-in-out`}
+        floatText={floatText}
+        icon={icon}
+        variant={variant}
       >
         {children}
-      </button>
-
-      {/* Render floating text animations */}
-      {floatingTexts.map((floatingText) => (
-        <FloatingText
-          key={floatingText.id}
-          x={floatingText.x}
-          y={floatingText.y}
-          text={floatingText.text}
-          icon={floatingText.icon}
-          onAnimationEnd={() => handleAnimationEnd(floatingText.id)}
-        />
-      ))}
+      </BouncyButton>
     </div>
   );
 }
