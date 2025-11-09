@@ -2,11 +2,11 @@ import {
   useGameContext,
   EMPLOYEE_CONFIGS,
   getEmployeeCost,
+  isEmployeeUnlocked,
+  getUnlockProgress,
 } from "../context/GameContext";
-import { formatMoney } from "../utils/currency.js";
-import { ActionButton } from "./ActionButton.jsx";
-// Import createElement to dynamically recreate icon components with custom sizes
-import { createElement } from "react";
+import { EmployeeCard } from "./EmployeeCard.jsx";
+import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -29,38 +29,37 @@ export function Shop() {
       </p>
       <div className="grid grid-cols-3 gap-4">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
-          const employee = state.employees[employeeType];
-          const currentCost = getEmployeeCost(employeeType, state);
-          const canAfford = state.money >= currentCost;
+          // Check if this employee type is unlocked
+          const unlocked = isEmployeeUnlocked(employeeType, state);
 
+          // If unlocked, render the purchasable card
+          if (unlocked) {
+            const currentCost = getEmployeeCost(employeeType, state);
+            const canAfford = state.money >= currentCost;
+            const ownedCount = state.employees[employeeType].count;
+
+            return (
+              <EmployeeCard
+                key={employeeType}
+                employeeType={employeeType}
+                config={config}
+                currentCost={currentCost}
+                ownedCount={ownedCount}
+                canAfford={canAfford}
+                onPurchase={() => handleBuyEmployee(employeeType)}
+              />
+            );
+          }
+
+          // If locked, render the locked card with progress
+          const progress = getUnlockProgress(employeeType, state);
           return (
-            <div
+            <LockedEmployeeCard
               key={employeeType}
-              className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col"
-            >
-              <h3 className="-rotate-3 text-red-700 font-semibold">
-                {config.name}
-              </h3>
-              <p className="flex justify-center w-full">
-                {/* Recreate icon component with size 48 instead of default 20 for better visibility */}
-                {createElement(config.icon.type, {
-                  ...config.icon.props,
-                  size: 48,
-                })}
-                {/* We spread the original icon's props to preserve any additional properties */}
-              </p>
-              <p>Owned: {employee.count}</p>
-              <p>Production: {config.locPerSecond} LOC/sec</p>
-              <p>Cost: ${formatMoney(currentCost)}</p>
-              <ActionButton
-                onClick={() => handleBuyEmployee(employeeType)}
-                disabled={!canAfford}
-                floatText="+1"
-                icon={config.icon}
-              >
-                Hire 1 {config.name}
-              </ActionButton>
-            </div>
+              employeeType={employeeType}
+              config={config}
+              progress={progress}
+            />
           );
         })}
       </div>
