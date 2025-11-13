@@ -4,6 +4,7 @@ import {
   getEmployeeCost,
   isEmployeeUnlocked,
   getUnlockProgress,
+  hasCrossedUnlockThreshold,
 } from "../context/GameContext";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
@@ -29,11 +30,10 @@ export function Shop() {
       </p>
       <div className="grid grid-cols-3 gap-4">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
-          // Check if this employee type is unlocked
           const unlocked = isEmployeeUnlocked(employeeType, state);
 
-          // If unlocked, render the purchasable card
           if (unlocked) {
+            // Already purchased: show purchasable card
             const currentCost = getEmployeeCost(employeeType, state);
             const canAfford = state.money >= currentCost;
             const ownedCount = state.employees[employeeType].count;
@@ -51,8 +51,19 @@ export function Shop() {
             );
           }
 
-          // If locked, render the locked card with progress
+          // Not yet purchased: show locked card with progress
           const progress = getUnlockProgress(employeeType, state);
+          const hasCrossedThreshold = hasCrossedUnlockThreshold(
+            "employee",
+            employeeType,
+            state
+          );
+
+          // If we haven't crossed threshold, don't show card
+          if (!hasCrossedThreshold) {
+            return null; // Don't render anything for this employee
+          }
+
           return (
             <LockedEmployeeCard
               key={employeeType}

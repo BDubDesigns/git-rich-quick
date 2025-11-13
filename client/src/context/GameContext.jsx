@@ -28,6 +28,7 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
   // ==== Game Mechanics ====
   TICK_INTERVAL: 1000, // Game tick interval in milliseconds
   BASE_LOC_PER_CLICK: 1, // Base lines of code per click
+  UNLOCK_VISIBILITY_THRESHOLD: 0.1, // 10% progress to start showing locked employee card
 
   // ==== Starting Resources ====
   STARTING_MONEY: 0, // $0.00 in cents
@@ -349,6 +350,39 @@ function gameReducer(state, action) {
  * information from the current game state without modifying it.
  * ========================================
  */
+
+/**
+ * Determine whether an unlock unit has crossed the visibility threshold.
+ *
+ * For unlockType === "employee", this function calls getUnlockProgress(unlockUnit, state)
+ * to obtain an array of progress conditions. Each condition is expected to have numeric
+ * `current` and `required` properties; the progress for a condition is computed as
+ * `condition.current / condition.required`. If any condition's progress is greater than
+ * or equal to `state.UNLOCK_VISIBILITY_THRESHOLD`, the function returns true.
+ *
+ * For unknown unlockType values the function logs a warning and returns false.
+ *
+ * @param {string} unlockType - The type of unlock to check (e.g. "employee").
+ * @param {*} unlockUnit - Identifier or descriptor of the unit being checked (passed to getUnlockProgress).
+ * @param {Object} state - Global/state object containing configuration and thresholds.
+ * @param {number} state.UNLOCK_VISIBILITY_THRESHOLD - Threshold (0..1) used to determine visibility.
+ * @returns {boolean} True if any condition meets or exceeds the visibility threshold; otherwise false.
+ *
+ * @see getUnlockProgress
+ */
+export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
+  if (unlockType === "employee") {
+    const progress = getUnlockProgress(unlockUnit, state);
+    const threshold = GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD;
+    // Check if ANY condition has >= 10% progress
+    return progress.some(
+      (condition) => condition.current / condition.required >= threshold
+    );
+  }
+  // Handle other unlock types as needed in future
+  console.warn(`Unknown unlock type: ${unlockType}`);
+  return false;
+}
 
 /** * Calculates the current Clicks Per Second (CPS) based on click history.
  *

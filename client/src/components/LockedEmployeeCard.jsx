@@ -2,16 +2,16 @@ import { createElement } from "react";
 import "./LockedEmployeeCard.css";
 
 /**
- * Displays a locked employee with unlock requirements and progress.
+ * Displays a locked employee with unlock requirements and progress bars.
+ * Read-only display component—no purchase logic.
  *
  * @param {Object} props
  * @param {string} props.employeeType - Key like "junior", "senior"
  * @param {Object} props.config - Employee config from EMPLOYEE_CONFIGS
- * @param {Array} props.progress - Array from getUnlockProgress():
- *   [{ type, current, required, remaining }, ...]
+ * @param {Array} props.progress - Array from getUnlockProgress()
  */
 export function LockedEmployeeCard({ employeeType, config, progress }) {
-  // Format a single condition for human-readable display
+  // Format unlock condition for human-readable display
   const formatCondition = (condition) => {
     switch (condition.type) {
       case "TOTAL_LOC":
@@ -23,7 +23,7 @@ export function LockedEmployeeCard({ employeeType, config, progress }) {
     }
   };
 
-  // Check if all conditions are met (ready to unlock)
+  // Calculate if all conditions are met (derived state, not stored)
   const allConditionsMet = progress.every((p) => p.remaining === 0);
 
   return (
@@ -44,7 +44,7 @@ export function LockedEmployeeCard({ employeeType, config, progress }) {
         <span className="locked-badge">LOCKED</span>
       </div>
 
-      {/* Unlock conditions */}
+      {/* Unlock conditions section */}
       <div className="unlock-conditions">
         <p className="unlock-label">Unlock requirements:</p>
         {progress.map((prog, idx) => (
@@ -67,20 +67,13 @@ export function LockedEmployeeCard({ employeeType, config, progress }) {
                 }}
               />
             </div>
-            {/* Current / Required display */}
+            {/* Current / Required */}
             <p className="progress-text">
               {prog.current} / {prog.required}
             </p>
           </div>
         ))}
       </div>
-
-      {/* Message when ready to unlock */}
-      {allConditionsMet && (
-        <p className="unlock-ready-message">
-          🎉 All requirements met! Purchase {config.name} when ready.
-        </p>
-      )}
     </div>
   );
 }

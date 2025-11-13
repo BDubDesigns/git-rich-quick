@@ -21,8 +21,17 @@ export function EmployeeCard({
   canAfford,
   onPurchase,
 }) {
+  // Show celebration on first purchase (ownedCount === 0 means they're about to buy their first)
+  const isFirstPurchase = ownedCount === 0;
+
   return (
     <div className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col">
+      {/* Celebration message on first purchase */}
+      {isFirstPurchase && (
+        <p className="text-center text-green-600 font-semibold mb-2">
+          🎉 All requirements met!
+        </p>
+      )}
       {/* Employee name - tilted styling */}
       <h3 className="-rotate-3 text-red-700 font-semibold">{config.name}</h3>
 
