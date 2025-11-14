@@ -94,19 +94,6 @@
   text-align: right;
 }
 
-/* ===== COST DISPLAY ===== */
-
-.employee-cost {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #374151;
-  text-align: center;
-  padding: 0.5rem 0;
-  border-top: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
-}
-
 /* ===== READY-TO-UNLOCK STATE ===== */
 
 .locked-employee-card.ready-to-unlock {
@@ -124,34 +111,6 @@
 
 .locked-employee-card.ready-to-unlock .progress-fill {
   background: #22c55e;
-}
-
-/* Ready-to-unlock content section */
-.ready-to-unlock-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid #dcfce7;
-}
-
-.unlock-ready-message {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #16a34a;
-  text-align: center;
-  animation: celebrate 0.6s ease-out;
-}
-
-/* Affordability message (when ready but can't afford) */
-.unaffordable-message {
-  margin: 0;
-  font-size: 0.8rem;
-  color: #f59e0b;
-  text-align: center;
-  font-weight: 500;
 }
 
 /* ===== ANIMATIONS ===== */

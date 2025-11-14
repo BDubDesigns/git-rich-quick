@@ -6,7 +6,6 @@ import { createElement } from "react";
  * Displays a purchasable employee card.
  *
  * @param {Object} props
- * @param {string} props.employeeType - Key like "intern", "junior", "senior"
  * @param {Object} props.config - Employee config from EMPLOYEE_CONFIGS
  * @param {number} props.currentCost - Current cost in cents (from getEmployeeCost)
  * @param {number} props.ownedCount - Number of this employee type currently hired
@@ -14,7 +13,6 @@ import { createElement } from "react";
  * @param {Function} props.onPurchase - Callback when purchase button clicked
  */
 export function EmployeeCard({
-  employeeType,
   config,
   currentCost,
   ownedCount,

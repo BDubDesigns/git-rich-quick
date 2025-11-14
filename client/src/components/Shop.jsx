@@ -41,7 +41,6 @@ export function Shop() {
             return (
               <EmployeeCard
                 key={employeeType}
-                employeeType={employeeType}
                 config={config}
                 currentCost={currentCost}
                 ownedCount={ownedCount}
@@ -67,7 +66,6 @@ export function Shop() {
           return (
             <LockedEmployeeCard
               key={employeeType}
-              employeeType={employeeType}
               config={config}
               progress={progress}
             />

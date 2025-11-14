@@ -54,7 +54,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     locPerSecond: 5,
     costMultiplier: 1.15,
     icon: <BsBackpack size={20} color="brown" />,
-    //  Unlock conditions
+    // Unlock conditions
     unlockConditions: [{ type: "TOTAL_LOC", value: 100 }],
   },
   senior: {
@@ -358,25 +358,34 @@ function gameReducer(state, action) {
  * to obtain an array of progress conditions. Each condition is expected to have numeric
  * `current` and `required` properties; the progress for a condition is computed as
  * `condition.current / condition.required`. If any condition's progress is greater than
- * or equal to `state.UNLOCK_VISIBILITY_THRESHOLD`, the function returns true.
+ * or equal to GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD, the function returns true.
  *
  * For unknown unlockType values the function logs a warning and returns false.
  *
  * @param {string} unlockType - The type of unlock to check (e.g. "employee").
  * @param {*} unlockUnit - Identifier or descriptor of the unit being checked (passed to getUnlockProgress).
- * @param {Object} state - Global/state object containing configuration and thresholds.
- * @param {number} state.UNLOCK_VISIBILITY_THRESHOLD - Threshold (0..1) used to determine visibility.
+ * @param {Object} state - Global/state object; threshold value comes from GAME_BALANCE_CONFIG.
  * @returns {boolean} True if any condition meets or exceeds the visibility threshold; otherwise false.
  *
  * @see getUnlockProgress
+ * @see GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD
  */
 export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
   if (unlockType === "employee") {
     const progress = getUnlockProgress(unlockUnit, state);
+
+    // If no unlock conditions, employee is always visible
+    if (progress.length === 0) {
+      return true;
+    }
+
     const threshold = GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD;
     // Check if ANY condition has >= 10% progress
+    // Guard against division by zero if a condition is misconfigured with required === 0
     return progress.some(
-      (condition) => condition.current / condition.required >= threshold
+      (condition) =>
+        condition.required > 0 &&
+        condition.current / condition.required >= threshold
     );
   }
   // Handle other unlock types as needed in future
@@ -586,7 +595,7 @@ function areUnlockConditionsMet(employeeType, state) {
   }
 
   // If no unlock conditions defined, employee is always unlocked
-  if (!config.unlockConditions) {
+  if (!config.unlockConditions || config.unlockConditions.length === 0) {
     return true;
   }
 
@@ -685,7 +694,11 @@ export function isEmployeeUnlocked(employeeType, state) {
 export function getUnlockProgress(employeeType, state) {
   const config = EMPLOYEE_CONFIGS[employeeType];
 
-  if (!config || !config.unlockConditions) {
+  if (
+    !config ||
+    !config.unlockConditions ||
+    config.unlockConditions.length === 0
+  ) {
     return []; // No unlock conditions, no progress to show
   }
 

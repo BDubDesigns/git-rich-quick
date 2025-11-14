@@ -24,7 +24,6 @@ export function ActionButton({
   floatText,
   className = "",
   icon,
-  title = "",
   variant = "blue",
 }) {
   return (
@@ -35,7 +34,6 @@ export function ActionButton({
         floatText={floatText}
         icon={icon}
         variant={variant}
-        title={title}
       >
         {children}
       </BouncyButton>

@@ -6,11 +6,14 @@ import "./LockedEmployeeCard.css";
  * Read-only display component—no purchase logic.
  *
  * @param {Object} props
- * @param {string} props.employeeType - Key like "junior", "senior"
  * @param {Object} props.config - Employee config from EMPLOYEE_CONFIGS
- * @param {Array} props.progress - Array from getUnlockProgress()
+ * @param {Array} props.progress - Array from getUnlockProgress().
+ *   ASSUMPTION: Never empty—this component is only rendered when
+ *   hasCrossedUnlockThreshold() returns true, which guarantees
+ *   at least one condition exists. This allows safe use of .every()
+ *   on the progress array.
  */
-export function LockedEmployeeCard({ employeeType, config, progress }) {
+export function LockedEmployeeCard({ config, progress }) {
   // Format unlock condition for human-readable display
   const formatCondition = (condition) => {
     switch (condition.type) {
@@ -63,7 +66,10 @@ export function LockedEmployeeCard({ employeeType, config, progress }) {
               <div
                 className="progress-fill"
                 style={{
-                  width: `${(prog.current / prog.required) * 100}%`,
+                  width:
+                    prog.required > 0
+                      ? `${(prog.current / prog.required) * 100}%`
+                      : "0%",
                 }}
               />
             </div>
