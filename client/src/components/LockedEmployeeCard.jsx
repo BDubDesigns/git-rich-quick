@@ -8,10 +8,9 @@ import "./LockedEmployeeCard.css";
  * @param {Object} props
  * @param {Object} props.config - Employee config from EMPLOYEE_CONFIGS
  * @param {Array} props.progress - Array from getUnlockProgress().
- *   ASSUMPTION: Never empty—this component is only rendered when
- *   hasCrossedUnlockThreshold() returns true, which guarantees
- *   at least one condition exists. This allows safe use of .every()
- *   on the progress array.
+ *   Can be empty if the employee has no unlock conditions (e.g., intern).
+ *   When empty, .every() returns true (vacuously true), so allConditionsMet
+ *   will be true and the card displays the LOCKED badge with no progress bars.
  */
 export function LockedEmployeeCard({ config, progress }) {
   // Format unlock condition for human-readable display
@@ -27,7 +26,9 @@ export function LockedEmployeeCard({ config, progress }) {
   };
 
   // Calculate if all conditions are met (derived state, not stored)
-  const allConditionsMet = progress.every((p) => p.remaining === 0);
+  // Guard against empty progress array: only true if conditions exist AND all are met
+  const allConditionsMet =
+    progress.length > 0 && progress.every((p) => p.remaining === 0);
 
   return (
     <div

@@ -33,7 +33,7 @@ export function Shop() {
           const unlocked = isEmployeeUnlocked(employeeType, state);
 
           if (unlocked) {
-            // Already purchased: show purchasable card
+            // Already unlocked: show purchasable card
             const currentCost = getEmployeeCost(employeeType, state);
             const canAfford = state.money >= currentCost;
             const ownedCount = state.employees[employeeType].count;
@@ -50,7 +50,7 @@ export function Shop() {
             );
           }
 
-          // Not yet purchased: show locked card with progress
+          // Not yet unlocked: show locked card with progress
           const progress = getUnlockProgress(employeeType, state);
           const hasCrossedThreshold = hasCrossedUnlockThreshold(
             "employee",
