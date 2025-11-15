@@ -28,7 +28,8 @@ export function LockedEmployeeCard({ config, progress }) {
   // Calculate if all conditions are met (derived state, not stored)
   // Guard against empty progress array: only true if conditions exist AND all are met
   const allConditionsMet =
-    progress.length > 0 && progress.every((p) => p.remaining === 0);
+    progress.length > 0 &&
+    progress.every((progressItem) => progressItem.remaining === 0);
 
   return (
     <div
@@ -52,6 +53,11 @@ export function LockedEmployeeCard({ config, progress }) {
       <div className="unlock-conditions">
         <p className="unlock-label">Unlock requirements:</p>
         {progress.map((prog, idx) => (
+          // Use array index as key because:
+          // 1. Progress array is derived directly from config.unlockConditions (stable order)
+          // 2. Future conditions may have duplicate types (e.g., multiple EMPLOYEE_COUNT conditions)
+          //    so type alone cannot be a unique identifier
+          // 3. Array is never filtered/reordered dynamically
           <div key={idx} className="unlock-requirement">
             <p className="requirement-text">
               {formatCondition(prog)}

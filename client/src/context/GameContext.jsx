@@ -151,12 +151,14 @@ const initialState = {
   clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
   currentCPS: 0, // Cached CPS for display
 
-  // Permanent unlock tracking (the latch) (will refactor to dynamically generate later)
-  unlockedEmployees: {
-    intern: true, // Always unlocked from start
-    junior: false, // Locked until conditions met
-    senior: false, // Locked until conditions met
-  },
+  // Permanent unlock tracking (the latch)
+  // Dynamically generated: employees with no unlock conditions start unlocked,
+  // employees with conditions start locked
+  unlockedEmployees: Object.keys(EMPLOYEE_CONFIGS).reduce((acc, key) => {
+    const config = EMPLOYEE_CONFIGS[key];
+    acc[key] = !config.unlockConditions || config.unlockConditions.length === 0;
+    return acc;
+  }, {}),
 
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
   employees: Object.keys(EMPLOYEE_CONFIGS).reduce((acc, key) => {
@@ -268,6 +270,10 @@ function gameReducer(state, action) {
           ...state,
           linesOfCode: state.linesOfCode - project.loc,
           money: state.money + project.reward,
+          freelanceProjectsCompleted: {
+            ...state.freelanceProjectsCompleted,
+            [projectKey]: state.freelanceProjectsCompleted[projectKey] + 1,
+          },
         };
       } else {
         // Not enough LOC
@@ -393,7 +399,8 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
   return false;
 }
 
-/** * Calculates the current Clicks Per Second (CPS) based on click history.
+/**
+ * Calculates the current Clicks Per Second (CPS) based on click history.
  *
  * This function filters the clickHistory array to count only clicks
  * that occurred in the last second.
