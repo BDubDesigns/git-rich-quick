@@ -17,7 +17,6 @@ import "./KeyPressButton.css";
  * @param {React.ReactNode} props.children - Button label/content
  * @param {string} [props.floatText="+10"] - Text to display in floating animation
  * @param {React.ReactNode} [props.icon] - Icon to display in floating animation
- * @param {string} [props.variant="green"] - Button style variant ("green" or "blue")
  *
  * @returns {React.ReactElement} Button element with floating text animations
  *
@@ -25,7 +24,6 @@ import "./KeyPressButton.css";
  * <KeyPressButton
  *   onClick={() => console.log('clicked')}
  *   floatText="+50"
- *   variant="blue"
  * >
  *   Click Me
  * </KeyPressButton>
@@ -36,7 +34,6 @@ export function KeyPressButton({
   children,
   floatText = "+10",
   icon,
-  variant = "green",
 }) {
   const [isPressed, setIsPressed] = useState(false);
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
@@ -87,20 +84,7 @@ export function KeyPressButton({
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         disabled={disabled}
-        className={`
-          key-press-button
-          ${
-            variant === "blue"
-              ? "key-press-button--blue"
-              : "key-press-button--green"
-          }
-          ${
-            isPressed
-              ? "key-press-button--pressed"
-              : "key-press-button--released"
-          }
-          ${disabled ? "key-press-button--disabled" : ""}
-        `}
+        className=" kbc-button kbc-button-success kbc-button-lg no-container"
       >
         {children}
       </button>

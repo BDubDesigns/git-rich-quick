@@ -24,7 +24,6 @@ export function ActionButton({
   floatText,
   className = "",
   icon,
-  variant = "blue",
 }) {
   return (
     <div className={`flex justify-center w-full mt-auto ${className}`}>
@@ -33,7 +32,6 @@ export function ActionButton({
         disabled={disabled}
         floatText={floatText}
         icon={icon}
-        variant={variant}
       >
         {children}
       </BouncyButton>
