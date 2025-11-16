@@ -28,6 +28,7 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
   // ==== Game Mechanics ====
   TICK_INTERVAL: 1000, // Game tick interval in milliseconds
   BASE_LOC_PER_CLICK: 1, // Base lines of code per click
+  UNLOCK_VISIBILITY_THRESHOLD: 0.1, // 10% progress to start showing locked employee card
 
   // ==== Starting Resources ====
   STARTING_MONEY: 0, // $0.00 in cents
@@ -39,24 +40,34 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
 export const EMPLOYEE_CONFIGS = Object.freeze({
   intern: {
     name: "Intern",
-    baseCost: 2500, // $25.00
+    baseCost: 2500,
     locPerSecond: 1,
     costMultiplier: 1.1,
     icon: <GiPlasticDuck size={20} color="orange" />,
+    // No unlock conditions, available from start.
+    // We include an empty array for object structure consistency.
+    unlockConditions: [],
   },
   junior: {
     name: "Junior Developer",
-    baseCost: 20000, // $200.00
+    baseCost: 20000,
     locPerSecond: 5,
     costMultiplier: 1.15,
     icon: <BsBackpack size={20} color="brown" />,
+    // Unlock conditions
+    unlockConditions: [{ type: "TOTAL_LOC", value: 100 }],
   },
   senior: {
     name: "Senior Developer",
-    baseCost: 150000, // $200.00
+    baseCost: 150000,
     locPerSecond: 20,
     costMultiplier: 1.2,
     icon: <BiCoffeeTogo size={20} color="green" />,
+    // Multiple conditions (all must be met)
+    unlockConditions: [
+      { type: "TOTAL_LOC", value: 3000 },
+      { type: "EMPLOYEE_COUNT", value: 10 },
+    ],
   },
 });
 
@@ -140,6 +151,15 @@ const initialState = {
   clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
   currentCPS: 0, // Cached CPS for display
 
+  // Permanent unlock tracking (the latch)
+  // Dynamically generated: employees with no unlock conditions start unlocked,
+  // employees with conditions start locked
+  unlockedEmployees: Object.keys(EMPLOYEE_CONFIGS).reduce((acc, key) => {
+    const config = EMPLOYEE_CONFIGS[key];
+    acc[key] = !config.unlockConditions || config.unlockConditions.length === 0;
+    return acc;
+  }, {}),
+
   // Employees (count only - config comes from EMPLOYEE_CONFIGS)
   employees: Object.keys(EMPLOYEE_CONFIGS).reduce((acc, key) => {
     acc[key] = { count: 0 };
@@ -182,14 +202,19 @@ function gameReducer(state, action) {
       const cleanedHistory = newClickHistory.filter(
         (ts) => ts > Date.now() - 10000
       );
-      return {
-        // spread the state to keep other properties unchanged
+      // Build newState with all changes from this action
+      const newState = {
         ...state,
-        // increment linesOfCode by dynamic locPerClick
         linesOfCode: state.linesOfCode + locPerClick,
         totalLinesOfCode: state.totalLinesOfCode + locPerClick,
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
+      };
+
+      // Check for unlocks instantly (not waiting for GAME_TICK)
+      return {
+        ...newState,
+        unlockedEmployees: updateUnlockLatch(newState),
       };
     }
     // Buy an employee (intern, junior, or senior)
@@ -203,12 +228,11 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // Calculate current cost
       const currentCost = getEmployeeCost(employeeType, state);
 
-      // Check if player has enough money
       if (state.money >= currentCost) {
-        return {
+        // Build newState with all changes from this action
+        const newState = {
           ...state,
           money: state.money - currentCost,
           employees: {
@@ -219,9 +243,14 @@ function gameReducer(state, action) {
             },
           },
         };
+
+        // Check for unlocks instantly (buying changed employee count)
+        return {
+          ...newState,
+          unlockedEmployees: updateUnlockLatch(newState),
+        };
       }
 
-      // Not enough money
       return state;
     }
 
@@ -241,6 +270,10 @@ function gameReducer(state, action) {
           ...state,
           linesOfCode: state.linesOfCode - project.loc,
           money: state.money + project.reward,
+          freelanceProjectsCompleted: {
+            ...state.freelanceProjectsCompleted,
+            [projectKey]: state.freelanceProjectsCompleted[projectKey] + 1,
+          },
         };
       } else {
         // Not enough LOC
@@ -250,19 +283,25 @@ function gameReducer(state, action) {
 
     // Game tick: called every second to generate LOC from employees
     case "GAME_TICK": {
-      // Calculate passive LOC generation
       const totalPassiveLOC = calculateLOCPerSecond(state);
-      // Clean up old click history
       const cleanedHistory = state.clickHistory.filter(
         (ts) => ts > Date.now() - 10000
       );
-      // Add passive LOC to total and current
-      return {
+
+      // Build newState with all changes from this action
+      const newState = {
         ...state,
         linesOfCode: state.linesOfCode + totalPassiveLOC,
         totalLinesOfCode: state.totalLinesOfCode + totalPassiveLOC,
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
+      };
+
+      // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)
+      // Employees generating LOC could trigger unlocks
+      return {
+        ...newState,
+        unlockedEmployees: updateUnlockLatch(newState),
       };
     }
 
@@ -318,7 +357,50 @@ function gameReducer(state, action) {
  * ========================================
  */
 
-/** * Calculates the current Clicks Per Second (CPS) based on click history.
+/**
+ * Determine whether an unlock unit has crossed the visibility threshold.
+ *
+ * For unlockType === "employee", this function calls getUnlockProgress(unlockUnit, state)
+ * to obtain an array of progress conditions. Each condition is expected to have numeric
+ * `current` and `required` properties; the progress for a condition is computed as
+ * `condition.current / condition.required`. If any condition's progress is greater than
+ * or equal to GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD, the function returns true.
+ *
+ * For unknown unlockType values the function logs a warning and returns false.
+ *
+ * @param {string} unlockType - The type of unlock to check (e.g. "employee").
+ * @param {*} unlockUnit - Identifier or descriptor of the unit being checked (passed to getUnlockProgress).
+ * @param {Object} state - Global/state object; threshold value comes from GAME_BALANCE_CONFIG.
+ * @returns {boolean} True if any condition meets or exceeds the visibility threshold; otherwise false.
+ *
+ * @see getUnlockProgress
+ * @see GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD
+ */
+export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
+  if (unlockType === "employee") {
+    const progress = getUnlockProgress(unlockUnit, state);
+
+    // If no unlock conditions, employee is always visible
+    if (progress.length === 0) {
+      return true;
+    }
+
+    const threshold = GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD;
+    // Check if ANY condition has >= 10% progress
+    // Guard against division by zero if a condition is misconfigured with required === 0
+    return progress.some(
+      (condition) =>
+        condition.required > 0 &&
+        condition.current / condition.required >= threshold
+    );
+  }
+  // Handle other unlock types as needed in future
+  console.warn(`Unknown unlock type: ${unlockType}`);
+  return false;
+}
+
+/**
+ * Calculates the current Clicks Per Second (CPS) based on click history.
  *
  * This function filters the clickHistory array to count only clicks
  * that occurred in the last second.
@@ -455,6 +537,208 @@ export function calculateLOCPerSecond(state) {
   const basePassiveLOC = getCurrentLOCPerSecond(state);
   const passiveBonus = getTotalPassiveBonus(state);
   return basePassiveLOC * (1 + passiveBonus);
+}
+
+/**
+ * Checks if a single unlock condition is satisfied by the current game state.
+ *
+ * This is a pure function (no side effects). It evaluates a condition
+ * and returns whether it's met, without modifying state.
+ *
+ * Used internally by areUnlockConditionsMet(). NOT exported.
+ *
+ * @param {Object} condition - The condition to check
+ * @param {string} condition.type - Type of condition (e.g., "TOTAL_LOC", "EMPLOYEE_COUNT")
+ * @param {number} condition.value - The threshold value
+ * @param {Object} state - The game state to check against
+ * @returns {boolean} True if condition is satisfied, false otherwise
+ *
+ * @private
+ */
+function checkCondition(condition, state) {
+  switch (condition.type) {
+    case "TOTAL_LOC":
+      // Player has earned enough cumulative LOC
+      return state.totalLinesOfCode >= condition.value;
+
+    case "EMPLOYEE_COUNT":
+      // Player has hired enough total employees
+      return getTotalEmployeeCount(state) >= condition.value;
+
+    // Future condition types can be added here:
+    // case "MONEY":
+    //   return state.money >= condition.value;
+    // case "PROJECTS_COMPLETED":
+    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.value;
+
+    default:
+      // Unknown condition type—this indicates a config error (typo or invalid type).
+      // FAIL SAFELY: Return false to keep the unlock locked. This forces the error
+      // to surface during testing (employee stays locked when it shouldn't). Better
+      // to catch the typo now than have the employee silently unlock to wrong conditions.
+      console.error(`Unknown unlock condition type: ${condition.type}`);
+      return false;
+  }
+}
+
+/**
+ * Checks if all unlock conditions for an employee type are currently satisfied.
+ *
+ * This function is called by updateUnlockLatch() to determine if an unlock
+ * should be latched. It checks the actual game state against the unlock rules.
+ *
+ * Used internally by updateUnlockLatch(). NOT exported (components can't call this).
+ * Components should call isEmployeeUnlocked() instead.
+ *
+ * @param {string} employeeType - The employee type to check (e.g., "intern", "junior", "senior")
+ * @param {Object} state - The game state
+ * @returns {boolean} True if all conditions are met, false otherwise
+ *
+ * @private
+ */
+function areUnlockConditionsMet(employeeType, state) {
+  const config = EMPLOYEE_CONFIGS[employeeType];
+
+  if (!config) {
+    console.warn(`Unknown employee type: ${employeeType}`);
+    return false;
+  }
+
+  // If no unlock conditions defined, employee is always unlocked
+  if (!config.unlockConditions || config.unlockConditions.length === 0) {
+    return true;
+  }
+
+  // ALL conditions must be met (AND logic)
+  return config.unlockConditions.every((condition) =>
+    checkCondition(condition, state)
+  );
+}
+
+/**
+ * Updates the unlock latch, checking if any new employees should be unlocked.
+ *
+ * This is the CENTRALIZED unlock logic. It's called from EVERY reducer case
+ * that could trigger an unlock (WRITE_CODE, BUY_EMPLOYEE, GAME_TICK).
+ *
+ * This function takes the *new* state (with all action-specific changes applied)
+ * and checks conditions against it. If any new unlocks should happen, it latches them.
+ *
+ * Returns the updated unlockedEmployees object to be merged into the final state.
+ * If no new unlocks occurred, returns the original unlockedEmployees (to prevent
+ * unnecessary re-renders from new object references).
+ *
+ * @param {Object} state - The NEW game state (after action changes have been applied)
+ * @returns {Object} The updated unlockedEmployees object (or original if no changes)
+ *
+ * @private
+ */
+function updateUnlockLatch(state) {
+  const newUnlockedEmployees = { ...state.unlockedEmployees };
+  let hasNewUnlock = false;
+
+  // Only check LOCKED employees for new unlocks. Once an employee is unlocked,
+  // the latch is permanent and we never need to check them again.
+  // This avoids unnecessary condition evaluations on every GAME_TICK, WRITE_CODE, and BUY_EMPLOYEE.
+  const lockedEmployees = Object.keys(EMPLOYEE_CONFIGS).filter(
+    (employeeType) => !state.unlockedEmployees[employeeType]
+  );
+
+  for (const employeeType of lockedEmployees) {
+    // Conditions are now met, latch it
+    if (areUnlockConditionsMet(employeeType, state)) {
+      newUnlockedEmployees[employeeType] = true;
+      hasNewUnlock = true;
+    }
+  }
+
+  // Return updated object if new unlocks occurred, otherwise return original
+  // (to prevent unnecessary re-renders from object reference changes)
+  return hasNewUnlock ? newUnlockedEmployees : state.unlockedEmployees;
+}
+
+/**
+ * Determines if an employee type is permanently unlocked.
+ *
+ * This function reads the permanent unlock record. Once an employee is unlocked,
+ * this returns true forever (even if conditions later drop below threshold).
+ *
+ * This is the function UI components call. Never call areUnlockConditionsMet()
+ * from components—always call this.
+ *
+ * @param {string} employeeType - The employee type to check (e.g., "intern", "junior", "senior")
+ * @param {Object} state - The game state
+ * @returns {boolean} True if employee has been unlocked, false if still locked
+ *
+ * @example
+ * const { state } = useGameContext();
+ * if (isEmployeeUnlocked("senior", state)) {
+ *   // Show purchasable EmployeeCard
+ * } else {
+ *   // Show LockedEmployeeCard
+ * }
+ */
+export function isEmployeeUnlocked(employeeType, state) {
+  return state.unlockedEmployees[employeeType];
+}
+
+/**
+ * Calculates progress toward unlocking an employee.
+ *
+ * For each unlock condition, returns: current value, required value, and remaining.
+ * Used by LockedEmployeeCard to display progress bars and remaining counts.
+ *
+ * @param {string} employeeType - The employee type to check
+ * @param {Object} state - The game state
+ * @returns {Array<Object>} Array of { type, current, required, remaining }
+ *
+ * @example
+ * getUnlockProgress("junior", state)
+ * // Returns: [
+ * //   { type: "TOTAL_LOC", current: 45, required: 100, remaining: 55 }
+ * // ]
+ *
+ * getUnlockProgress("senior", state)
+ * // Returns: [
+ * //   { type: "TOTAL_LOC", current: 2000, required: 3000, remaining: 1000 },
+ * //   { type: "EMPLOYEE_COUNT", current: 5, required: 10, remaining: 5 }
+ * // ]
+ */
+export function getUnlockProgress(employeeType, state) {
+  const config = EMPLOYEE_CONFIGS[employeeType];
+
+  if (
+    !config ||
+    !config.unlockConditions ||
+    config.unlockConditions.length === 0
+  ) {
+    return []; // No unlock conditions, no progress to show
+  }
+
+  return config.unlockConditions.map((condition) => {
+    let current = 0;
+
+    switch (condition.type) {
+      case "TOTAL_LOC":
+        current = state.totalLinesOfCode;
+        break;
+      case "EMPLOYEE_COUNT":
+        current = getTotalEmployeeCount(state);
+        break;
+      default:
+        current = 0;
+    }
+
+    const required = condition.value;
+    const remaining = Math.max(0, required - current);
+
+    return {
+      type: condition.type,
+      current,
+      required,
+      remaining,
+    };
+  });
 }
 
 // Calculate current LOC per second from all employees

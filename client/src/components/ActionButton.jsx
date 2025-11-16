@@ -19,14 +19,15 @@ import { BouncyButton } from "./BouncyButton.jsx";
  */
 export function ActionButton({
   onClick,
-  disabled,
+  disabled = false,
   children,
   floatText,
+  className = "",
   icon,
   variant = "blue",
 }) {
   return (
-    <div className="flex justify-center w-full mt-auto">
+    <div className={`flex justify-center w-full mt-auto ${className}`}>
       <BouncyButton
         onClick={onClick}
         disabled={disabled}

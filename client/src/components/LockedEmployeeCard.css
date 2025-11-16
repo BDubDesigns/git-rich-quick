@@ -1,0 +1,116 @@
+/* ===== BASE LOCKED CARD STYLES ===== */
+
+.locked-employee-card {
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: all 0.3s ease;
+}
+
+/* Header section */
+.locked-employee-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.locked-employee-icon {
+  display: flex;
+  justify-content: center;
+}
+
+.locked-employee-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.locked-badge {
+  display: inline-block;
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* Unlock conditions section */
+.unlock-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.unlock-label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.unlock-requirement {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.requirement-text {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.requirement-remaining {
+  color: #9ca3af;
+  font-size: 0.8rem;
+}
+
+.requirement-progress {
+  height: 0.5rem;
+  background: #e5e7eb;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.3s ease;
+  border-radius: 0.25rem;
+}
+
+.progress-text {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-align: right;
+}
+
+/* ===== READY-TO-UNLOCK STATE ===== */
+
+.locked-employee-card.ready-to-unlock {
+  border: 2px solid #4ade80;
+  border-radius: 0.5rem;
+  background: #f0fdf4;
+  box-shadow: 0 0 16px rgba(74, 222, 128, 0.25);
+  transform: translateY(-2px);
+}
+
+.locked-employee-card.ready-to-unlock .locked-badge {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.locked-employee-card.ready-to-unlock .progress-fill {
+  background: #22c55e;
+}
+
+/* ===== ANIMATIONS ===== */
