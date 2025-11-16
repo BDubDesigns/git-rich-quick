@@ -84,7 +84,7 @@ export function KeyPressButton({
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         disabled={disabled}
-        className=" kbc-button kbc-button-success kbc-button-lg no-container"
+        className="kbc-button kbc-button-lg"
       >
         {children}
       </button>
