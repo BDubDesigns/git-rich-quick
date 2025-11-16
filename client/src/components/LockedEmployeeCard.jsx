@@ -7,10 +7,9 @@ import "./LockedEmployeeCard.css";
  *
  * @param {Object} props
  * @param {Object} props.config - Employee config from EMPLOYEE_CONFIGS
- * @param {Array} props.progress - Array from getUnlockProgress().
- *   Can be empty if the employee has no unlock conditions (e.g., intern).
- *   When empty, .every() returns true (vacuously true), so allConditionsMet
- *   will be true and the card displays the LOCKED badge with no progress bars.
+ * @param {Array} props.progress - Array from getUnlockProgress(). Should never be empty,
+ *   since LockedEmployeeCard is only rendered for locked employees. Locked employees always
+ *   have unlock conditions, so progress array is always populated.
  */
 export function LockedEmployeeCard({ config, progress }) {
   // Format unlock condition for human-readable display
@@ -26,7 +25,8 @@ export function LockedEmployeeCard({ config, progress }) {
   };
 
   // Calculate if all conditions are met (derived state, not stored)
-  // Guard against empty progress array: only true if conditions exist AND all are met
+  // Guard against empty progress array as defensive measure, though in practice
+  // this component is only rendered for locked employees with non-empty progress.
   const allConditionsMet =
     progress.length > 0 &&
     progress.every((progressItem) => progressItem.remaining === 0);
@@ -69,13 +69,23 @@ export function LockedEmployeeCard({ config, progress }) {
               )}
             </p>
             {/* Progress bar */}
-            <div className="requirement-progress">
+            <div
+              className="requirement-progress"
+              role="progressbar"
+              aria-valuenow={prog.current}
+              aria-valuemin="0"
+              aria-valuemax={prog.required}
+              aria-label={`Progress towards ${formatCondition(prog)}`}
+            >
               <div
                 className="progress-fill"
                 style={{
                   width:
                     prog.required > 0
-                      ? `${(prog.current / prog.required) * 100}%`
+                      ? `${Math.min(
+                          (prog.current / prog.required) * 100,
+                          100
+                        )}%`
                       : "0%",
                 }}
               />

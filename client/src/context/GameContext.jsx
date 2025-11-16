@@ -572,9 +572,12 @@ function checkCondition(condition, state) {
     //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.value;
 
     default:
-      // Unknown condition type—log warning and fail safely
-      console.warn(`Unknown unlock condition type: ${condition.type}`);
-      return true; // Safer to unlock than to lock forever
+      // Unknown condition type—this indicates a config error (typo or invalid type).
+      // FAIL SAFELY: Return false to keep the unlock locked. This forces the error
+      // to surface during testing (employee stays locked when it shouldn't). Better
+      // to catch the typo now than have the employee silently unlock to wrong conditions.
+      console.error(`Unknown unlock condition type: ${condition.type}`);
+      return false;
   }
 }
 
@@ -634,13 +637,16 @@ function updateUnlockLatch(state) {
   const newUnlockedEmployees = { ...state.unlockedEmployees };
   let hasNewUnlock = false;
 
-  // Check every employee type for new unlocks
-  for (const employeeType of Object.keys(EMPLOYEE_CONFIGS)) {
-    // If not yet unlocked AND conditions are now met, latch it
-    if (
-      !state.unlockedEmployees[employeeType] &&
-      areUnlockConditionsMet(employeeType, state)
-    ) {
+  // Only check LOCKED employees for new unlocks. Once an employee is unlocked,
+  // the latch is permanent and we never need to check them again.
+  // This avoids unnecessary condition evaluations on every GAME_TICK, WRITE_CODE, and BUY_EMPLOYEE.
+  const lockedEmployees = Object.keys(EMPLOYEE_CONFIGS).filter(
+    (employeeType) => !state.unlockedEmployees[employeeType]
+  );
+
+  for (const employeeType of lockedEmployees) {
+    // Conditions are now met, latch it
+    if (areUnlockConditionsMet(employeeType, state)) {
       newUnlockedEmployees[employeeType] = true;
       hasNewUnlock = true;
     }

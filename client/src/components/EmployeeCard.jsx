@@ -21,9 +21,10 @@ export function EmployeeCard({
 }) {
   return (
     <div className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col">
-      {/* TODO: Add toast notification system for employee unlock celebration.
-          Currently removed because the celebration message fires when ownedCount === 0 (too early)
-          and persists indefinitely (not transient). A proper toast system will provide better UX. */}
+      {/* TODO: Add toast notification that triggers in the reducer when an employee
+          type's count transitions from 0 to 1 (first purchase milestone). This component
+          only displays the current state; celebration logic should live in BUY_EMPLOYEE
+          reducer case to detect the transition and dispatch a toast notification. */}
       {/* Employee name - tilted styling */}
       <h3 className="-rotate-3 text-red-700 font-semibold">{config.name}</h3>
 

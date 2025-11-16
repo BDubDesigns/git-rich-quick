@@ -58,17 +58,13 @@ export function Shop() {
             state
           );
 
-          // If we haven't crossed threshold, don't show card
-          if (!hasCrossedThreshold) {
-            return null; // Don't render anything for this employee
-          }
-
           return (
-            <LockedEmployeeCard
+            <div
               key={employeeType}
-              config={config}
-              progress={progress}
-            />
+              className={!hasCrossedThreshold ? "hidden" : ""}
+            >
+              <LockedEmployeeCard config={config} progress={progress} />
+            </div>
           );
         })}
       </div>
