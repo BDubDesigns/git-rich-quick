@@ -1,80 +1,8 @@
-@keyframes keyboardRelease {
-  0% {
-    transform: translateY(4px);
-  }
-  100% {
-    transform: translateY(0);
-  }
+/* Override keyboard-css for inline layout with text + icon */
+.kbc-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.5rem;
 }
 
-.key-press-button {
-  border: none;
-  font-family: inherit;
-  cursor: pointer;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem 1.5rem;
-
-  font-size: 1rem;
-  font-weight: 700;
-  color: white;
-
-  border-style: solid;
-  border-left-width: 4px;
-  border-right-width: 4px;
-  border-top-width: 1px;
-  border-bottom-width: 8px;
-
-  transition: all 0.1s ease-in-out;
-  border-radius: 0.75rem;
-  user-select: none;
-  outline: none;
-
-  /* 3D depth effect using box-shadow (GPU-accelerated, no layout shift) */
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-}
-
-.key-press-button--green {
-  background-color: rgb(22, 163, 74);
-  border-color: rgb(20, 134, 60);
-}
-
-.key-press-button--green:hover:not(:disabled) {
-  background-color: rgb(34, 197, 94);
-}
-
-.key-press-button--blue {
-  background-color: rgb(29, 78, 216);
-  border-color: rgb(30, 58, 138);
-}
-
-.key-press-button--blue:hover:not(:disabled) {
-  background-color: rgb(59, 130, 246);
-}
-
-.key-press-button--pressed {
-  transform: translateY(4px);
-  /* Shadow disappears when pressed (makes it look inset/flat) */
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.key-press-button--released {
-  animation: keyboardRelease 0.15s ease-out forwards;
-}
-
-.key-press-button--disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .key-press-button--released {
-    animation: none;
-  }
-
-  .key-press-button--pressed {
-    transform: none;
-  }
-}
