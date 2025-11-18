@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { FloatingText } from "./FloatingText";
 import { useFloatingText } from "../hooks/useFloatingText.js";
 import "./KeyPressButton.css";
@@ -6,9 +5,8 @@ import "./KeyPressButton.css";
 /**
  * KeyPressButton Component
  *
- * A button component that detects key presses and mouse interactions,
- * displaying visual feedback for pressed/released states and triggering
- * floating text animations on click.
+ * A button component that triggers floating text animations on click.
+ * Keyboard-css provides built-in pressed state styling.
  *
  * @component
  * @param {Object} props - Component props
@@ -35,33 +33,8 @@ export function KeyPressButton({
   floatText = "+10",
   icon,
 }) {
-  const [isPressed, setIsPressed] = useState(false);
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
     useFloatingText();
-
-  const handleMouseDown = () => {
-    setIsPressed(true);
-  };
-
-  const handleMouseUp = () => {
-    setIsPressed(false);
-  };
-
-  const handleMouseLeave = () => {
-    setIsPressed(false);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === " " || e.key === "Enter") {
-      setIsPressed(true);
-    }
-  };
-
-  const handleKeyUp = (e) => {
-    if (e.key === " " || e.key === "Enter") {
-      setIsPressed(false);
-    }
-  };
 
   const handleButtonClick = (event) => {
     const x = event.nativeEvent.clientX;
@@ -78,11 +51,6 @@ export function KeyPressButton({
     <>
       <button
         onClick={handleButtonClick}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
         disabled={disabled}
         className="kbc-button kbc-button-lg"
       >
