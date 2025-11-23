@@ -5,12 +5,10 @@ import { useGameContext } from "./context/GameContext";
 import { GAME_BALANCE_CONFIG } from "./context/GameContext";
 import { calculateLOCPerSecond } from "./context/GameContext";
 // Import components
-import { Header } from "./components/Header";
-import { ButtonBox } from "./components/ButtonBox";
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
-import { Footer } from "./components/Footer";
 import { OpenSource } from "./components/OpenSource";
+import { GameLayout } from "./components/GameLayout";
 
 function App() {
   // Access game context
@@ -46,22 +44,13 @@ function App() {
   }, [dispatch]);
 
   return (
-    <div className="cascadia-font">
-      <Header />
-      <ButtonBox />
-
+    <GameLayout>
       <div className="flex justify-center gap-2 px-2">
         <Shop />
         <Projects />
       </div>
       <OpenSource />
-
-      <br />
-      <br />
-      <br />
-      {/* line breaks for the sticky footer gap at the bottom */}
-      <Footer />
-    </div>
+    </GameLayout>
   );
 }
 
