@@ -30,7 +30,7 @@ export function Footer() {
           );
         })}
       </div>
-      <div className="text-center">
+      <div className="text-center pb-10">
         <CPSMeter />
         <ClickButton />
       </div>
