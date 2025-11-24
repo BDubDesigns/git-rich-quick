@@ -42,14 +42,13 @@ function App() {
 
     return () => clearInterval(interval);
   }, [dispatch]);
-
+  // Local state to manage active tab (employees, projects, upgrades)
   return (
     <GameLayout>
-      <div className="flex justify-center gap-2 px-2">
-        <Shop />
-        <Projects />
-      </div>
-      <OpenSource />
+      {state.activeTab === "shop" && <Shop />}
+      {state.activeTab === "projects" && <Projects />}
+      {state.activeTab === "openSource" && <OpenSource />}
+      {/* Handle other tabs (email, settings) as needed later */}
     </GameLayout>
   );
 }

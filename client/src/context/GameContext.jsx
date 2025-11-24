@@ -2,6 +2,11 @@ import { useReducer, useContext, createContext } from "react";
 import { GiPlasticDuck } from "react-icons/gi";
 import { BsBackpack } from "react-icons/bs";
 import { BiCoffeeTogo } from "react-icons/bi";
+import { FaPeopleGroup } from "react-icons/fa6";
+import { MdEmail } from "react-icons/md";
+import { FaGithub } from "react-icons/fa";
+import { IoSettings } from "react-icons/io5";
+import { MdRocketLaunch } from "react-icons/md";
 
 /**
  * ========================================
@@ -34,6 +39,15 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
   STARTING_MONEY: 0, // $0.00 in cents
   STARTING_LOC: 0, // Starting lines of code
 });
+
+// Immutable navigation tab configuration
+export const NAV_TABS = Object.freeze([
+  { id: "email", label: "Email", Icon: MdEmail },
+  { id: "shop", label: "Shop", Icon: FaPeopleGroup },
+  { id: "projects", label: "Projects", Icon: MdRocketLaunch },
+  { id: "openSource", label: "Open Source", Icon: FaGithub },
+  { id: "settings", label: "Settings", Icon: IoSettings },
+]);
 
 // Immutable employee configuration
 // All costs are in CENTS to avoid floating-point errors in idle games
@@ -146,6 +160,7 @@ const initialState = {
   linesOfCode: GAME_BALANCE_CONFIG.STARTING_LOC,
   totalLinesOfCode: 0, // cumulative LOC written over time, never decreases
   money: GAME_BALANCE_CONFIG.STARTING_MONEY,
+  activeTab: "shop", // can be "shop", "projects", or "openSource"
 
   // Click tracking for CPS calculation
   clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
@@ -191,6 +206,16 @@ const initialState = {
 
 function gameReducer(state, action) {
   switch (action.type) {
+    // Player changes active tab (shop, projects, or openSource)
+    case "SET_ACTIVE_TAB": {
+      const { tab } = action.payload;
+      const validTabs = NAV_TABS.map((t) => t.id);
+      if (!validTabs.includes(tab)) {
+        console.warn(`Invalid tab: ${tab}. Defaulting to shop.`);
+        tab = "shop";
+      }
+      return { ...state, activeTab: tab };
+    }
     // Player clicks the "Write Code" button
     case "WRITE_CODE": {
       const locPerClick = calculateLOCPerClick(state);
