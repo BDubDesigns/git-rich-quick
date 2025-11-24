@@ -3,23 +3,14 @@ import { Footer } from "./Footer";
 
 export function GameLayout({ children }) {
   return (
-    <div className="h-screen flex flex-col relative md:max-w-md md:mx-auto">
-      <header
-        className="
-            absolute top-0 left-0 right-0 z-10
-            bg-slate-800 text-gray-400
-      "
-      >
+    <div className="h-dvh flex flex-col relative md:max-w-md md:mx-auto">
+      <header className="shrink-0 title-bar">
         <Header />
       </header>
 
-      <main className="flex-1 overflow-y-auto pt-20 pb-40">{children}</main>
+      <main className="flex-1 overflow-y-auto">{children}</main>
 
-      <footer
-        className="
-        absolute bottom-0 left-0 right-0 z-20
-        bg-slate-800 text-gray-400"
-      >
+      <footer className="shrink-0 mt-4 mb-2">
         <Footer />
       </footer>
     </div>

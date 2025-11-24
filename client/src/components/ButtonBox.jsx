@@ -12,6 +12,7 @@ import { useGameContext } from "../context/GameContext.jsx";
 import { formatMoney } from "../utils/currency.js";
 
 // UI Components for the button box layout
+import { ClickSection } from "./ClickSection.jsx";
 import { StatDisplay } from "./StatDisplay.jsx";
 import { EmployeeCountIcon } from "./EmployeeCountIcon.jsx";
 import { PassiveAnimationLayer } from "./PassiveAnimationLayer.jsx";
@@ -49,7 +50,7 @@ export function ButtonBox() {
   return (
     <>
       <div className="mx-2 select-none">
-        <div className="flex justify-items-normal items-center gap-4 mt-2 w-full border border-gray-300 p-2 rounded-2xl">
+        <div className="flex justify-items-normal items-center gap-4 mt-2 p-2 w-full panel mb-2">
           {/* Game stat displays: LOC currency */}
           <StatDisplay
             label="LOC"

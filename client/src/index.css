@@ -3,3 +3,28 @@
 .cascadia-font {
   font-family: "Cascadia Code", monospace;
 }
+body {
+  background-color: #181818; /* Dark background color */
+  margin: 0;
+  padding: 0;
+}
+
+.title-bar {
+  background-color: #2a2a2a;
+  color: #cccccc;
+}
+
+.panel {
+  background-color: #1f1f1f;
+  color: #cccccc;
+  border-radius: 1rem;
+  border-width: 2px;
+  border-color: #7c7c7c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
