@@ -61,6 +61,8 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     // No unlock conditions, available from start.
     // We include an empty array for object structure consistency.
     unlockConditions: [],
+    description:
+      "Thinks git push --force is a Jedi mind trick. Will delete the production database if left unsupervised.",
   },
   junior: {
     name: "Junior Developer",
@@ -70,6 +72,8 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     icon: <BsBackpack size={20} color="brown" />,
     // Unlock conditions
     unlockConditions: [{ type: "TOTAL_LOC", value: 100 }],
+    description:
+      "A junior developer who has some experience and can handle tasks independently.",
   },
   senior: {
     name: "Senior Developer",
@@ -82,6 +86,8 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
       { type: "TOTAL_LOC", value: 3000 },
       { type: "EMPLOYEE_COUNT", value: 10 },
     ],
+    description:
+      "A senior developer with extensive experience who can lead projects and mentor juniors.",
   },
 });
 

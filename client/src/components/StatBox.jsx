@@ -18,18 +18,20 @@ import { EmployeeCountIcon } from "./EmployeeCountIcon.jsx";
 import { PassiveAnimationLayer } from "./PassiveAnimationLayer.jsx";
 
 /**
- * ButtonBox Component
+ * StatBox Component
  *
- * Main control center for the game's primary interactions. Renders:
- * 1. The "Commit Code" click button and CPS (LOC/sec) indicator
- * 2. Real-time game stats (LOC, Money, Employees, LOC/sec)
- * 3. Floating text animations for passive LOC generation
+ * Displays all real-time game statistics in a horizontal panel. Renders:
+ * 1. Current LOC (Lines of Code) balance
+ * 2. Current Money balance
+ * 3. Total employee count
+ * 4. Passive LOC generation rate (LOC/sec)
+ * 5. Floating text animations for passive LOC generation
  *
  * Uses the ref pattern to position floating text animations relative to the LOC/sec display.
  * This component calculates all derived game values once to avoid prop drilling and
  * ensure consistent calculations across child components.
  */
-export function ButtonBox() {
+export function StatBox() {
   const { state } = useGameContext();
 
   // Calculate all derived game values from the current game state

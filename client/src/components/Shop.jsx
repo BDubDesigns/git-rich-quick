@@ -8,6 +8,7 @@ import {
 } from "../context/GameContext";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
+import { CodeComment } from "./CodeComment.jsx";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -20,15 +21,22 @@ export function Shop() {
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-gray-300 p-4">
-      <h2 className="mt-0">Hire Devs</h2>
-      <p>
+    <div className="primary-text">
+      <div className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border-t border-[#0078d4] text-sm text-[#cccccc] w-fit">
+        <span className="text-[#c5c53f]">JS</span>
+        <h2 className="m-0">Hire Devs</h2>
+        <button className="ml-auto text-[#858585] hover:text-[#ffffff]">
+          ×
+        </button>
+      </div>
+
+      <CodeComment>
         Here you can hire developers to write LOC for you. It's a one time fee
         per developer, even though that doesn't make any sense. Don't pretend
         anything about software development makes sense; you pull that thread,
         no sweater.
-      </p>
-      <div className="grid grid-cols-3 gap-4">
+      </CodeComment>
+      <div className="flex flex-col gap-4">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
           const unlocked = isEmployeeUnlocked(employeeType, state);
 

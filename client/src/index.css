@@ -22,9 +22,21 @@ body {
   border-color: #7c7c7c;
 }
 
+.primary-text {
+  color: #cccccc;
+}
+
+.comment-text {
+  color: #84bd6a;
+}
+
 html,
 body,
 #root {
   height: 100%;
   width: 100%;
+}
+
+body {
+  font-family: "Cascadia Code", monospace;
 }

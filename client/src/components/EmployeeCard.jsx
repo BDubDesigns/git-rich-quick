@@ -1,17 +1,5 @@
-import { ActionButton } from "./ActionButton.jsx";
-import { formatMoney } from "../utils/currency.js";
-import { createElement } from "react";
+import { formatMoney } from "../utils/currency";
 
-/**
- * Displays a purchasable employee card.
- *
- * @param {Object} props
- * @param {Object} props.config - Employee config from EMPLOYEE_CONFIGS
- * @param {number} props.currentCost - Current cost in cents (from getEmployeeCost)
- * @param {number} props.ownedCount - Number of this employee type currently hired
- * @param {boolean} props.canAfford - Whether player has enough money to purchase
- * @param {Function} props.onPurchase - Callback when purchase button clicked
- */
 export function EmployeeCard({
   config,
   currentCost,
@@ -20,36 +8,32 @@ export function EmployeeCard({
   onPurchase,
 }) {
   return (
-    <div className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col">
-      {/* TODO: Add toast notification that triggers in the reducer when an employee
-          type's count transitions from 0 to 1 (first purchase milestone). This component
-          only displays the current state; celebration logic should live in BUY_EMPLOYEE
-          reducer case to detect the transition and dispatch a toast notification. */}
-      {/* Employee name - tilted styling */}
-      <h3 className="-rotate-3 text-red-700 font-semibold">{config.name}</h3>
+    <div className="panel p-3 flex items-center gap-4">
+      {/* Left: Icon + Name + Count */}
+      <div className="flex flex-col items-center gap-1 shrink-0">
+        <div className="text-2xl">{config.icon}</div>
+        <div className="text-xs font-bold text-center">{config.name}</div>
+        <div className="text-xs text-gray-400">x{ownedCount}</div>
+      </div>
 
-      {/* Employee icon - larger size for readability */}
-      <p className="flex justify-center w-full">
-        {createElement(config.icon.type, {
-          ...config.icon.props,
-          size: 48,
-        })}
-      </p>
+      {/* Center: Description */}
+      <div className="flex-1">
+        <p className="text-xs text-gray-300">{config.description}</p>
+      </div>
 
-      {/* Stats section */}
-      <p>Owned: {ownedCount}</p>
-      <p>Production: {config.locPerSecond} LOC/sec</p>
-      <p>Cost: ${formatMoney(currentCost)}</p>
-
-      {/* Purchase button */}
-      <ActionButton
+      {/* Right: Button with Price */}
+      <button
         onClick={onPurchase}
         disabled={!canAfford}
-        floatText="+1"
-        icon={config.icon}
+        className={`flex flex-col items-center gap-1 flex-shrink-0 px-3 py-2 rounded font-bold text-xs whitespace-nowrap ${
+          canAfford
+            ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+            : "bg-gray-700 text-gray-500 cursor-not-allowed"
+        }`}
       >
-        Hire 1 {config.name}
-      </ActionButton>
+        <div>{formatMoney(currentCost)}</div>
+        <div>Hire</div>
+      </button>
     </div>
   );
 }
