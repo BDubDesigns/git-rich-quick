@@ -1,33 +1,65 @@
 @import "tailwindcss";
 
+:root {
+  --title-bar-color: #2a2a2a; /* Dark title bar color, lightest of the backgrounds */
+  --main-bg-color: #181818; /* Dark main background color */
+  --primary-text-color: #ccc; /* Light gray primary text color */
+  --comment-text-color: #84bd6a; /* Green comment text color */
+  --classes-text-color: #ff9d00; /* Orange classes text color */
+  --panel-background-color: #1f1f1f; /* Darker panel background */
+  --border-color: #7c7c7c; /* Medium gray border color */
+  --active-button-bg-color: #60a5fa; /* Blue-400 for active nav buttons */
+  --inactive-button-bg-color: #1e3a8a; /* Blue-900 for inactive nav buttons */
+  --inactive-button-hover-color: #1e40af; /* Blue-800 for inactive button hover */
+  --inactive-button-text-color: #d1d5db; /* Gray-300 for inactive button text */
+}
+
+.classes-text {
+  color: var(--classes-text-color);
+}
+
 .cascadia-font {
   font-family: "Cascadia Code", monospace;
 }
 body {
-  background-color: #181818; /* Dark background color */
+  background-color: var(--main-bg-color);
   margin: 0;
   padding: 0;
 }
 
 .title-bar {
-  background-color: #2a2a2a;
-  color: #cccccc;
+  background-color: var(--title-bar-color);
+  color: var(--primary-text-color);
 }
 
 .panel {
-  background-color: #1f1f1f;
-  color: #cccccc;
+  background-color: var(--panel-background-color);
+  color: var(--primary-text-color);
   border-radius: 1rem;
-  border-width: 2px;
-  border-color: #7c7c7c;
+  border-width: 1px;
+  border-color: var(--border-color);
+}
+
+.panel.locked {
+  /* 1. Fade it out to suggest it's inactive */
+  /* opacity: 0.6; */
+
+  /* 2. Remove all color (makes the red bag icon look grey/dead) */
+  /* filter: grayscale(100%); */
+
+  /* 3. Visual indicator that clicking does nothing */
+  cursor: not-allowed;
+
+  /* Optional: Prevent text selection to make it feel more static */
+  user-select: none;
 }
 
 .primary-text {
-  color: #cccccc;
+  color: var(--primary-text-color);
 }
 
 .comment-text {
-  color: #84bd6a;
+  color: var(--comment-text-color);
 }
 
 html,

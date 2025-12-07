@@ -25,11 +25,10 @@ export const StatDisplay = forwardRef(function StatDisplay(
   ref
 ) {
   return (
-    <p ref={ref} className="flex-1">
-      <b className="inline-flex items-center gap-1">
-        {icon} {label}:
-      </b>
-      <p>{value}</p>
-    </p>
+    <div ref={ref} className="flex flex-1 flex-col items-center">
+      <span>{icon}</span>
+
+      <span className="text-xl">{value}</span>
+    </div>
   );
 });

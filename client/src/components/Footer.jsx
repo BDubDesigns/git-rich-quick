@@ -11,7 +11,7 @@ export function Footer() {
 
   return (
     <>
-      <div className="panel flex justify-evenly gap-4 py-4 bg-[#181818]">
+      <div className="panel flex justify-evenly gap-4 mt-1 py-4 bg-[#181818]">
         {NAV_TABS.map(({ id, label, Icon }) => {
           const isActive = state.activeTab === id;
           return (
@@ -30,7 +30,7 @@ export function Footer() {
           );
         })}
       </div>
-      <div className="text-center mt-5 pb-5 panel">
+      <div className="text-center mt-2 pb-5 panel">
         <CPSMeter />
         <ClickButton />
       </div>

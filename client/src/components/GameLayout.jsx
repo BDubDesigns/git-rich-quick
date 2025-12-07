@@ -8,9 +8,9 @@ export function GameLayout({ children }) {
         <Header />
       </header>
 
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto pb-4 mx-2">{children}</main>
 
-      <footer className="shrink-0 mt-4 mb-2">
+      <footer className="shrink-0 mb-2 mx-2">
         <Footer />
       </footer>
     </div>

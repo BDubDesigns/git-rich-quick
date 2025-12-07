@@ -36,7 +36,7 @@ export function Shop() {
         anything about software development makes sense; you pull that thread,
         no sweater.
       </CodeComment>
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
           const unlocked = isEmployeeUnlocked(employeeType, state);
 

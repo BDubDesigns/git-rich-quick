@@ -12,7 +12,6 @@ import { useGameContext } from "../context/GameContext.jsx";
 import { formatMoney } from "../utils/currency.js";
 
 // UI Components for the button box layout
-import { ClickSection } from "./ClickSection.jsx";
 import { StatDisplay } from "./StatDisplay.jsx";
 import { EmployeeCountIcon } from "./EmployeeCountIcon.jsx";
 import { PassiveAnimationLayer } from "./PassiveAnimationLayer.jsx";
@@ -36,7 +35,6 @@ export function StatBox() {
 
   // Calculate all derived game values from the current game state
   // These are computed once here and passed down to avoid redundant calculations in child components
-  const locPerClick = calculateLOCPerClick(state);
   const locPerSecond = calculateLOCPerSecond(state);
   const totalEmployees = getTotalEmployeeCount(state);
 
@@ -56,21 +54,32 @@ export function StatBox() {
           {/* Game stat displays: LOC currency */}
           <StatDisplay
             label="LOC"
-            icon={<HiMiniCodeBracket size={20} />}
+            icon={
+              <HiMiniCodeBracket
+                size={30}
+                color="var(--active-button-bg-color)"
+              />
+            }
             value={displayLoc}
           />
 
           {/* Game stat displays: Money currency (in dollars) */}
           <StatDisplay
             label="Money"
-            icon={<LiaMoneyBillWaveAltSolid size={20} />}
+            icon={<LiaMoneyBillWaveAltSolid color="green" size={30} />}
             value={`$${displayMoney}`}
           />
 
           {/* Game stat displays: Total employee count across all job levels */}
           <StatDisplay
             label="Employees"
-            icon={<EmployeeCountIcon count={totalEmployees} />}
+            icon={
+              <EmployeeCountIcon
+                color="var(--classes-text-color)"
+                count={totalEmployees}
+                size={30}
+              />
+            }
             value={totalEmployees}
           />
 
@@ -80,8 +89,8 @@ export function StatBox() {
           <StatDisplay
             ref={locPerSecondRef}
             label="LOC/sec"
-            icon={<TbUserCode size={20} />}
-            value={locPerSecond}
+            icon={<TbUserCode size={36} color="var(--comment-text-color)" />}
+            value={locPerSecond + "/s"}
           />
         </div>
       </div>

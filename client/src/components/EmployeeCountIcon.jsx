@@ -14,13 +14,13 @@ import { FaPeopleGroup } from "react-icons/fa6"; // 3 people
  * @param {number} count - Total number of employees
  * @returns {React.ReactNode} - The appropriate icon component
  */
-export function EmployeeCountIcon({ count }) {
+export function EmployeeCountIcon({ count, size = 30, color = "white" }) {
   // Logic: As count increases, use a more "populated" icon
   if (count > 99) {
-    return <FaPeopleGroup size={20} />;
+    return <FaPeopleGroup size={size} color={color} />;
   } else if (count > 9) {
-    return <IoPeople size={20} />;
+    return <IoPeople size={size} color={color} />;
   } else {
-    return <MdOutlineEmojiPeople size={20} />;
+    return <MdOutlineEmojiPeople size={size} color={color} />;
   }
 }

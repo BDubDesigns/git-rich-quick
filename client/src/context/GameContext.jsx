@@ -57,7 +57,8 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     baseCost: 2500,
     locPerSecond: 1,
     costMultiplier: 1.1,
-    icon: <GiPlasticDuck size={20} color="orange" />,
+    Icon: GiPlasticDuck,
+    color: "orange",
     // No unlock conditions, available from start.
     // We include an empty array for object structure consistency.
     unlockConditions: [],
@@ -69,25 +70,27 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     baseCost: 20000,
     locPerSecond: 5,
     costMultiplier: 1.15,
-    icon: <BsBackpack size={20} color="brown" />,
+    Icon: BsBackpack,
+    color: "brown",
     // Unlock conditions
     unlockConditions: [{ type: "TOTAL_LOC", value: 100 }],
     description:
-      "A junior developer who has some experience and can handle tasks independently.",
+      "Knows 12 JavaScript frameworks but can't center a div. Will refactor your working code because it 'wasn't dry enough'.",
   },
   senior: {
     name: "Senior Developer",
     baseCost: 150000,
     locPerSecond: 20,
     costMultiplier: 1.2,
-    icon: <BiCoffeeTogo size={20} color="green" />,
+    Icon: BiCoffeeTogo,
+    color: "green",
     // Multiple conditions (all must be met)
     unlockConditions: [
       { type: "TOTAL_LOC", value: 3000 },
       { type: "EMPLOYEE_COUNT", value: 10 },
     ],
     description:
-      "A senior developer with extensive experience who can lead projects and mentor juniors.",
+      "Doesn't use a mouse. Writes code on a mechanical keyboard loud enough to wake the dead. Hates everything you just wrote.",
   },
 });
 
@@ -216,11 +219,11 @@ function gameReducer(state, action) {
     case "SET_ACTIVE_TAB": {
       const { tab } = action.payload;
       const validTabs = NAV_TABS.map((t) => t.id);
+      const activeTab = validTabs.includes(tab) ? tab : "shop";
       if (!validTabs.includes(tab)) {
         console.warn(`Invalid tab: ${tab}. Defaulting to shop.`);
-        tab = "shop";
       }
-      return { ...state, activeTab: tab };
+      return { ...state, activeTab };
     }
     // Player clicks the "Write Code" button
     case "WRITE_CODE": {

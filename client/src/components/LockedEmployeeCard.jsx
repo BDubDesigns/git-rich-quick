@@ -1,6 +1,3 @@
-import { createElement } from "react";
-import "./LockedEmployeeCard.css";
-
 /**
  * Displays a locked employee with unlock requirements and progress bars.
  * Read-only display component—no purchase logic.
@@ -11,6 +8,9 @@ import "./LockedEmployeeCard.css";
  *   since LockedEmployeeCard is only rendered for locked employees. Locked employees always
  *   have unlock conditions, so progress array is always populated.
  */
+
+import { formatMoney } from "../utils/currency";
+
 export function LockedEmployeeCard({ config, progress }) {
   // Format unlock condition for human-readable display
   const formatCondition = (condition) => {
@@ -32,70 +32,73 @@ export function LockedEmployeeCard({ config, progress }) {
     progress.every((progressItem) => progressItem.remaining === 0);
 
   return (
-    <div
-      className={`locked-employee-card ${
-        allConditionsMet ? "ready-to-unlock" : ""
-      }`}
-    >
-      {/* Header: Employee info */}
-      <div className="locked-employee-header">
-        <div className="locked-employee-icon">
-          {createElement(config.icon.type, {
-            ...config.icon.props,
-            size: 48,
-          })}
-        </div>
-        <h3 className="locked-employee-name">{config.name}</h3>
-        <span className="locked-badge">LOCKED</span>
+    <div className="panel locked px-3 pb-1 flex flex-col gap-1 m-0">
+      {/* Top: Employee Name */}
+      <div>
+        <span className="text-sm font-bold">{config.name}</span>{" "}
+        <span className="text-xs comment-text">
+          {`// `}
+          {config.locPerSecond} LOC per Sec
+        </span>
       </div>
 
-      {/* Unlock conditions section */}
-      <div className="unlock-conditions">
-        <p className="unlock-label">Unlock requirements:</p>
-        {progress.map((prog, idx) => (
-          // Use array index as key because:
-          // 1. Progress array is derived directly from config.unlockConditions (stable order)
-          // 2. Future conditions may have duplicate types (e.g., multiple EMPLOYEE_COUNT conditions)
-          //    so type alone cannot be a unique identifier
-          // 3. Array is never filtered/reordered dynamically
-          <div key={idx} className="unlock-requirement">
-            <p className="requirement-text">
-              {formatCondition(prog)}
-              {prog.remaining > 0 && (
-                <span className="requirement-remaining">
-                  {" "}
-                  ({prog.remaining} remaining)
-                </span>
-              )}
-            </p>
-            {/* Progress bar */}
-            <div
-              className="requirement-progress"
-              role="progressbar"
-              aria-valuenow={prog.current}
-              aria-valuemin="0"
-              aria-valuemax={prog.required}
-              aria-label={`Progress towards ${formatCondition(prog)}`}
-            >
-              <div
-                className="progress-fill"
-                style={{
-                  width:
-                    prog.required > 0
-                      ? `${Math.min(
-                          (prog.current / prog.required) * 100,
-                          100
-                        )}%`
-                      : "0%",
-                }}
-              />
-            </div>
-            {/* Current / Required */}
-            <p className="progress-text">
-              {prog.current} / {prog.required}
-            </p>
-          </div>
-        ))}
+      {/* Row: Icon + Name + Count, Description, Button */}
+      <div className="flex items-center gap-4">
+        {/* Left: Icon + Name + Count */}
+        {/* <div className="flex flex-col items-start gap-1 shrink-0">
+          <config.Icon size={36} color="grey" />
+        </div> */}
+        {/* Unlock conditions section */}
+        <div className="flex-1 space-y-2">
+          <p className="text-xs font-semibold">Unlock requirements:</p>
+          {progress.map((prog, idx) => {
+            const percentage =
+              prog.required > 0
+                ? Math.min((prog.current / prog.required) * 100, 100)
+                : 0;
+            return (
+              <div key={idx} className="space-y-1">
+                <div className="flex flex-col justify-between items-center">
+                  <span className="text-xs">
+                    {formatCondition(prog)}
+                    {prog.remaining > 0 && (
+                      <span className="text-gray-400">
+                        {" "}
+                        ({prog.remaining} remaining)
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {/* Simple progress bar */}
+                <div
+                  className="h-4 bg-gray-700 rounded relative"
+                  role="progressbar"
+                  aria-valuenow={prog.current}
+                  aria-valuemin="0"
+                  aria-valuemax={prog.required}
+                  aria-label={`Progress towards ${formatCondition(prog)}`}
+                >
+                  <div
+                    className="h-4 bg-green-500 rounded transition-all duration-300"
+                    style={{ width: `${percentage}%` }}
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center text-xs text-white">
+                    {prog.current} / {prog.required}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Right: Button with Price */}
+        <button
+          disabled={true}
+          className={`flex flex-col items-center gap-1 shrink-0 px-3 py-2 rounded font-bold text-xs whitespace-nowrap bg-gray-700 text-gray-500 cursor-not-allowed`}
+        >
+          <div>LOCKED</div>
+          <div>(${formatMoney(config.baseCost)})</div>
+        </button>
       </div>
     </div>
   );
