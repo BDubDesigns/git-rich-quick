@@ -211,6 +211,13 @@ const initialState = {
     },
     {}
   ),
+  uiState: {
+    sections: {
+      shop: { isDescriptionVisible: true },
+      projects: { isDescriptionVisible: true },
+      openSource: { isDescriptionVisible: true },
+    },
+  },
 };
 
 function gameReducer(state, action) {
@@ -373,6 +380,25 @@ function gameReducer(state, action) {
         },
       };
     }
+
+    case "TOGGLE_SECTION_DESC_VISIBILITY": {
+      const { sectionId } = action.payload;
+      return {
+        ...state,
+        uiState: {
+          ...state.uiState,
+          sections: {
+            ...state.uiState.sections,
+            [sectionId]: {
+              ...state.uiState.sections[sectionId],
+              isDescriptionVisible:
+                !state.uiState.sections[sectionId].isDescriptionVisible,
+            },
+          },
+        },
+      };
+    }
+
     // if action type doesn't make sense, just return current state
     default: {
       return state;

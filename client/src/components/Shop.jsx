@@ -9,6 +9,7 @@ import {
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
 import { CodeComment } from "./CodeComment.jsx";
+import { SectionTitleBar } from "./SectionTitleBar.jsx";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -20,22 +21,31 @@ export function Shop() {
     });
   };
 
+  const handleToggleDescription = () => {
+    dispatch({
+      type: "TOGGLE_SECTION_DESC_VISIBILITY",
+      payload: { sectionId: "shop" },
+    });
+  };
+
+  const isDescriptionVisible = state.uiState.sections.shop.isDescriptionVisible;
+
   return (
     <div className="primary-text">
-      <div className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border-t border-[#0078d4] text-sm text-[#cccccc] w-fit">
-        <span className="text-[#c5c53f]">JS</span>
-        <h2 className="m-0">Hire Devs</h2>
-        <button className="ml-auto text-[#858585] hover:text-[#ffffff]">
-          ×
-        </button>
-      </div>
+      <SectionTitleBar
+        title="Hire Devs"
+        isDescriptionVisible={isDescriptionVisible}
+        onToggle={handleToggleDescription}
+      />
 
-      <CodeComment>
-        Here you can hire developers to write LOC for you. It's a one time fee
-        per developer, even though that doesn't make any sense. Don't pretend
-        anything about software development makes sense; you pull that thread,
-        no sweater.
-      </CodeComment>
+      {isDescriptionVisible && (
+        <CodeComment>
+          Here you can hire developers to write LOC for you. It's a one time fee
+          per developer, even though that doesn't make any sense. Don't pretend
+          anything about software development makes sense; you pull that thread,
+          no sweater.
+        </CodeComment>
+      )}
       <div className="flex flex-col gap-2">
         {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
           const unlocked = isEmployeeUnlocked(employeeType, state);
