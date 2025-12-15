@@ -5,7 +5,9 @@ import {
 } from "../context/GameContext";
 // Import the reusable button component.
 import { ActionButton } from "./ActionButton";
-
+// Import additional UI components for styling and content.
+import { SectionTitleBar } from "./SectionTitleBar.jsx";
+import { CodeComment } from "./CodeComment.jsx";
 // Define the OpenSource component, which renders the UI for contributing to projects.
 export function OpenSource() {
   // Get the current game state and the dispatch function from the game context.
@@ -17,13 +19,30 @@ export function OpenSource() {
     dispatch({ type: "CONTRIBUTE_TO_PROJECT", payload: { projectId } });
   };
 
+  // Get the visibility state of the project descriptions from the game state.
+  const isDescriptionVisible =
+    state.uiState.sections.openSource.isDescriptionVisible;
+  const handleToggleDescription = () => {
+    dispatch({
+      type: "TOGGLE_SECTION_DESC_VISIBILITY",
+      payload: { sectionId: "openSource" },
+    });
+  };
+
   // Render the component's UI.
   return (
-    <div className="mt-4 mx-2 rounded-xl border border-gray-300 p-4">
-      <h2 className="mt-0">GitNub Contributions</h2>
-      <p>
-        Contribute your LOC to open-source projects to unlock permanent bonuses.
-      </p>
+    <div className="primary-text">
+      <SectionTitleBar
+        title="GitNub Contributions"
+        onToggle={handleToggleDescription}
+        isDescriptionVisible={isDescriptionVisible}
+      />
+      {isDescriptionVisible && (
+        <CodeComment>
+          Contribute your LOC to open-source projects to unlock permanent
+          bonuses.
+        </CodeComment>
+      )}
       {/* Use a grid layout to display the projects. */}
       <div className="grid grid-cols-2 gap-4">
         {/* Map over the OPEN_SOURCE_PROJECTS_CONFIG to render each project. */}

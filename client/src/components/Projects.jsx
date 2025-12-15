@@ -5,6 +5,8 @@ import {
 import { formatMoney } from "../utils/currency.js";
 import { ActionButton } from "./ActionButton.jsx";
 import { HiOutlineBanknotes } from "react-icons/hi2";
+import { SectionTitleBar } from "./SectionTitleBar.jsx";
+import { CodeComment } from "./CodeComment.jsx";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -16,10 +18,27 @@ export function Projects() {
     });
   };
 
+  const handleToggleDescription = () => {
+    dispatch({
+      type: "TOGGLE_SECTION_DESC_VISIBILITY",
+      payload: { sectionId: "projects" },
+    });
+  };
+
+  const isDescriptionVisible =
+    state.uiState.sections.projects.isDescriptionVisible;
+
   return (
-    <div className="mt-4 border border-gray-300 p-4 rounded-2xl">
-      <h2 className="mt-0">Freelance Projects</h2>
-      <p>Convert LOC to Money by completing projects</p>
+    <div className="primary-text">
+      <SectionTitleBar
+        title="Freelance Projects"
+        onToggle={handleToggleDescription}
+        isDescriptionVisible={isDescriptionVisible}
+      />
+      {isDescriptionVisible && (
+        <CodeComment>Convert LOC to Money by completing projects</CodeComment>
+      )}
+
       <div className="grid grid-cols-3 gap-4">
         {Object.entries(FREELANCE_PROJECTS_CONFIG).map(
           ([projectKey, project]) => {
