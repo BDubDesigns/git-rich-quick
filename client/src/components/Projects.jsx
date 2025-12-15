@@ -7,6 +7,7 @@ import { ActionButton } from "./ActionButton.jsx";
 import { HiOutlineBanknotes } from "react-icons/hi2";
 import { SectionTitleBar } from "./SectionTitleBar.jsx";
 import { CodeComment } from "./CodeComment.jsx";
+import { ProjectCard } from "./ProjectCard.jsx";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -39,31 +40,21 @@ export function Projects() {
         <CodeComment>Convert LOC to Money by completing projects</CodeComment>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="flex flex-col gap-2">
         {Object.entries(FREELANCE_PROJECTS_CONFIG).map(
           ([projectKey, project]) => {
             const canComplete = state.linesOfCode >= project.loc;
 
             return (
-              <div
+              <ProjectCard
                 key={projectKey}
-                className="border rounded-md border-gray-300 p-4 pt-0 flex flex-col"
-              >
-                <h3 className="-rotate-3 text-blue-800 font-semibold mb-1">
-                  {project.name}
-                </h3>
-                <p>{project.description}</p>
-                <p>Requires: {project.loc} LOC</p>
-                <p>Reward: ${formatMoney(project.reward)}</p>
-                <ActionButton
-                  onClick={() => handleCompleteProject(projectKey)}
-                  disabled={!canComplete}
-                  floatText={`+$${formatMoney(project.reward)}`}
-                  icon={<HiOutlineBanknotes size={20} />}
-                >
-                  Ship Project
-                </ActionButton>
-              </div>
+                project={project}
+                onComplete={() => handleCompleteProject(projectKey)}
+                canComplete={canComplete}
+                completionCount={
+                  state.freelanceProjectsCompleted[projectKey] || 0
+                }
+              />
             );
           }
         )}

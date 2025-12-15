@@ -24,9 +24,14 @@ export function ActionButton({
   floatText,
   className = "",
   icon,
+  fullWidth = true,
 }) {
   return (
-    <div className={`flex justify-center w-full mt-auto ${className}`}>
+    <div
+      className={`flex justify-center ${
+        fullWidth ? "w-full" : ""
+      } mt-auto ${className}`}
+    >
       <BouncyButton
         onClick={onClick}
         disabled={disabled}

@@ -1,12 +1,21 @@
 import { useReducer, useContext, createContext } from "react";
+
+//  icons for employees
 import { GiPlasticDuck } from "react-icons/gi";
 import { BsBackpack } from "react-icons/bs";
 import { BiCoffeeTogo } from "react-icons/bi";
+
+// import icons for navigation tabs
 import { FaPeopleGroup } from "react-icons/fa6";
 import { MdEmail } from "react-icons/md";
 import { FaGithub } from "react-icons/fa";
 import { IoSettings } from "react-icons/io5";
 import { MdRocketLaunch } from "react-icons/md";
+
+// import icons for projects
+import { BsClipboard2CheckFill } from "react-icons/bs"; // to-do list app
+import { GiPostStamp } from "react-icons/gi"; // hobby website
+import { GiCoinsPile } from "react-icons/gi"; // paradigm-shifting blockchain project
 
 /**
  * ========================================
@@ -115,6 +124,8 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
       "A simple to-do list application. Cuz that's never been done before. Ever.",
     loc: 50,
     reward: 3000, // $30.00 ($0.60/LOC - best deal, rewards grinding)
+    icon: BsClipboard2CheckFill,
+    color: "brown",
   },
   hobbyWebsite: {
     name: "Hobby Website",
@@ -122,6 +133,8 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
       "A personal website for a client to showcase their hobbies. The world needs to know about Bob's passion for stamp collecting.",
     loc: 750,
     reward: 36000, // $360.00 ($0.48/LOC - middle ground)
+    icon: GiPostStamp,
+    color: "lightblue",
   },
   paradigmShiftingBlockchainProject: {
     name: "Paradigm-Shifting Blockchain Project",
@@ -129,6 +142,8 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
       "A very useful project that leverages the blockchain to convert hype, overpromises, and investor's money into your money.",
     loc: 2000,
     reward: 80000, // $800.00 ($0.40/LOC - lazy button, lower $/LOC)
+    icon: GiCoinsPile,
+    color: "gold",
   },
 });
 

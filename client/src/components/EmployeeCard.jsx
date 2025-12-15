@@ -1,5 +1,8 @@
 import { formatMoney } from "../utils/currency";
 
+import { ActionButton } from "./ActionButton.jsx";
+import { HiOutlineBanknotes } from "react-icons/hi2";
+
 export function EmployeeCard({
   config,
   currentCost,

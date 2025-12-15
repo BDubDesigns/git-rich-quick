@@ -1,0 +1,49 @@
+import { formatMoney } from "../utils/currency";
+
+import { ActionButton } from "./ActionButton.jsx";
+import { HiOutlineBanknotes } from "react-icons/hi2";
+
+export function ProjectCard({
+  project,
+  onComplete,
+  canComplete,
+  completionCount,
+}) {
+  return (
+    <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
+      {/* Top: Project Name */}
+      <div>
+        <span className="text-sm font-bold">{project.name}</span>{" "}
+        <span className="text-xs comment-text">
+          {`// `}
+          {project.loc} LOC = ${formatMoney(project.reward)}
+        </span>
+      </div>
+
+      {/* Row: Icon + Name + Completion Count, Description, Button */}
+      <div className="flex items-center gap-4">
+        {/* Left: Icon + Name + Count */}
+        <div className="flex flex-col items-center gap-1 shrink-0">
+          <project.icon size={36} color={project.color} />
+          <div className="text-xs text-gray-400">x{completionCount}</div>
+        </div>
+        {/* Center: Description */}
+        <div className="flex-1">
+          <p className="text-xs text-gray-300">{project.description}</p>
+        </div>
+
+        {/* Right: Button with Price */}
+        <ActionButton
+          onClick={onComplete}
+          disabled={!canComplete}
+          floatText={`+$${formatMoney(project.reward)}`}
+          icon={<HiOutlineBanknotes size={20} />}
+          fullWidth={false}
+        >
+          <div>Ship!</div>
+          <div>({project.loc} LOC)</div>
+        </ActionButton>
+      </div>
+    </div>
+  );
+}

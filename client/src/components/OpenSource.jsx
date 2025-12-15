@@ -43,8 +43,8 @@ export function OpenSource() {
           bonuses.
         </CodeComment>
       )}
-      {/* Use a grid layout to display the projects. */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Use a flex column layout to display the projects. */}
+      <div className="flex flex-col gap-2">
         {/* Map over the OPEN_SOURCE_PROJECTS_CONFIG to render each project. */}
         {/* Object.entries converts the config object into an array of [id, config] pairs. */}
         {Object.entries(OPEN_SOURCE_PROJECTS_CONFIG).map(([id, config]) => {
