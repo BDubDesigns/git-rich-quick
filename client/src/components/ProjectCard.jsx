@@ -15,9 +15,18 @@ export function ProjectCard({
       <div>
         <span className="text-sm font-bold">{project.name}</span>{" "}
         <span className="text-xs comment-text">
-          {`// `}
-          {project.loc} LOC = ${formatMoney(project.reward)}
+          {`// `} pays ${formatMoney(project.reward)}
         </span>
+      </div>
+      {/* Row: Rewards and Cost */}
+      <div className="text-xs font-mono">
+        <span className="text-blue-400">@param</span>
+        <span className="text-cyan-300"> {`{LOC}`}</span>
+        <span className="text-gray-400"> {project.loc}</span>
+        <br />
+        <span className="text-blue-400"> @returns</span>
+        <span className="text-cyan-300"> {`{Currency}`}</span>
+        <span className="text-green-400"> ${formatMoney(project.reward)}</span>
       </div>
 
       {/* Row: Icon + Name + Completion Count, Description, Button */}
