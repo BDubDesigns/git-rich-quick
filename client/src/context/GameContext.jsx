@@ -17,6 +17,10 @@ import { BsClipboard2CheckFill } from "react-icons/bs"; // to-do list app
 import { GiPostStamp } from "react-icons/gi"; // hobby website
 import { GiCoinsPile } from "react-icons/gi"; // paradigm-shifting blockchain project
 
+// import icons for gitnub / open source projects
+import { FaCircleRadiation } from "react-icons/fa6"; // overReact framework
+import { FaFishFins } from "react-icons/fa6"; // blocker containerization platform
+
 /**
  * ========================================
  * ARCHITECTURE: Config + State Separation
@@ -150,6 +154,8 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
 export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   overReactFramework: {
     name: "OverReact Framework",
+    icon: FaCircleRadiation,
+    color: "yellow",
     description:
       "An open-source JavaScript framework that makes building web applications unnecessarily complex and bloated.",
     // No unlock condition for this one, available from start
@@ -159,10 +165,12 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
       { locCost: 3000, bonus: { type: "CLICK_BOOST", value: 4 } },
     ],
   },
-  nodeRuntime: {
-    name: "Node Runtime",
+  blocker: {
+    name: "Blocker Containerization Platform",
+    icon: FaFishFins,
+    color: "teal",
     description:
-      "Uses a `node_modules` folder that's heavier than a black hole. It lets frontend developers write backend code, for better or for worse.",
+      "Why fix dependencies when you can ship the whole OS? Blocker wraps your 5KB script in a 4GB virtual environment, ensuring that if it works on your machine, it's now the Ops team's problem.",
     unlockCondition: {
       type: "EMPLOYEE_COUNT",
       employeeType: "junior",
