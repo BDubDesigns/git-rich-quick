@@ -171,11 +171,9 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     color: "teal",
     description:
       "Why fix dependencies when you can ship the whole OS? Blocker wraps your 5KB script in a 4GB virtual environment, ensuring that if it works on your machine, it's now the Ops team's problem.",
-    unlockCondition: {
-      type: "EMPLOYEE_COUNT",
-      employeeType: "junior",
-      count: 5,
-    },
+    unlockConditions: [
+      { type: "EMPLOYEE_COUNT", employeeType: "junior", count: 5 },
+    ],
     levels: [
       { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.5 } },
       { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 1 } },
@@ -234,6 +232,17 @@ const initialState = {
     },
     {}
   ),
+  unlockedOpenSourceProjects: Object.keys(OPEN_SOURCE_PROJECTS_CONFIG).reduce(
+    (acc, key) => {
+      const config = OPEN_SOURCE_PROJECTS_CONFIG[key];
+      // Only unlocked if NO conditions, otherwise starts locked
+      acc[key] =
+        !config.unlockConditions || config.unlockConditions.length === 0;
+      return acc;
+    },
+    {}
+  ),
+
   uiState: {
     sections: {
       shop: { isDescriptionVisible: true },
@@ -276,9 +285,11 @@ function gameReducer(state, action) {
       };
 
       // Check for unlocks instantly (not waiting for GAME_TICK)
+      // Writing code could trigger unlocks so we run both unlock checks
       return {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
     }
     // Buy an employee (intern, junior, or senior)
@@ -312,6 +323,7 @@ function gameReducer(state, action) {
         return {
           ...newState,
           unlockedEmployees: updateUnlockLatch(newState),
+          unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
         };
       }
 
@@ -366,6 +378,7 @@ function gameReducer(state, action) {
       return {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
     }
 
@@ -459,25 +472,38 @@ function gameReducer(state, action) {
  * @see getUnlockProgress
  * @see GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD
  */
+
+/**
+ * Private helper to check if any progress meets the visibility threshold.
+ * @private
+ */
+function checkProgressAgainstThreshold(progress, threshold) {
+  if (progress.length === 0) {
+    // Defensive: empty progress means no conditions, so consider it met
+    return true;
+  }
+  // Check if any condition meets or exceeds the threshold
+  return progress.some(
+    (condition) =>
+      condition.required > 0 &&
+      condition.current / condition.required >= threshold
+  );
+}
+// Checks if an unlockable has crossed the visibility threshold
 export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
+  const threshold = GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD;
+
+  // Handle employee unlock type
   if (unlockType === "employee") {
     const progress = getUnlockProgress(unlockUnit, state);
-
-    // If no unlock conditions, employee is always visible
-    if (progress.length === 0) {
-      return true;
-    }
-
-    const threshold = GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD;
-    // Check if ANY condition has >= 10% progress
-    // Guard against division by zero if a condition is misconfigured with required === 0
-    return progress.some(
-      (condition) =>
-        condition.required > 0 &&
-        condition.current / condition.required >= threshold
-    );
+    return checkProgressAgainstThreshold(progress, threshold);
   }
-  // Handle other unlock types as needed in future
+  // Handle openSource unlock type
+  if (unlockType === "openSource") {
+    const progress = getUnlockProgressForOpenSource(unlockUnit, state);
+    return checkProgressAgainstThreshold(progress, threshold);
+  }
+
   console.warn(`Unknown unlock type: ${unlockType}`);
   return false;
 }
@@ -739,6 +765,65 @@ function updateUnlockLatch(state) {
   // (to prevent unnecessary re-renders from object reference changes)
   return hasNewUnlock ? newUnlockedEmployees : state.unlockedEmployees;
 }
+/**
+ * Checks if all unlock conditions for an open source project are currently satisfied.
+ *
+ * @param {string} projectId - The project ID
+ * @param {Object} state - The game state
+ * @returns {boolean} True if all conditions are met, false otherwise
+ *
+ * @private
+ */
+function areOpenSourceUnlockConditionsMet(projectId, state) {
+  const config = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
+
+  if (!config) {
+    console.warn(`Unknown project ID: ${projectId}`);
+    return false;
+  }
+
+  // If no unlock conditions defined, project is always unlocked
+  if (!config.unlockConditions || config.unlockConditions.length === 0) {
+    return true;
+  }
+
+  // ALL conditions must be met (AND logic)
+  return config.unlockConditions.every((condition) =>
+    checkCondition(condition, state)
+  );
+}
+
+/**
+ * Updates the unlock latch for open source projects, checking if any should be unlocked.
+ *
+ * Called from WRITE_CODE, BUY_EMPLOYEE, and GAME_TICK (same as employees).
+ * Checks only LOCKED projects for new unlocks. Once unlocked, permanent.
+ *
+ * @param {Object} state - The NEW game state (after action changes)
+ * @returns {Object} Updated unlockedOpenSourceProjects object (or original if no changes)
+ *
+ * @private
+ */
+function updateOpenSourceUnlockLatch(state) {
+  const newUnlockedProjects = { ...state.unlockedOpenSourceProjects };
+  let hasNewUnlock = false;
+
+  // Only check LOCKED projects for new unlocks
+  const lockedProjects = Object.keys(OPEN_SOURCE_PROJECTS_CONFIG).filter(
+    (projectId) => !state.unlockedOpenSourceProjects[projectId]
+  );
+
+  for (const projectId of lockedProjects) {
+    // Conditions are now met, latch it
+    if (areOpenSourceUnlockConditionsMet(projectId, state)) {
+      newUnlockedProjects[projectId] = true;
+      hasNewUnlock = true;
+    }
+  }
+
+  // Return updated object if new unlocks occurred, otherwise return original
+  return hasNewUnlock ? newUnlockedProjects : state.unlockedOpenSourceProjects;
+}
 
 /**
  * Determines if an employee type is permanently unlocked.
@@ -822,6 +907,72 @@ export function getUnlockProgress(employeeType, state) {
       remaining,
     };
   });
+}
+
+/**
+ * Calculates progress toward unlocking an open source project.
+ *
+ * Similar to getUnlockProgress() for employees, but pulls conditions from
+ * the project config instead of the employee config.
+ *
+ * @param {string} projectId - The project ID (e.g., "blocker")
+ * @param {Object} state - The game state
+ * @returns {Array<Object>} Array of { type, current, required, remaining }
+ */
+export function getUnlockProgressForOpenSource(projectId, state) {
+  const config = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
+
+  if (
+    !config ||
+    !config.unlockConditions ||
+    config.unlockConditions.length === 0
+  ) {
+    return []; // No unlock conditions
+  }
+
+  return config.unlockConditions.map((condition) => {
+    let current = 0;
+
+    switch (condition.type) {
+      case "TOTAL_LOC":
+        current = state.totalLinesOfCode;
+        break;
+      case "EMPLOYEE_COUNT":
+        // If condition specifies an employee type, count only that type
+        // Otherwise count all employees (for backward compatibility)
+        if (condition.employeeType) {
+          current = state.employees[condition.employeeType].count;
+        } else {
+          current = getTotalEmployeeCount(state);
+        }
+        break;
+      default:
+        current = 0;
+    }
+
+    const required = condition.count; // Note: uses 'count' not 'value' like employees
+    const remaining = Math.max(0, required - current);
+
+    return {
+      type: condition.type,
+      current,
+      required,
+      remaining,
+    };
+  });
+}
+
+/**
+ * Determines if an open source project is permanently unlocked.
+ *
+ * Reads the permanent unlock record. Once unlocked, always unlocked.
+ *
+ * @param {string} projectId - The project ID
+ * @param {Object} state - The game state
+ * @returns {boolean} True if project has been unlocked
+ */
+export function isOpenSourceProjectUnlocked(projectId, state) {
+  return state.unlockedOpenSourceProjects[projectId];
 }
 
 // Calculate current LOC per second from all employees

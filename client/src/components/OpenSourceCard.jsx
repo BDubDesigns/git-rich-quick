@@ -34,7 +34,7 @@ export function OpenSourceCard({
               <span className="text-cyan-300"> {`{LOC}`}</span>
               <span className="text-gray-400">
                 {" "}
-                {locCost} LOC needed for next level
+                {locCost} LOC needed for v.{currentLevel + 1}.0
               </span>
               <br />
 

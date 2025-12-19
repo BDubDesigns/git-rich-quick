@@ -6,9 +6,11 @@ import {
 // Import additional UI components for styling and content.
 import { SectionTitleBar } from "./SectionTitleBar.jsx";
 import { CodeComment } from "./CodeComment.jsx";
-import { ProgressBar } from "./ProgressBar.jsx";
 import { OpenSourceCard } from "./OpenSourceCard.jsx";
 import { LockedOpenSourceCard } from "./LockedOpenSourceCard.jsx";
+import { isOpenSourceProjectUnlocked } from "../context/GameContext";
+import { getUnlockProgressForOpenSource } from "../context/GameContext";
+import { hasCrossedUnlockThreshold } from "../context/GameContext";
 
 // Define the OpenSource component, which renders the UI for contributing to projects.
 export function OpenSource() {
@@ -54,33 +56,28 @@ export function OpenSource() {
           const projectState = state.openSourceProjects[id];
 
           // --- Unlock Condition Check ---
-          // Initialize a flag to track if the project is locked.
-          let isLocked = false;
-          let employeeType = null;
-          // Check if the project has an unlock condition defined in its config.
-          if (config.unlockCondition) {
-            // Destructure the properties from the unlock condition object.
-            const { type, employeeType: emp, count } = config.unlockCondition;
-            employeeType = emp;
-            // If the condition is based on employee count, check if the player has enough.
-            if (type === "EMPLOYEE_COUNT" && state.employees[emp].count < count) {
-              // If the player doesn't have enough employees, set the project as locked.
-              isLocked = true;
-            }
-          }
+          const isUnlocked = isOpenSourceProjectUnlocked(id, state);
 
-          // If the project is locked, render the locked card.
-          if (isLocked) {
-            const firstLevelBonus = config.levels[0]?.bonus;
-            const firstLevelCost = config.levels[0]?.locCost;
+          if (!isUnlocked) {
+            // show locked card only if threshold crossed
+            const hasCrossedThreshold = hasCrossedUnlockThreshold(
+              "openSource",
+              id,
+              state
+            );
+            if (!hasCrossedThreshold) {
+              return null; // skip rendering this locked project
+            }
+            // render locked card
+            const progress = getUnlockProgressForOpenSource(id, state);
             return (
               <LockedOpenSourceCard
                 key={id}
                 project={config}
-                unlockCondition={config.unlockCondition}
-                currentProgress={state.employees[employeeType].count}
-                nextBonus={firstLevelBonus}
-                locCost={firstLevelCost}
+                unlockConditions={config.unlockConditions}
+                progress={progress}
+                nextBonus={config.levels[0]?.bonus}
+                locCost={config.levels[0]?.locCost}
               />
             );
           }

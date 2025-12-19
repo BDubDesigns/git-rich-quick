@@ -4,7 +4,7 @@ export function ProgressBar({ current, required, label }) {
 
   return (
     <div className="space-y-1">
-      <div className="flex flex-col justify-between items-center">
+      <div className="flex flex-col justify-between items-start">
         <span className="text-xs">
           {label}
           {current < required && (

@@ -3,8 +3,8 @@ import { ProgressBar } from "./ProgressBar.jsx";
 
 export function LockedOpenSourceCard({
   project,
-  unlockCondition,
-  currentProgress,
+  unlockConditions,
+  progress,
   nextBonus,
   locCost,
 }) {
@@ -37,22 +37,29 @@ export function LockedOpenSourceCard({
                 +{nextBonus.value} {nextBonus.type}
               </span>
               <br />
-              {/* ending comment tag */}
-              <span className="comment-text">{`*/`}</span>
-            </div>
-          </div>
 
-          {/* Unlock requirement progress bar */}
-          <div className="mt-2 pt-2 border-t border-gray-600">
-            <p className="text-xs font-semibold mb-1">Unlock requirement:</p>
-            <ProgressBar
-              current={currentProgress}
-              required={unlockCondition.count}
-              label={`Hire ${unlockCondition.count} ${unlockCondition.employeeType}s`}
-            />
+              {/* Unlock requirement progress bar */}
+              <div>
+                <p className="text-xs font-semibold mb-1">
+                  Unlock requirement:
+                </p>
+                {/* Map over unlockConditions to render progress bars */}
+                {progress.map((prog, index) => (
+                  <ProgressBar
+                    key={index}
+                    current={prog.current}
+                    required={prog.required}
+                    label={`Hire ${prog.required} ${
+                      unlockConditions[index].employeeType
+                    }${prog.required > 1 ? "s" : ""}`}
+                  />
+                ))}
+              </div>
+            </div>
+            {/* ending comment tag */}
+            <span className="text-xs comment-text">{`*/`}</span>
           </div>
         </div>
-
         {/* Right: Locked Button */}
         <button
           disabled={true}
