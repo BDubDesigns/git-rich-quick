@@ -7,3 +7,10 @@
   width: 85% !important;
   height: 4rem;
 }
+
+/* Desktop: Let button size naturally */
+@media (min-width: 1024px) {
+  .commit-button {
+    width: 100% !important;
+  }
+}

@@ -40,7 +40,7 @@ export function ProjectCard({
 
         {/* Right: Button with Price */}
         {/* Left: Icon + Name + Count */}
-        <div className="flex flex-col items-center gap-1 shrink-0">
+        <div className="flex flex-col items-center gap-1 shrink-0 py-2">
           <project.icon size={36} color={project.color} />
           <div className="text-xs text-gray-400">x{completionCount}</div>
           <ActionButton

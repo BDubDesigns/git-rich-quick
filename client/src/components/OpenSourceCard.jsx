@@ -76,7 +76,7 @@ export function OpenSourceCard({
         </div>
 
         {/* Right: Icon + Level, Contribute Button */}
-        <div className="flex flex-col items-center gap-2 shrink-0">
+        <div className="flex flex-col items-center gap-2 shrink-0 py-2">
           {/* Icon + Level number */}
           <project.icon size={36} color={project.color} />
           <div className="text-xs text-gray-400">v{currentLevel}.0</div>

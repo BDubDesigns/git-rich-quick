@@ -50,13 +50,13 @@ export function StatBox() {
   return (
     <>
       <div className="mx-2 select-none">
-        <div className="flex justify-items-normal items-center gap-4 mt-2 p-2 w-full panel mb-2">
+        <div className="flex justify-items-normal items-center gap-6 mt-2 py-2 px-6 w-full panel mb-2">
           {/* Game stat displays: LOC currency */}
           <StatDisplay
             label="LOC"
             icon={
               <HiMiniCodeBracket
-                size={30}
+                size={24}
                 color="var(--active-button-bg-color)"
               />
             }
@@ -66,7 +66,7 @@ export function StatBox() {
           {/* Game stat displays: Money currency (in dollars) */}
           <StatDisplay
             label="Money"
-            icon={<LiaMoneyBillWaveAltSolid color="green" size={30} />}
+            icon={<LiaMoneyBillWaveAltSolid color="green" size={24} />}
             value={`$${displayMoney}`}
           />
 
@@ -77,7 +77,7 @@ export function StatBox() {
               <EmployeeCountIcon
                 color="var(--classes-text-color)"
                 count={totalEmployees}
-                size={30}
+                size={24}
               />
             }
             value={totalEmployees}
@@ -89,7 +89,7 @@ export function StatBox() {
           <StatDisplay
             ref={locPerSecondRef}
             label="LOC/sec"
-            icon={<TbUserCode size={36} color="var(--comment-text-color)" />}
+            icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
             value={locPerSecond + "/s"}
           />
         </div>

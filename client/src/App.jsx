@@ -9,6 +9,7 @@ import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
 import { GameLayout } from "./components/GameLayout";
+import { useMediaQuery } from "./hooks/useMediaQuery";
 
 function App() {
   // Access game context
@@ -43,12 +44,41 @@ function App() {
     return () => clearInterval(interval);
   }, [dispatch]);
   // Local state to manage active tab (employees, projects, upgrades)
+  // Detect desktop screen size
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
   return (
     <GameLayout>
-      {state.activeTab === "shop" && <Shop />}
-      {state.activeTab === "projects" && <Projects />}
-      {state.activeTab === "openSource" && <OpenSource />}
-      {/* Handle other tabs (email, settings) as needed later */}
+      {isDesktop ? (
+        // Desktop: 3-pane grid layout
+        <div className="grid grid-cols-3 gap-4 h-full">
+          {/* Left pane: Always Shop */}
+          <div className="overflow-y-auto">
+            <Shop />
+          </div>
+
+          {/* Center pane: Dynamic (controlled by activeTab) */}
+          <div className="overflow-y-auto">
+            {state.activeTab === "shop" && <Shop />}
+            {state.activeTab === "projects" && <Projects />}
+            {state.activeTab === "openSource" && <OpenSource />}
+            {/* Email and Settings can be added here later */}
+          </div>
+
+          {/* Right pane: Always Projects */}
+          <div className="overflow-y-auto">
+            <Projects />
+          </div>
+        </div>
+      ) : (
+        // Mobile: Single pane (current behavior, unchanged)
+        <div>
+          {state.activeTab === "shop" && <Shop />}
+          {state.activeTab === "projects" && <Projects />}
+          {state.activeTab === "openSource" && <OpenSource />}
+          {/* Email and Settings can be added here later */}
+        </div>
+      )}
     </GameLayout>
   );
 }

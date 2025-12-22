@@ -191,7 +191,11 @@ const initialState = {
   totalLinesOfCode: 0, // cumulative LOC written over time, never decreases
   money: GAME_BALANCE_CONFIG.STARTING_MONEY,
   activeTab: "shop", // can be "shop", "projects", or "openSource"
-
+  // Desktop pane configuration (hardcoded now, will be dynamic later)
+  selectedPanes: {
+    left: "shop",
+    right: "projects",
+  },
   // Click tracking for CPS calculation
   clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
   currentCPS: 0, // Cached CPS for display
