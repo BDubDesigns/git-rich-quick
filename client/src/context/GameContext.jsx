@@ -1,5 +1,4 @@
 import { useReducer, useContext, createContext } from "react";
-import { nanoid } from "nanoid";
 
 //  icons for employees
 import { GiPlasticDuck } from "react-icons/gi";
