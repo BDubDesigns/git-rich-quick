@@ -18,8 +18,10 @@ export function LockedEmployeeCard({ config, progress }) {
     switch (condition.type) {
       case "TOTAL_LOC":
         return `Earn ${condition.required} total lines of code`;
-      case "EMPLOYEE_COUNT":
+      case "TOTAL_EMPLOYEE_COUNT":
         return `Hire ${condition.required} employees`;
+      case "SPECIFIC_EMPLOYEE_COUNT":
+        return `Hire ${condition.required} ${condition.employeeType}${condition.required > 1 ? "s" : ""}`;
       default:
         return "Complete an unknown objective";
     }
