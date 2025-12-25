@@ -6,10 +6,9 @@ import {
   getUnlockProgress,
   hasCrossedUnlockThreshold,
 } from "../context/GameContext";
+import { SectionLayout } from "./SectionLayout.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
-import { CodeComment } from "./CodeComment.jsx";
-import { SectionTitleBar } from "./SectionTitleBar.jsx";
 
 export function Shop() {
   const { state, dispatch } = useGameContext();
@@ -21,71 +20,44 @@ export function Shop() {
     });
   };
 
-  const handleToggleDescription = () => {
-    dispatch({
-      type: "TOGGLE_SECTION_DESC_VISIBILITY",
-      payload: { sectionId: "shop" },
-    });
-  };
-
-  const isDescriptionVisible = state.uiState.sections.shop.isDescriptionVisible;
-
   return (
-    <div className="primary-text">
-      <SectionTitleBar
-        title="Hire Devs"
-        isDescriptionVisible={isDescriptionVisible}
-        onToggle={handleToggleDescription}
-      />
+    <SectionLayout sectionId="shop">
+      {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
+        const unlocked = isEmployeeUnlocked(employeeType, state);
 
-      {isDescriptionVisible && (
-        <CodeComment>
-          Here you can hire developers to write LOC for you. It's a one time fee
-          per developer, even though that doesn't make any sense. Don't pretend
-          anything about software development makes sense; you pull that thread,
-          no sweater.
-        </CodeComment>
-      )}
-      <div className="flex flex-col gap-2">
-        {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
-          const unlocked = isEmployeeUnlocked(employeeType, state);
-
-          if (unlocked) {
-            // Already unlocked: show purchasable card
-            const currentCost = getEmployeeCost(employeeType, state);
-            const canAfford = state.money >= currentCost;
-            const ownedCount = state.employees[employeeType].count;
-
-            return (
-              <EmployeeCard
-                key={employeeType}
-                config={config}
-                currentCost={currentCost}
-                ownedCount={ownedCount}
-                canAfford={canAfford}
-                onPurchase={() => handleBuyEmployee(employeeType)}
-              />
-            );
-          }
-
-          // Not yet unlocked: show locked card with progress
-          const progress = getUnlockProgress(employeeType, state);
-          const hasCrossedThreshold = hasCrossedUnlockThreshold(
-            "employee",
-            employeeType,
-            state
-          );
+        if (unlocked) {
+          const currentCost = getEmployeeCost(employeeType, state);
+          const canAfford = state.money >= currentCost;
+          const ownedCount = state.employees[employeeType].count;
 
           return (
-            <div
+            <EmployeeCard
               key={employeeType}
-              className={!hasCrossedThreshold ? "hidden" : ""}
-            >
-              <LockedEmployeeCard config={config} progress={progress} />
-            </div>
+              config={config}
+              currentCost={currentCost}
+              ownedCount={ownedCount}
+              canAfford={canAfford}
+              onPurchase={() => handleBuyEmployee(employeeType)}
+            />
           );
-        })}
-      </div>
-    </div>
+        }
+
+        const progress = getUnlockProgress(employeeType, state);
+        const hasCrossedThreshold = hasCrossedUnlockThreshold(
+          "employee",
+          employeeType,
+          state
+        );
+
+        return (
+          <div
+            key={employeeType}
+            className={!hasCrossedThreshold ? "hidden" : ""}
+          >
+            <LockedEmployeeCard config={config} progress={progress} />
+          </div>
+        );
+      })}
+    </SectionLayout>
   );
 }

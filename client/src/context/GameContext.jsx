@@ -62,6 +62,27 @@ export const NAV_TABS = Object.freeze([
   { id: "settings", label: "Settings", Icon: IoSettings },
 ]);
 
+// Immutable sections configuration (display names and descriptions)
+export const SECTIONS_CONFIG = Object.freeze({
+  shop: {
+    id: "shop",
+    displayName: "Hire Devs",
+    description:
+      "Here you can hire developers to write LOC for you. It's a one time fee per developer, even though that doesn't make any sense. Don't pretend anything about software development makes sense; you pull that thread, no sweater.",
+  },
+  projects: {
+    id: "projects",
+    displayName: "Freelance Projects",
+    description: "Convert LOC to Money by completing projects",
+  },
+  openSource: {
+    id: "openSource",
+    displayName: "GitNub Contributions",
+    description:
+      "Contribute your LOC to open-source projects to unlock permanent bonuses.",
+  },
+});
+
 // Immutable employee configuration
 // All costs are in CENTS to avoid floating-point errors in idle games
 export const EMPLOYEE_CONFIGS = Object.freeze({
