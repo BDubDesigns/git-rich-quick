@@ -107,7 +107,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     Icon: BsBackpack,
     color: "brown",
     // Unlock conditions
-    unlockConditions: [{ type: "TOTAL_LOC", value: 100 }],
+    unlockConditions: [{ type: "TOTAL_LOC", count: 100 }],
     description:
       "Knows 12 JavaScript frameworks but can't center a div. Will refactor your working code because it 'wasn't dry enough'.",
   },
@@ -120,8 +120,8 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     color: "green",
     // Multiple conditions (all must be met)
     unlockConditions: [
-      { type: "TOTAL_LOC", value: 3000 },
-      { type: "EMPLOYEE_COUNT", value: 10 },
+      { type: "TOTAL_LOC", count: 3000 },
+      { type: "TOTAL_EMPLOYEE_COUNT", count: 10 },
     ],
     description:
       "Doesn't use a mouse. Writes code on a mechanical keyboard loud enough to wake the dead. Hates everything you just wrote.",
@@ -193,7 +193,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     description:
       "Why fix dependencies when you can ship the whole OS? Blocker wraps your 5KB script in a 4GB virtual environment, ensuring that if it works on your machine, it's now the Ops team's problem.",
     unlockConditions: [
-      { type: "EMPLOYEE_COUNT", employeeType: "junior", count: 5 },
+      { type: "SPECIFIC_EMPLOYEE_COUNT", employeeType: "junior", count: 5 },
     ],
     levels: [
       { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.5 } },
@@ -693,17 +693,21 @@ function checkCondition(condition, state) {
   switch (condition.type) {
     case "TOTAL_LOC":
       // Player has earned enough cumulative LOC
-      return state.totalLinesOfCode >= condition.value;
+      return state.totalLinesOfCode >= condition.count;
 
-    case "EMPLOYEE_COUNT":
-      // Player has hired enough total employees
-      return getTotalEmployeeCount(state) >= condition.value;
+    case "TOTAL_EMPLOYEE_COUNT":
+      // Player has hired enough total employees (all types combined)
+      return getTotalEmployeeCount(state) >= condition.count;
+
+    case "SPECIFIC_EMPLOYEE_COUNT":
+      // Player has hired enough of a specific employee type
+      return state.employees[condition.employeeType].count >= condition.count;
 
     // Future condition types can be added here:
     // case "MONEY":
-    //   return state.money >= condition.value;
+    //   return state.money >= condition.count;
     // case "PROJECTS_COMPLETED":
-    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.value;
+    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.count;
 
     default:
       // Unknown condition type—this indicates a config error (typo or invalid type).
@@ -915,14 +919,17 @@ export function getUnlockProgress(employeeType, state) {
       case "TOTAL_LOC":
         current = state.totalLinesOfCode;
         break;
-      case "EMPLOYEE_COUNT":
+      case "TOTAL_EMPLOYEE_COUNT":
         current = getTotalEmployeeCount(state);
+        break;
+      case "SPECIFIC_EMPLOYEE_COUNT":
+        current = state.employees[condition.employeeType].count;
         break;
       default:
         current = 0;
     }
 
-    const required = condition.value;
+    const required = condition.count;
     const remaining = Math.max(0, required - current);
 
     return {
@@ -962,14 +969,11 @@ export function getUnlockProgressForOpenSource(projectId, state) {
       case "TOTAL_LOC":
         current = state.totalLinesOfCode;
         break;
-      case "EMPLOYEE_COUNT":
-        // If condition specifies an employee type, count only that type
-        // Otherwise count all employees (for backward compatibility)
-        if (condition.employeeType) {
-          current = state.employees[condition.employeeType].count;
-        } else {
-          current = getTotalEmployeeCount(state);
-        }
+      case "TOTAL_EMPLOYEE_COUNT":
+        current = getTotalEmployeeCount(state);
+        break;
+      case "SPECIFIC_EMPLOYEE_COUNT":
+        current = state.employees[condition.employeeType].count;
         break;
       default:
         current = 0;
