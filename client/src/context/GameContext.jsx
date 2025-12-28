@@ -923,7 +923,14 @@ export function getUnlockProgress(employeeType, state) {
         current = getTotalEmployeeCount(state);
         break;
       case "SPECIFIC_EMPLOYEE_COUNT":
-        current = state.employees[condition.employeeType].count;
+        if (condition.employeeType && state.employees[condition.employeeType]) {
+          current = state.employees[condition.employeeType].count;
+        } else {
+          console.warn(
+            `Invalid employeeType in unlock condition: ${condition.employeeType}`
+          );
+          current = 0;
+        }
         break;
       default:
         current = 0;
@@ -976,7 +983,14 @@ export function getUnlockProgressForOpenSource(projectId, state) {
         current = getTotalEmployeeCount(state);
         break;
       case "SPECIFIC_EMPLOYEE_COUNT":
-        current = state.employees[condition.employeeType].count;
+        if (condition.employeeType && state.employees[condition.employeeType]) {
+          current = state.employees[condition.employeeType].count;
+        } else {
+          console.warn(
+            `Invalid employeeType in unlock condition: ${condition.employeeType}`
+          );
+          current = 0;
+        }
         break;
       default:
         current = 0;
