@@ -36,7 +36,6 @@ export function OpenSource() {
             <LockedOpenSourceCard
               key={id}
               project={config}
-              unlockConditions={config.unlockConditions}
               progress={progress}
               nextBonus={config.levels[0]?.bonus}
               locCost={config.levels[0]?.locCost}
