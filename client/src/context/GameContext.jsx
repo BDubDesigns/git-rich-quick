@@ -994,7 +994,7 @@ export function getUnlockProgressForOpenSource(projectId, state) {
         current = 0;
     }
 
-    const target = condition.target; // Note: uses 'target' not 'value' like employees
+    const target = condition.target;
     const remaining = Math.max(0, target - current);
 
     return {
