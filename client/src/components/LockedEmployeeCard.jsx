@@ -46,7 +46,7 @@ export function LockedEmployeeCard({ config, progress }) {
               <ProgressBar
                 key={idx}
                 current={prog.current}
-                required={prog.required}
+                target={prog.target}
                 label={formatCondition(prog)}
               />
             );

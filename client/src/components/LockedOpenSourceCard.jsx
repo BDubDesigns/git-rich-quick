@@ -48,7 +48,7 @@ export function LockedOpenSourceCard({
                   <ProgressBar
                     key={index}
                     current={prog.current}
-                    required={prog.required}
+                    target={prog.target}
                     label={formatCondition(prog)}
                   />
                 ))}

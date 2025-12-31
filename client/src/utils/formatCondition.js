@@ -2,12 +2,12 @@
 const formatCondition = (condition) => {
   switch (condition.type) {
     case "TOTAL_LOC":
-      return `Earn ${condition.required} total lines of code`;
+      return `Earn ${condition.target} total lines of code`;
     case "TOTAL_EMPLOYEE_COUNT":
-      return `Hire ${condition.required} employees`;
+      return `Hire ${condition.target} employees`;
     case "SPECIFIC_EMPLOYEE_COUNT":
-      return `Hire ${condition.required} ${condition.employeeType}${
-        condition.required > 1 ? "s" : ""
+      return `Hire ${condition.target} ${condition.employeeType}${
+        condition.target > 1 ? "s" : ""
       }`;
     default:
       return "Complete an unknown objective";
