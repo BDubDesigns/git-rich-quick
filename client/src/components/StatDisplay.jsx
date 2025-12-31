@@ -25,7 +25,7 @@ export const StatDisplay = forwardRef(function StatDisplay(
   ref
 ) {
   return (
-    <div ref={ref} className="flex flex-1 flex-col items-center">
+    <div ref={ref} className="flex flex-col items-center w-20">
       <span>{icon}</span>
 
       <span className="">{value}</span>

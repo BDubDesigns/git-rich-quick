@@ -1,16 +1,15 @@
-export function ProgressBar({ current, required, label }) {
-  const percentage =
-    required > 0 ? Math.min((current / required) * 100, 100) : 0;
+export function ProgressBar({ current, target, label }) {
+  const percentage = target > 0 ? Math.min((current / target) * 100, 100) : 0;
 
   return (
     <div className="space-y-1">
       <div className="flex flex-col justify-between items-start">
         <span className="text-xs">
           {label}
-          {current < required && (
+          {current < target && (
             <span className="text-gray-400">
               {" "}
-              ({required - current} remaining)
+              ({target - current} remaining)
             </span>
           )}
         </span>
@@ -21,7 +20,7 @@ export function ProgressBar({ current, required, label }) {
         role="progressbar"
         aria-valuenow={current}
         aria-valuemin="0"
-        aria-valuemax={required}
+        aria-valuemax={target}
         aria-label={label}
       >
         <div
@@ -29,7 +28,7 @@ export function ProgressBar({ current, required, label }) {
           style={{ width: `${percentage}%` }}
         />
         <span className="absolute inset-0 flex items-center justify-center text-xs text-white">
-          {current} / {required}
+          {current} / {target}
         </span>
       </div>
     </div>

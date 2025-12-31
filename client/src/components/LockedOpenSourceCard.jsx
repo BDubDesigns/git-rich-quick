@@ -1,9 +1,9 @@
 import { formatMoney } from "../utils/currency";
 import { ProgressBar } from "./ProgressBar.jsx";
+import { formatCondition } from "../utils/formatCondition.js";
 
 export function LockedOpenSourceCard({
   project,
-  unlockConditions,
   progress,
   nextBonus,
   locCost,
@@ -48,10 +48,8 @@ export function LockedOpenSourceCard({
                   <ProgressBar
                     key={index}
                     current={prog.current}
-                    required={prog.required}
-                    label={`Hire ${prog.required} ${
-                      unlockConditions[index].employeeType
-                    }${prog.required > 1 ? "s" : ""}`}
+                    target={prog.target}
+                    label={formatCondition(prog)}
                   />
                 ))}
               </div>

@@ -107,7 +107,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     Icon: BsBackpack,
     color: "brown",
     // Unlock conditions
-    unlockConditions: [{ type: "TOTAL_LOC", value: 100 }],
+    unlockConditions: [{ type: "TOTAL_LOC", target: 100 }],
     description:
       "Knows 12 JavaScript frameworks but can't center a div. Will refactor your working code because it 'wasn't dry enough'.",
   },
@@ -120,8 +120,8 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     color: "green",
     // Multiple conditions (all must be met)
     unlockConditions: [
-      { type: "TOTAL_LOC", value: 3000 },
-      { type: "EMPLOYEE_COUNT", value: 10 },
+      { type: "TOTAL_LOC", target: 3000 },
+      { type: "TOTAL_EMPLOYEE_COUNT", target: 10 },
     ],
     description:
       "Doesn't use a mouse. Writes code on a mechanical keyboard loud enough to wake the dead. Hates everything you just wrote.",
@@ -193,7 +193,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     description:
       "Why fix dependencies when you can ship the whole OS? Blocker wraps your 5KB script in a 4GB virtual environment, ensuring that if it works on your machine, it's now the Ops team's problem.",
     unlockConditions: [
-      { type: "EMPLOYEE_COUNT", employeeType: "junior", count: 5 },
+      { type: "SPECIFIC_EMPLOYEE_COUNT", employeeType: "junior", target: 5 },
     ],
     levels: [
       { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.5 } },
@@ -483,8 +483,8 @@ function gameReducer(state, action) {
  *
  * For unlockType === "employee", this function calls getUnlockProgress(unlockUnit, state)
  * to obtain an array of progress conditions. Each condition is expected to have numeric
- * `current` and `required` properties; the progress for a condition is computed as
- * `condition.current / condition.required`. If any condition's progress is greater than
+ * `current` and `target` properties; the progress for a condition is computed as
+ * `condition.current / condition.target`. If any condition's progress is greater than
  * or equal to GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD, the function returns true.
  *
  * For unknown unlockType values the function logs a warning and returns false.
@@ -510,8 +510,7 @@ function checkProgressAgainstThreshold(progress, threshold) {
   // Check if any condition meets or exceeds the threshold
   return progress.some(
     (condition) =>
-      condition.required > 0 &&
-      condition.current / condition.required >= threshold
+      condition.target > 0 && condition.current / condition.target >= threshold
   );
 }
 // Checks if an unlockable has crossed the visibility threshold
@@ -682,8 +681,8 @@ export function calculateLOCPerSecond(state) {
  * Used internally by areUnlockConditionsMet(). NOT exported.
  *
  * @param {Object} condition - The condition to check
- * @param {string} condition.type - Type of condition (e.g., "TOTAL_LOC", "EMPLOYEE_COUNT")
- * @param {number} condition.value - The threshold value
+ * @param {string} condition.type - Type of condition (e.g., "TOTAL_LOC", "TOTAL_EMPLOYEE_COUNT", "SPECIFIC_EMPLOYEE_COUNT")
+ * @param {number} condition.target - The threshold value
  * @param {Object} state - The game state to check against
  * @returns {boolean} True if condition is satisfied, false otherwise
  *
@@ -693,17 +692,20 @@ function checkCondition(condition, state) {
   switch (condition.type) {
     case "TOTAL_LOC":
       // Player has earned enough cumulative LOC
-      return state.totalLinesOfCode >= condition.value;
+      return state.totalLinesOfCode >= condition.target;
 
-    case "EMPLOYEE_COUNT":
-      // Player has hired enough total employees
-      return getTotalEmployeeCount(state) >= condition.value;
+    case "TOTAL_EMPLOYEE_COUNT":
+      // Player has hired enough total employees (all types combined)
+      return getTotalEmployeeCount(state) >= condition.target;
+    case "SPECIFIC_EMPLOYEE_COUNT":
+      // Player has hired enough of a specific employee type
+      return state.employees[condition.employeeType].count >= condition.target;
 
     // Future condition types can be added here:
     // case "MONEY":
-    //   return state.money >= condition.value;
+    //   return state.money >= condition.target;
     // case "PROJECTS_COMPLETED":
-    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.value;
+    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.target;
 
     default:
       // Unknown condition type—this indicates a config error (typo or invalid type).
@@ -878,23 +880,23 @@ export function isEmployeeUnlocked(employeeType, state) {
 /**
  * Calculates progress toward unlocking an employee.
  *
- * For each unlock condition, returns: current value, required value, and remaining.
+ * For each unlock condition, returns: current value, target value, and remaining.
  * Used by LockedEmployeeCard to display progress bars and remaining counts.
  *
  * @param {string} employeeType - The employee type to check
  * @param {Object} state - The game state
- * @returns {Array<Object>} Array of { type, current, required, remaining }
+ * @returns {Array<Object>} Array of { type, current, target, remaining }
  *
  * @example
  * getUnlockProgress("junior", state)
  * // Returns: [
- * //   { type: "TOTAL_LOC", current: 45, required: 100, remaining: 55 }
+ * //   { type: "TOTAL_LOC", current: 45, target: 100, remaining: 55 }
  * // ]
  *
  * getUnlockProgress("senior", state)
  * // Returns: [
- * //   { type: "TOTAL_LOC", current: 2000, required: 3000, remaining: 1000 },
- * //   { type: "EMPLOYEE_COUNT", current: 5, required: 10, remaining: 5 }
+ * //   { type: "TOTAL_LOC", current: 2000, target: 3000, remaining: 1000 },
+ * //   { type: "TOTAL_EMPLOYEE_COUNT", current: 5, target: 10, remaining: 5 }
  * // ]
  */
 export function getUnlockProgress(employeeType, state) {
@@ -915,21 +917,35 @@ export function getUnlockProgress(employeeType, state) {
       case "TOTAL_LOC":
         current = state.totalLinesOfCode;
         break;
-      case "EMPLOYEE_COUNT":
+      case "TOTAL_EMPLOYEE_COUNT":
         current = getTotalEmployeeCount(state);
+        break;
+      case "SPECIFIC_EMPLOYEE_COUNT":
+        if (condition.employeeType && state.employees[condition.employeeType]) {
+          current = state.employees[condition.employeeType].count;
+        } else {
+          console.warn(
+            `Invalid employeeType in unlock condition: ${condition.employeeType}`
+          );
+          current = 0;
+        }
         break;
       default:
         current = 0;
     }
 
-    const required = condition.value;
-    const remaining = Math.max(0, required - current);
+    const target = condition.target;
+    const remaining = Math.max(0, target - current);
 
     return {
       type: condition.type,
       current,
-      required,
+      target,
       remaining,
+      ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
+        employeeType: condition.employeeType,
+        employeeName: EMPLOYEE_CONFIGS[condition.employeeType].name,
+      }),
     };
   });
 }
@@ -942,7 +958,7 @@ export function getUnlockProgress(employeeType, state) {
  *
  * @param {string} projectId - The project ID (e.g., "blocker")
  * @param {Object} state - The game state
- * @returns {Array<Object>} Array of { type, current, required, remaining }
+ * @returns {Array<Object>} Array of { type, current, target, remaining }
  */
 export function getUnlockProgressForOpenSource(projectId, state) {
   const config = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
@@ -962,27 +978,35 @@ export function getUnlockProgressForOpenSource(projectId, state) {
       case "TOTAL_LOC":
         current = state.totalLinesOfCode;
         break;
-      case "EMPLOYEE_COUNT":
-        // If condition specifies an employee type, count only that type
-        // Otherwise count all employees (for backward compatibility)
-        if (condition.employeeType) {
+      case "TOTAL_EMPLOYEE_COUNT":
+        current = getTotalEmployeeCount(state);
+        break;
+      case "SPECIFIC_EMPLOYEE_COUNT":
+        if (condition.employeeType && state.employees[condition.employeeType]) {
           current = state.employees[condition.employeeType].count;
         } else {
-          current = getTotalEmployeeCount(state);
+          console.warn(
+            `Invalid employeeType in unlock condition: ${condition.employeeType}`
+          );
+          current = 0;
         }
         break;
       default:
         current = 0;
     }
 
-    const required = condition.count; // Note: uses 'count' not 'value' like employees
-    const remaining = Math.max(0, required - current);
+    const target = condition.target;
+    const remaining = Math.max(0, target - current);
 
     return {
       type: condition.type,
       current,
-      required,
+      target,
       remaining,
+      ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
+        employeeType: condition.employeeType,
+        employeeName: EMPLOYEE_CONFIGS[condition.employeeType].name,
+      }),
     };
   });
 }

@@ -66,7 +66,7 @@ export function OpenSourceCard({
                   </span>
                 </div>
               ) : (
-                <span className="comment-text">// MAXED OUT</span>
+                <div className="comment-text">// MAXED OUT</div>
               )}
 
               {/* ending comment tag */}

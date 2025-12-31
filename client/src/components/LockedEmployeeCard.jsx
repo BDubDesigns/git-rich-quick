@@ -11,20 +11,9 @@
 
 import { formatMoney } from "../utils/currency";
 import { ProgressBar } from "./ProgressBar.jsx";
+import { formatCondition } from "../utils/formatCondition.js";
 
 export function LockedEmployeeCard({ config, progress }) {
-  // Format unlock condition for human-readable display
-  const formatCondition = (condition) => {
-    switch (condition.type) {
-      case "TOTAL_LOC":
-        return `Earn ${condition.required} total lines of code`;
-      case "EMPLOYEE_COUNT":
-        return `Hire ${condition.required} employees`;
-      default:
-        return "Complete an unknown objective";
-    }
-  };
-
   // Calculate if all conditions are met (derived state, not stored)
   // Guard against empty progress array as defensive measure, though in practice
   // this component is only rendered for locked employees with non-empty progress.
@@ -57,7 +46,7 @@ export function LockedEmployeeCard({ config, progress }) {
               <ProgressBar
                 key={idx}
                 current={prog.current}
-                required={prog.required}
+                target={prog.target}
                 label={formatCondition(prog)}
               />
             );
