@@ -944,6 +944,7 @@ export function getUnlockProgress(employeeType, state) {
       remaining,
       ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
         employeeType: condition.employeeType,
+        employeeName: EMPLOYEE_CONFIGS[condition.employeeType].name,
       }),
     };
   });
@@ -1004,6 +1005,7 @@ export function getUnlockProgressForOpenSource(projectId, state) {
       remaining,
       ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
         employeeType: condition.employeeType,
+        employeeName: EMPLOYEE_CONFIGS[condition.employeeType].name,
       }),
     };
   });

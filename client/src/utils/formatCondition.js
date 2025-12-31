@@ -6,7 +6,7 @@ const formatCondition = (condition) => {
     case "TOTAL_EMPLOYEE_COUNT":
       return `Hire ${condition.target} employees`;
     case "SPECIFIC_EMPLOYEE_COUNT":
-      return `Hire ${condition.target} ${condition.employeeType}${
+      return `Hire ${condition.target} ${condition.employeeName}${
         condition.target > 1 ? "s" : ""
       }`;
     default:
