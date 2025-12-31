@@ -323,13 +323,20 @@ function gameReducer(state, action) {
       const config = EMPLOYEE_CONFIGS[employeeType];
       const employee = state.employees[employeeType];
 
+      // Validate employee type exists
       if (!config || !employee) {
         console.warn(`Unknown employee type: ${employeeType}`);
         return state;
       }
+      // Check if employee is unlocked
+      if (!isEmployeeUnlocked(employeeType, state)) {
+        console.warn(`Attempted to buy locked employee: ${employeeType}`);
+        return state;
+      }
 
+      // Calculate current cost with exponential scaling
       const currentCost = getEmployeeCost(employeeType, state);
-
+      // Check if player has enough money, if so run the purchase
       if (state.money >= currentCost) {
         // Build newState with all changes from this action
         const newState = {
@@ -361,11 +368,13 @@ function gameReducer(state, action) {
       const { projectKey } = action.payload;
       const project = FREELANCE_PROJECTS_CONFIG[projectKey];
 
+      // Validate project exists
       if (!project) {
         console.warn(`Unknown project key: ${projectKey}`);
         return state;
       }
-      // Check if player has enough LOC to complete the project
+
+      // Check if player has enough LOC to complete the project if so, run completion
       if (state.linesOfCode >= project.loc) {
         return {
           ...state,
@@ -420,11 +429,18 @@ function gameReducer(state, action) {
         return state; // already max level, return state unchanged
       }
 
+      // check if project is unlocked
+      if (!isOpenSourceProjectUnlocked(projectId, state)) {
+        console.warn(`Attempted to contribute to locked project: ${projectId}`);
+        return state;
+      }
+
       // get next level config
       const nextLevelConfig = projectConfig.levels[projectState.level];
       const cost = nextLevelConfig.locCost;
       // check if player has enough LOC to contribute
       if (state.linesOfCode < cost) {
+        console.warn(`Not enough LOC to contribute to project: ${projectId}`);
         return state; // not enough LOC, return state unchanged
       }
 
