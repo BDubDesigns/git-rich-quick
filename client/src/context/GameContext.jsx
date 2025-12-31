@@ -896,7 +896,7 @@ export function isEmployeeUnlocked(employeeType, state) {
  * getUnlockProgress("senior", state)
  * // Returns: [
  * //   { type: "TOTAL_LOC", current: 2000, target: 3000, remaining: 1000 },
- * //   { type: "EMPLOYEE_COUNT", current: 5, target: 10, remaining: 5 }
+ * //   { type: "TOTAL_EMPLOYEE_COUNT", current: 5, target: 10, remaining: 5 }
  * // ]
  */
 export function getUnlockProgress(employeeType, state) {
