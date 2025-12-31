@@ -681,8 +681,8 @@ export function calculateLOCPerSecond(state) {
  * Used internally by areUnlockConditionsMet(). NOT exported.
  *
  * @param {Object} condition - The condition to check
- * @param {string} condition.type - Type of condition (e.g., "TOTAL_LOC", "EMPLOYEE_COUNT")
- * @param {number} condition.value - The threshold value
+ * @param {string} condition.type - Type of condition (e.g., "TOTAL_LOC", "TOTAL_EMPLOYEE_COUNT", "SPECIFIC_EMPLOYEE_COUNT")
+ * @param {number} condition.target - The threshold value
  * @param {Object} state - The game state to check against
  * @returns {boolean} True if condition is satisfied, false otherwise
  *
@@ -703,9 +703,9 @@ function checkCondition(condition, state) {
 
     // Future condition types can be added here:
     // case "MONEY":
-    //   return state.money >= condition.count;
+    //   return state.money >= condition.target;
     // case "PROJECTS_COMPLETED":
-    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.count;
+    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.target;
 
     default:
       // Unknown condition type—this indicates a config error (typo or invalid type).
@@ -880,7 +880,7 @@ export function isEmployeeUnlocked(employeeType, state) {
 /**
  * Calculates progress toward unlocking an employee.
  *
- * For each unlock condition, returns: current value, required value, and remaining.
+ * For each unlock condition, returns: current value, target value, and remaining.
  * Used by LockedEmployeeCard to display progress bars and remaining counts.
  *
  * @param {string} employeeType - The employee type to check
@@ -896,7 +896,7 @@ export function isEmployeeUnlocked(employeeType, state) {
  * getUnlockProgress("senior", state)
  * // Returns: [
  * //   { type: "TOTAL_LOC", current: 2000, target: 3000, remaining: 1000 },
- * //   { type: "EMPLOYEE_COUNT", current: 5, target: 10, remaining: 5 }
+ * //   { type: "TOTAL_EMPLOYEE_COUNT", current: 5, target: 10, remaining: 5 }
  * // ]
  */
 export function getUnlockProgress(employeeType, state) {
