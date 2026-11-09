@@ -21,6 +21,12 @@ import { GiCoinsPile } from "react-icons/gi"; // paradigm-shifting blockchain pr
 import { FaCircleRadiation } from "react-icons/fa6"; // overReact framework
 import { FaFishFins } from "react-icons/fa6"; // blocker containerization platform
 
+// Shared balance numbers and formulas — the single source of truth, also
+// imported by the save server (`server/src/validate.js`). This file only
+// adds display data (names, icons, descriptions) on top of them; never
+// re-type a balance number here, or the client and server will drift.
+import * as shared from "../../../shared/game-balance.js";
+
 /**
  * ========================================
  * ARCHITECTURE: Config + State Separation
@@ -35,22 +41,27 @@ import { FaFishFins } from "react-icons/fa6"; // blocker containerization platfo
  * - Prevents bugs from state-level balance changes
  *
  * NEVER add game balance constants to initialState or functions.
- * Add them to a CONFIG object instead. See GAME_BALANCE_CONFIG below.
+ * Add them to `shared/game-balance.js` instead — the save server reads
+ * the same numbers, so a number typed here and a number typed there
+ * would drift. See GAME_BALANCE_CONFIG below.
  *
  * Pattern: `export const THING_CONFIG = Object.freeze({ ... })`
  */
 
 const GameContext = createContext();
 // ===== GAME BALANCE CONFIGURATIONS =====
+// Mechanics and starting resources come from the shared balance module
+// (the save server reads the same numbers). UNLOCK_VISIBILITY_THRESHOLD
+// is display-only, so it stays here.
 export const GAME_BALANCE_CONFIG = Object.freeze({
   // ==== Game Mechanics ====
-  TICK_INTERVAL: 1000, // Game tick interval in milliseconds
-  BASE_LOC_PER_CLICK: 1, // Base lines of code per click
+  TICK_INTERVAL: shared.BALANCE.mechanics.tickIntervalMs, // Game tick interval in milliseconds
+  BASE_LOC_PER_CLICK: shared.BALANCE.mechanics.baseLocPerClick, // Base lines of code per click
   UNLOCK_VISIBILITY_THRESHOLD: 0.1, // 10% progress to start showing locked employee card
 
   // ==== Starting Resources ====
-  STARTING_MONEY: 0, // $0.00 in cents
-  STARTING_LOC: 0, // Starting lines of code
+  STARTING_MONEY: shared.BALANCE.mechanics.startingMoney, // $0.00 in cents
+  STARTING_LOC: shared.BALANCE.mechanics.startingLoc, // Starting lines of code
 });
 
 // Immutable navigation tab configuration
@@ -87,42 +98,29 @@ export const SECTIONS_CONFIG = Object.freeze({
 // All costs are in CENTS to avoid floating-point errors in idle games
 export const EMPLOYEE_CONFIGS = Object.freeze({
   intern: {
+    // Balance numbers (cost, LOC/s, multiplier, unlocks) come from shared.
+    ...shared.BALANCE.employees.intern,
     name: "Intern",
-    baseCost: 2500,
-    locPerSecond: 1,
-    costMultiplier: 1.1,
     Icon: GiPlasticDuck,
     color: "orange",
-    // No unlock conditions, available from start.
-    // We include an empty array for object structure consistency.
-    unlockConditions: [],
     description:
       "Thinks git push --force is a Jedi mind trick. Will delete the production database if left unsupervised.",
   },
   junior: {
+    // Balance numbers (cost, LOC/s, multiplier, unlocks) come from shared.
+    ...shared.BALANCE.employees.junior,
     name: "Junior Developer",
-    baseCost: 20000,
-    locPerSecond: 5,
-    costMultiplier: 1.15,
     Icon: BsBackpack,
     color: "brown",
-    // Unlock conditions
-    unlockConditions: [{ type: "TOTAL_LOC", target: 100 }],
     description:
       "Knows 12 JavaScript frameworks but can't center a div. Will refactor your working code because it 'wasn't dry enough'.",
   },
   senior: {
+    // Balance numbers (cost, LOC/s, multiplier, unlocks) come from shared.
+    ...shared.BALANCE.employees.senior,
     name: "Senior Developer",
-    baseCost: 150000,
-    locPerSecond: 20,
-    costMultiplier: 1.2,
     Icon: BiCoffeeTogo,
     color: "green",
-    // Multiple conditions (all must be met)
-    unlockConditions: [
-      { type: "TOTAL_LOC", target: 3000 },
-      { type: "TOTAL_EMPLOYEE_COUNT", target: 10 },
-    ],
     description:
       "Doesn't use a mouse. Writes code on a mechanical keyboard loud enough to wake the dead. Hates everything you just wrote.",
   },
@@ -132,10 +130,9 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
 // All costs are in CENTS to avoid floating-point errors in idle games
 export const AI_ASSISTANT_CONFIGS = Object.freeze({
   noPilot: {
+    // Balance numbers come from shared. NoPilot has no buy action yet.
+    ...shared.BALANCE.aiAssistants.noPilot,
     name: "GitNub NoPilot",
-    baseCost: 100000, // $1000.00
-    multiplier: 0.05,
-    costMultiplier: 1.5,
   },
 });
 
@@ -144,29 +141,29 @@ export const AI_ASSISTANT_CONFIGS = Object.freeze({
 // Design: Smaller projects have higher $/LOC to reward clicking, larger projects have lower $/LOC to encourage bulk sales
 export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
   toDoListApp: {
+    // LOC cost and reward come from shared.
+    ...shared.BALANCE.freelanceProjects.toDoListApp,
     name: "To Do List App",
     description:
       "A simple to-do list application. Cuz that's never been done before. Ever.",
-    loc: 50,
-    reward: 3000, // $30.00 ($0.60/LOC - best deal, rewards grinding)
     icon: BsClipboard2CheckFill,
     color: "brown",
   },
   hobbyWebsite: {
+    // LOC cost and reward come from shared.
+    ...shared.BALANCE.freelanceProjects.hobbyWebsite,
     name: "Hobby Website",
     description:
       "A personal website for a client to showcase their hobbies. The world needs to know about Bob's passion for stamp collecting.",
-    loc: 750,
-    reward: 36000, // $360.00 ($0.48/LOC - middle ground)
     icon: GiPostStamp,
     color: "lightblue",
   },
   paradigmShiftingBlockchainProject: {
+    // LOC cost and reward come from shared.
+    ...shared.BALANCE.freelanceProjects.paradigmShiftingBlockchainProject,
     name: "Paradigm-Shifting Blockchain Project",
     description:
       "A very useful project that leverages the blockchain to convert hype, overpromises, and investor's money into your money.",
-    loc: 2000,
-    reward: 80000, // $800.00 ($0.40/LOC - lazy button, lower $/LOC)
     icon: GiCoinsPile,
     color: "gold",
   },
@@ -174,32 +171,22 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
 
 export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   overReactFramework: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.overReactFramework,
     name: "OverReact Framework",
     icon: FaCircleRadiation,
     color: "yellow",
     description:
       "An open-source JavaScript framework that makes building web applications unnecessarily complex and bloated.",
-    // No unlock condition for this one, available from start
-    levels: [
-      { locCost: 100, bonus: { type: "CLICK_BOOST", value: 1 } },
-      { locCost: 500, bonus: { type: "CLICK_BOOST", value: 2 } },
-      { locCost: 3000, bonus: { type: "CLICK_BOOST", value: 4 } },
-    ],
   },
   blocker: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.blocker,
     name: "Blocker Containerization Platform",
     icon: FaFishFins,
     color: "teal",
     description:
       "Why fix dependencies when you can ship the whole OS? Blocker wraps your 5KB script in a 4GB virtual environment, ensuring that if it works on your machine, it's now the Ops team's problem.",
-    unlockConditions: [
-      { type: "SPECIFIC_EMPLOYEE_COUNT", employeeType: "junior", target: 5 },
-    ],
-    levels: [
-      { locCost: 2000, bonus: { type: "PASSIVE_BOOST", value: 0.5 } },
-      { locCost: 10000, bonus: { type: "PASSIVE_BOOST", value: 1 } },
-      { locCost: 75000, bonus: { type: "PASSIVE_BOOST", value: 1.5 } },
-    ],
   },
 });
 
@@ -601,19 +588,28 @@ export function getTotalEmployeeCount(state) {
  *
  * @private
  */
+/**
+ * The client stores counts as { type: { count } } and levels as
+ * { id: { level } }; the shared formulas take flat maps, so adapt here.
+ * These are thin adapters — the math lives in shared/game-balance.js,
+ * which the save server also uses, so both sides stay identical.
+ */
+function flatEmployeeCounts(state) {
+  return Object.keys(state.employees).reduce((acc, key) => {
+    acc[key] = state.employees[key].count;
+    return acc;
+  }, {});
+}
+
+function flatOpenSourceLevels(state) {
+  return Object.keys(state.openSourceProjects).reduce((acc, key) => {
+    acc[key] = state.openSourceProjects[key].level;
+    return acc;
+  }, {});
+}
+
 function getTotalBonusByType(state, bonusType) {
-  let totalBonus = 0;
-  for (const projectId in OPEN_SOURCE_PROJECTS_CONFIG) {
-    const projectState = state.openSourceProjects[projectId];
-    const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
-    for (let i = 0; i < projectState.level; i++) {
-      const levelBonus = projectConfig.levels[i].bonus;
-      if (levelBonus.type === bonusType) {
-        totalBonus += levelBonus.value;
-      }
-    }
-  }
-  return totalBonus;
+  return shared.totalBonusByType(flatOpenSourceLevels(state), bonusType);
 }
 
 /**
@@ -660,9 +656,7 @@ export function getTotalPassiveBonus(state) {
  * calculateLOCPerClick(state) // returns 13 (10 * 1.3)
  */
 export function calculateLOCPerClick(state) {
-  const baseLOC = GAME_BALANCE_CONFIG.BASE_LOC_PER_CLICK;
-  const clickBonus = getTotalClickBonus(state);
-  return baseLOC * (1 + clickBonus);
+  return shared.locPerClick(flatOpenSourceLevels(state));
 }
 
 /**
@@ -683,9 +677,10 @@ export function calculateLOCPerClick(state) {
  * calculateLOCPerSecond(state) // returns 10.35 (9 * 1.15)
  */
 export function calculateLOCPerSecond(state) {
-  const basePassiveLOC = getCurrentLOCPerSecond(state);
-  const passiveBonus = getTotalPassiveBonus(state);
-  return basePassiveLOC * (1 + passiveBonus);
+  return shared.locPerSecond(
+    flatEmployeeCounts(state),
+    flatOpenSourceLevels(state)
+  );
 }
 
 /**
@@ -705,32 +700,13 @@ export function calculateLOCPerSecond(state) {
  * @private
  */
 function checkCondition(condition, state) {
-  switch (condition.type) {
-    case "TOTAL_LOC":
-      // Player has earned enough cumulative LOC
-      return state.totalLinesOfCode >= condition.target;
-
-    case "TOTAL_EMPLOYEE_COUNT":
-      // Player has hired enough total employees (all types combined)
-      return getTotalEmployeeCount(state) >= condition.target;
-    case "SPECIFIC_EMPLOYEE_COUNT":
-      // Player has hired enough of a specific employee type
-      return state.employees[condition.employeeType].count >= condition.target;
-
-    // Future condition types can be added here:
-    // case "MONEY":
-    //   return state.money >= condition.target;
-    // case "PROJECTS_COMPLETED":
-    //   return Object.values(state.freelanceProjectsCompleted).reduce((sum, count) => sum + count, 0) >= condition.target;
-
-    default:
-      // Unknown condition type—this indicates a config error (typo or invalid type).
-      // FAIL SAFELY: Return false to keep the unlock locked. This forces the error
-      // to surface during testing (employee stays locked when it shouldn't). Better
-      // to catch the typo now than have the employee silently unlock to wrong conditions.
-      console.error(`Unknown unlock condition type: ${condition.type}`);
-      return false;
-  }
+  // Shared evaluation, same as the save server's. Unknown condition types
+  // fail closed (locked) — a config typo surfaces as a stuck unlock in
+  // testing, never as a silent unlock to the wrong conditions.
+  return shared.conditionMet(condition, {
+    totalLinesOfCode: state.totalLinesOfCode,
+    employees: flatEmployeeCounts(state),
+  });
 }
 
 /**
@@ -1050,28 +1026,20 @@ export function isOpenSourceProjectUnlocked(projectId, state) {
  * @returns {number} Total lines of code generated per second across all employees
  */
 export function getCurrentLOCPerSecond(state) {
-  let locPerSecond = 0;
-  Object.entries(state.employees).forEach(([employeeType, employee]) => {
-    const config = EMPLOYEE_CONFIGS[employeeType];
-    locPerSecond += config.locPerSecond * employee.count;
-  });
-  return locPerSecond;
+  return shared.baseLocPerSecond(flatEmployeeCounts(state));
 }
 
 // Get Employee Cost
 export function getEmployeeCost(employeeType, state) {
-  const config = EMPLOYEE_CONFIGS[employeeType];
   const employee = state.employees[employeeType];
 
-  if (!config || !employee) {
+  if (!EMPLOYEE_CONFIGS[employeeType] || !employee) {
     console.warn(`Unknown employee type: ${employeeType}`);
     return 0;
   }
 
   // Calculate current cost in cents (increases with each purchase)
-  return Math.round(
-    config.baseCost * Math.pow(config.costMultiplier, employee.count)
-  );
+  return shared.employeeCost(employeeType, employee.count);
 }
 // GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {

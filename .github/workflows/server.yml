@@ -1,0 +1,83 @@
+name: git-save-service
+
+on:
+  pull_request:
+    paths:
+      - "server/**"
+      - "shared/**"
+      - "client/**"
+      - ".github/workflows/server.yml"
+  push:
+    branches: [master]
+    paths:
+      - "server/**"
+      - "shared/**"
+      - "client/**"
+      - ".github/workflows/server.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install server dependencies
+        working-directory: server
+        run: npm install --no-audit --no-fund
+      - name: Run server tests
+        working-directory: server
+        run: npm test
+
+  client-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build client
+        run: npm run build --workspace=git-rich-quick
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: false
+
+  docker-push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [test, docker-build]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/bdubdesigns/git-rich-quick-save:${{ github.sha }}
+            ghcr.io/bdubdesigns/git-rich-quick-save:latest
