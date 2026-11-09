@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "description": "Server-authoritative save service for Get Rich Quick GIT",
+  "devDependencies": {
+    "pg-mem": "^2.9.0"
+  },
+  "name": "git-save-service",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
