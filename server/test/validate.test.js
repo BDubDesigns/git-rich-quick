@@ -450,3 +450,64 @@ test("second junior costs the scaled price, exact money", () => {
   assert.equal(r2.ok, false);
   assert.equal(r2.rule, "MONEY");
 });
+
+test("heavy shipping that drains LOC does not false-reject (tick quantization)", () => {
+  // Regression test for the Nov 10 live rejection: Brandon bulk-bought
+  // employees and shipped a lot of To Do List Apps, draining his LOC,
+  // and the save 409'd with LOC "linesOfCode exceeds the maximum
+  // earnable". The bulk-buy was not the cause — the failure is the
+  // tick quantization in rule 6 (see the tolerance note in validate.js):
+  // the client earns passive LOC in whole 1-second ticks, the server
+  // credits it continuously by elapsed seconds. In a 49.9s window the
+  // client fires 50 ticks (50 * 150 = 7500 LOC) while the server credits
+  // 49.9s * 150 = 7485, a 15 LOC excess. Shipping 215 To Do List Apps
+  // spends 10750 LOC, so expectedLoc falls to 87 and the old tolerance
+  // (max(10, 1% of 87) = 10) could not cover the 15 LOC excess.
+  // The tolerance now includes one full tick (150 LOC), so this passes.
+  // Numbers: 42 employees (intern 35, junior 5, senior 2), Blocker v1
+  // (+0.5 passive) => 100 base * 1.5 = 150 LOC/s; OverReact v3.
+  const before = stateWith({
+    linesOfCode: 3352,
+    totalLinesOfCode: 60000,
+    money: 1803000,
+    employees: { intern: 35, junior: 5, senior: 2 },
+    freelanceProjectsCompleted: {
+      toDoListApp: 200,
+      hobbyWebsite: 20,
+      paradigmShiftingBlockchainProject: 5,
+    },
+    openSourceProjects: { overReactFramework: 3, blocker: 1 },
+    unlockedEmployees: { intern: true, junior: true, senior: true },
+    unlockedOpenSourceProjects: { overReactFramework: true, blocker: true },
+  });
+  const after = stateWith({
+    // 3352 + 50 ticks * 150 - 215 ships * 50 LOC = 102.
+    linesOfCode: 102,
+    // 60000 + 7500 passive LOC.
+    totalLinesOfCode: 67500,
+    // 1803000 + 215 ships * 3000c.
+    money: 2448000,
+    employees: { intern: 35, junior: 5, senior: 2 },
+    freelanceProjectsCompleted: {
+      toDoListApp: 415,
+      hobbyWebsite: 20,
+      paradigmShiftingBlockchainProject: 5,
+    },
+    openSourceProjects: { overReactFramework: 3, blocker: 1 },
+    unlockedEmployees: { intern: true, junior: true, senior: true },
+    unlockedOpenSourceProjects: { overReactFramework: true, blocker: true },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      projectsCompleted: {
+        toDoListApp: 215,
+        hobbyWebsite: 0,
+        paradigmShiftingBlockchainProject: 0,
+      },
+    }),
+    T0 + 49_900
+  );
+  assert.deepEqual(r, { ok: true });
+});
