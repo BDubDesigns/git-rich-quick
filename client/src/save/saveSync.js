@@ -290,8 +290,11 @@ export class SaveSync {
 
   /**
    * Called on every state change (from the React provider). Triggers a
-   * save when a big action actually happened (a hire, a project
-   * completion, an open-source level) — not on ticks or failed actions.
+   * save when a big action actually happened (a hire, an open-source
+   * level) — not on ticks, failed actions, or project completions.
+   * Ship is deliberately excluded: it's a rapid-fire action, and saving
+   * on every Ship spams the 30s rate limit. Ship progress is saved by
+   * the heartbeat and the keepalive instead.
    */
   noteState(clientState) {
     const big = bigActionFields(stateToSaveState(clientState));

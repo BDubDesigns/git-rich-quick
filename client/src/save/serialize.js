@@ -111,13 +111,17 @@ export function diffCounts(baseline, current, keys) {
 }
 
 /**
- * The three fields that only change on a "big action" (hire, project
- * completion, open-source level). Used to trigger a save on big actions.
+ * The fields that only change on a "big action" (hire, open-source
+ * level). Used to trigger a save on big actions. Project completions
+ * (Ship) are deliberately NOT here: Ship is a rapid-fire action (the
+ * player smashes it to sell LOC for cash as fast as possible), so
+ * saving on every Ship would spam the 30s rate limit. Ship progress
+ * is still saved by the 60s heartbeat and by the keepalive on tab
+ * hide/unload.
  */
 export function bigActionFields(saveState) {
   return {
     employees: saveState.employees,
-    freelanceProjectsCompleted: saveState.freelanceProjectsCompleted,
     openSourceProjects: saveState.openSourceProjects,
   };
 }
@@ -163,13 +167,6 @@ export function bigActionIncreased(prev, next) {
   if (!prev) return false;
   for (const key of EMPLOYEE_TYPES) {
     if ((next.employees[key] ?? 0) > (prev.employees[key] ?? 0)) return true;
-  }
-  for (const key of FREELANCE_PROJECT_KEYS) {
-    if (
-      (next.freelanceProjectsCompleted[key] ?? 0) >
-      (prev.freelanceProjectsCompleted[key] ?? 0)
-    )
-      return true;
   }
   for (const key of OPEN_SOURCE_IDS) {
     if (

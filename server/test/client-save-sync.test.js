@@ -304,6 +304,68 @@ test("saves during a retry wait do not reset the retry timer", async () => {
   }
 });
 
+test("completing a project (Ship) does not trigger a save", async () => {
+  const srv = await startTestServer();
+  const storage = memoryStorage();
+  let clientState = makeClientState();
+  let saveStatus = "loading";
+  let playerId = null;
+  const engine = new SaveSync({
+    apiBaseUrl: srv.base,
+    getState: () => clientState,
+    restore: (saveState) => {
+      clientState = {
+        ...clientState,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
+      };
+    },
+    onStatus: (status) => {
+      saveStatus = status;
+    },
+    onPlayerId: (id) => {
+      playerId = id;
+    },
+    storage,
+  });
+  try {
+    await engine.init();
+    // Past the rate limit, so a save triggered by noteState WOULD land
+    // and be visible on the server. Ship is rapid-fire, so it must not
+    // trigger one — the heartbeat and keepalive cover it.
+    srv.advance(31_000);
+    assert.equal(saveStatus, "saved");
+    // Earn the 50 LOC the project costs, then ship it.
+    for (let i = 0; i < 50; i += 1) {
+      fakeClick(clientState);
+      engine.recordClick();
+    }
+    fakeCompleteTodoApp(clientState);
+    engine.noteState(clientState);
+    // Give any (unwanted) save time to land.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(saveStatus, "saved", "no save was triggered by Ship");
+    const state = await loadServerState(srv.base, playerId);
+    assert.equal(
+      state.freelanceProjectsCompleted.toDoListApp,
+      0,
+      "project completion was not saved by noteState"
+    );
+    // A hire still triggers a save via noteState.
+    fakeHireIntern(clientState);
+    engine.noteState(clientState);
+    await waitFor(async () => {
+      const s = await loadServerState(srv.base, playerId);
+      return s.employees.intern === 1 ? s : null;
+    });
+    assert.equal(saveStatus, "saved");
+  } finally {
+    engine.stop();
+    await srv.stop();
+  }
+});
+
 test("tampered save is rejected with 409 and the client reverts", async () => {
   const srv = await startTestServer();
   const storage = memoryStorage();
