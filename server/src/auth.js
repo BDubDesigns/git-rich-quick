@@ -14,15 +14,17 @@
  * - Raw `pg` Pool as the database (Better Auth's built-in Kysely
  *   adapter). No Drizzle, no Prisma, no extra ORM — the server is plain
  *   Node + pg, and the Pool is shared with the save store.
- * - Cross-origin sessions: the client is on vercel.app, the API on
- *   grq-save.qcfailed.com (different sites). In production the session
- *   cookie is `SameSite=None; Secure` and the client sends
- *   `credentials: "include"`. In local dev (http) it falls back to
- *   `SameSite=Lax` without Secure, which works same-site on localhost.
- *   Caveat: browsers that block third-party cookies (Safari by default)
- *   will not persist the cross-site session; the guest fallback still
- *   works there. A same-origin proxy (issue #30, Cloudflare) is the
- *   long-term fix.
+ * - Same-origin sessions: the client calls the API through its own
+ *   origin — the Vercel rewrite (vercel.json) proxies /api/* to this
+ *   server in production and on previews, and the Vite dev-server proxy
+ *   does the same locally. The session cookie is therefore FIRST-party
+ *   (host-only, no Domain attribute — crossSubDomainCookies is off), so
+ *   Safari accepts it. In production the cookie is still
+ *   `SameSite=None; Secure` (belt-and-braces: it also keeps the cookie
+ *   working if the client is ever pointed directly at this API with
+ *   VITE_SAVE_API_URL, where the cookie is cross-site and Safari blocks
+ *   it). In local dev (http) it falls back to `SameSite=Lax` without
+ *   Secure, which works same-site on localhost.
  *
  * Env: BETTER_AUTH_SECRET (required in production), BETTER_AUTH_URL
  * (public API URL, e.g. https://grq-save.qcfailed.com). In dev both fall

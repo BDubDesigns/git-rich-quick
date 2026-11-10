@@ -3,14 +3,20 @@
  * endpoints. Optional accounts only — guests stay the default identity
  * (anonymous UUID in localStorage, see save/api.js).
  *
- * Cross-origin sessions: the client is on vercel.app, the API on
- * grq-save.qcfailed.com (different sites), so every auth request sends
- * `credentials: "include"` and the session cookie is `SameSite=None;
- * Secure` in production. Where the browser blocks third-party cookies
- * (Safari by default), the session will not persist and the player
- * simply stays a guest — sign-in still succeeds, the link just does
- * not stick. A same-origin proxy (issue #30, Cloudflare) is the
- * long-term fix.
+ * Same-origin sessions (Slice 3, issue #28): the client calls the API
+ * through its own origin — in production and on Vercel previews the
+ * rewrite in vercel.json proxies /api/* to grq-save.qcfailed.com, and
+ * in local dev the Vite dev-server proxy forwards /api/* to the local
+ * backend. So the session cookie is FIRST-party (set for the page's own
+ * domain), which Safari accepts — the old cross-site setup (client on
+ * vercel.app, API on qcfailed.com) was blocked by Safari's
+ * third-party-cookie blocking and left Safari players as guests.
+ * `credentials: "include"` is kept: it is the default for same-origin
+ * fetch anyway, and it is required if the client is ever pointed
+ * directly at the backend (cross-origin) instead of through the proxy.
+ * Pointing VITE_SAVE_API_URL directly at the backend (bypassing the
+ * proxy) still works, but then the cookie is cross-site again and
+ * Safari will not persist it.
  *
  * The link endpoints are custom (not Better Auth's): they attach the
  * guest playerId to the signed-in account so a save survives clearing

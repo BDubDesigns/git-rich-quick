@@ -20,8 +20,12 @@
  * a rate limit).
  *
  * CORS allows the Vercel-hosted client and local Vite dev/preview. The
- * client stays on Vercel; only the API lives on Hetzner. Cross-origin
- * auth sends the session cookie, so allowed origins also get
+ * client stays on Vercel; only the API lives on Hetzner. The client
+ * normally reaches the API same-origin through the Vercel rewrite
+ * (vercel.json) or the Vite dev-server proxy, so CORS does not apply to
+ * it — but CORS is kept for direct API use (e.g. a client pointed at
+ * this API with VITE_SAVE_API_URL, or local dev against the live API).
+ * Where the cookie is cross-site (direct use), allowed origins also get
  * Access-Control-Allow-Credentials (and the client must use
  * credentials: "include"); the origin is echoed, never "*".
  *
@@ -88,9 +92,11 @@ function sendJson(res, status, body, extraHeaders = {}) {
 function applyCors(req, res) {
   const origin = req.headers.origin;
   if (origin && isAllowedOrigin(origin)) {
-    // Echo the origin (never "*") and allow credentials: the session
-    // cookie is cross-site (vercel.app client, qcfailed.com API), so the
-    // browser only sends it when credentials mode is on (Slice 3).
+    // Echo the origin (never "*") and allow credentials: direct
+    // cross-site use of the API (VITE_SAVE_API_URL) still sends the
+    // session cookie, so the browser only sends it when credentials
+    // mode is on (Slice 3). Same-origin use through the Vercel/Vite
+    // proxy does not need CORS at all.
     res.setHeader("access-control-allow-origin", origin);
     res.setHeader("access-control-allow-credentials", "true");
     res.setHeader("vary", "Origin");

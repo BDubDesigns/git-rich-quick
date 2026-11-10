@@ -6,10 +6,17 @@
  * - GET  /api/load?playerId=... — last accepted snapshot, or 404
  * - POST /api/save — validate and store a save
  *
- * The base URL is the live service. Override it for local dev with
- * VITE_SAVE_API_URL (e.g. `VITE_SAVE_API_URL=http://localhost:3000 npm
- * run dev`). The URL is public, not a secret — there is no auth in v1,
- * only the anonymous player id.
+ * Same-origin by default (Slice 3, issue #28): in the browser the base
+ * URL is "" (relative), so /api/* goes to the page's own origin. In
+ * production and on Vercel previews the rewrite in vercel.json proxies
+ * /api/* to the live service, which makes the Better Auth session cookie
+ * first-party — Safari accepts it, where it blocked the old cross-site
+ * cookie. In local dev the Vite dev-server proxy forwards /api/* to the
+ * local backend (see vite.config.js). Override the backend with
+ * VITE_SAVE_API_URL to point at a different service directly (e.g.
+ * `VITE_SAVE_API_URL=http://localhost:3000 npm run dev`, or the live
+ * service from a non-Vercel host). The URL is public, not a secret —
+ * there is no auth in v1, only the anonymous player id.
  *
  * This module is plain JS (no React) so the sync engine can be tested in
  * Node against a local server. It must not import anything from the
@@ -17,6 +24,7 @@
  */
 
 // Live save service (verified live at https://grq-save.qcfailed.com).
+// Used as the Node/test default, and as the rewrite target in vercel.json.
 const LIVE_API_URL = "https://grq-save.qcfailed.com";
 
 function resolveApiBaseUrl() {
@@ -32,9 +40,21 @@ function resolveApiBaseUrl() {
     globalThis.process &&
     globalThis.process.env &&
     globalThis.process.env.VITE_SAVE_API_URL;
-  const url = viteUrl || nodeUrl || LIVE_API_URL;
-  // No trailing slash — callers append "/api/..." paths.
-  return String(url).replace(/\/+$/, "");
+  const override = viteUrl || nodeUrl;
+  if (override) {
+    // No trailing slash — callers append "/api/..." paths.
+    return String(override).replace(/\/+$/, "");
+  }
+  if (typeof window !== "undefined") {
+    // Browser default: same-origin (""), so fetch("/api/...") is relative
+    // to the page origin and goes through the Vercel rewrite (or the Vite
+    // dev-server proxy locally). The auth client resolves the same way:
+    // Better Auth's client falls back to window.location.origin + /api/auth.
+    return "";
+  }
+  // Node (tests): no page origin, so default to the live service URL.
+  // Tests pass their own base URL explicitly; this is only the fallback.
+  return LIVE_API_URL;
 }
 
 export const SAVE_API_URL = resolveApiBaseUrl();
