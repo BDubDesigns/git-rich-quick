@@ -7,7 +7,7 @@
  *
  * Rules it enforces (from the Slice 1 spec + server contract):
  * - localStorage holds ONLY the anonymous playerId, never currency.
- * - 429 (rate limit, one accepted save per 30s): keep the actions and
+ * - 429 (rate limit, one accepted save per 10s): keep the actions and
  *   retry after the server's retry delay. Never reset the accumulator.
  *   While waiting, the engine reports status "retrying" and the delay
  *   (via onRetry) so the footer can show a countdown instead of a bare
@@ -54,14 +54,14 @@ import {
 /** Heartbeat interval (spec rule 9: "heartbeat is 60 seconds"). */
 export const SAVE_HEARTBEAT_MS = 60_000;
 /** Fallback retry delay when the server gives no retryAfterSeconds. */
-export const DEFAULT_RETRY_AFTER_SECONDS = 30;
+export const DEFAULT_RETRY_AFTER_SECONDS = 10;
 /**
  * Minimum seconds between accepted saves, enforced by the server.
  * Must match SAVE_RATE_LIMIT_SECONDS in server/src/validate.js.
  * The footer uses it to grey out "Save now" until a manual save can
  * actually land, instead of letting the user tap it into a 429 retry.
  */
-export const SAVE_RATE_LIMIT_SECONDS = 30;
+export const SAVE_RATE_LIMIT_SECONDS = 10;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -293,7 +293,7 @@ export class SaveSync {
    * save when a big action actually happened (a hire, an open-source
    * level) — not on ticks, failed actions, or project completions.
    * Ship is deliberately excluded: it's a rapid-fire action, and saving
-   * on every Ship spams the 30s rate limit. Ship progress is saved by
+   * on every Ship spams the 10s rate limit. Ship progress is saved by
    * the heartbeat and the keepalive instead.
    */
   noteState(clientState) {
@@ -351,7 +351,7 @@ export class SaveSync {
   /**
    * Schedule a retry after the server's delay. If a retry is already
    * pending, keep it — don't re-arm the timer. Every Ship click during
-   * the wait was sending another save that 429'd and reset the 30s
+   * the wait was sending another save that 429'd and reset the 10s
    * countdown, so the save kept getting pushed back and the footer
    * stayed on "Retrying..." forever. The pending retry sends the latest
    * state when it fires, so nothing is lost. Returns true when a new

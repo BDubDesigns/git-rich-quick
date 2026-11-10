@@ -115,7 +115,7 @@ export function diffCounts(baseline, current, keys) {
  * level). Used to trigger a save on big actions. Project completions
  * (Ship) are deliberately NOT here: Ship is a rapid-fire action (the
  * player smashes it to sell LOC for cash as fast as possible), so
- * saving on every Ship would spam the 30s rate limit. Ship progress
+ * saving on every Ship would spam the 10s rate limit. Ship progress
  * is still saved by the 60s heartbeat and by the keepalive on tab
  * hide/unload.
  */

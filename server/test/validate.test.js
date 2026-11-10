@@ -335,11 +335,11 @@ test("clicks above 10/sec are rejected", () => {
   assert.equal(r.rule, "CLICKS");
 });
 
-test("a save within 30s of the last one is rate-limited", () => {
+test("a save within 10s of the last one is rate-limited", () => {
   const r = validateSave(
     prev(initialSaveState(), T0),
     body(initialSaveState(), zeroActions()),
-    T0 + 10_000
+    T0 + 5_000
   );
   assert.equal(r.ok, false);
   assert.equal(r.rule, "RATE_LIMIT");

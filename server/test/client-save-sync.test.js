@@ -175,7 +175,7 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
     }
     fakeCompleteTodoApp(clientState);
 
-    // A save within 30s of minting is rate-limited (the limit is measured
+    // A save within 10s of minting is rate-limited (the limit is measured
     // from the minting time). It must not reset the accumulator.
     // Awaiting the save makes the test deterministic: the server clock
     // only moves when the test advances it.
@@ -185,7 +185,7 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
 
     // Advance the server clock past the rate limit and save again: the
     // accumulated actions (from before the 429) are all included.
-    srv.advance(31_000);
+    srv.advance(11_000);
     await engine.requestSave("test");
     assert.equal(saveStatus, "saved");
     assert.equal(engine.clicks, 0, "clicks reset after an accepted save");
@@ -197,7 +197,7 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
 
     // A big action (hire) triggers a save via noteState. Advance the
     // clock first so the rate limit has passed.
-    srv.advance(31_000);
+    srv.advance(11_000);
     fakeHireIntern(clientState);
     engine.noteState(clientState);
     await waitFor(async () => {
@@ -209,11 +209,11 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
     assert.equal(afterHire.money, 500, "3000c - 2500c intern cost");
     assert.equal(saveStatus, "saved");
 
-    // The retry timer: 29s after the last accepted save, a save is
+    // The retry timer: 9s after the last accepted save, a save is
     // rate-limited with retryAfterSeconds = 1. Advance the server clock
     // past the limit, and the scheduled retry (1s real time) fires and
     // the save is accepted.
-    srv.advance(29_000);
+    srv.advance(9_000);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
       engine.recordClick();
@@ -261,13 +261,13 @@ test("saves during a retry wait do not reset the retry timer", async () => {
   });
   try {
     await engine.init();
-    srv.advance(31_000);
+    srv.advance(11_000);
     await engine.requestSave("test");
     assert.equal(saveStatus, "saved");
 
-    // 29s after the last accepted save, a save is rate-limited with
+    // 9s after the last accepted save, a save is rate-limited with
     // retryAfterSeconds = 1, and a retry is scheduled for 1s real time.
-    srv.advance(29_000);
+    srv.advance(9_000);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
       engine.recordClick();
@@ -279,7 +279,7 @@ test("saves during a retry wait do not reset the retry timer", async () => {
 
     // Big-action saves during the wait (Ship clicks): each sends a save
     // that 429s, but none may reset the retry timer — otherwise every
-    // Ship click pushes the save back another 30s and it never lands.
+    // Ship click pushes the save back another 10s and it never lands.
     for (let i = 0; i < 3; i += 1) {
       await engine.requestSave("big-action");
       assert.equal(
@@ -334,7 +334,7 @@ test("completing a project (Ship) does not trigger a save", async () => {
     // Past the rate limit, so a save triggered by noteState WOULD land
     // and be visible on the server. Ship is rapid-fire, so it must not
     // trigger one — the heartbeat and keepalive cover it.
-    srv.advance(31_000);
+    srv.advance(11_000);
     assert.equal(saveStatus, "saved");
     // Earn the 50 LOC the project costs, then ship it.
     for (let i = 0; i < 50; i += 1) {
@@ -393,7 +393,7 @@ test("tampered save is rejected with 409 and the client reverts", async () => {
   });
   try {
     await engine.init();
-    srv.advance(31_000);
+    srv.advance(11_000);
     for (let i = 0; i < 50; i += 1) {
       fakeClick(clientState);
       engine.recordClick();
@@ -406,7 +406,7 @@ test("tampered save is rejected with 409 and the client reverts", async () => {
 
     // Tamper: one cent extra. The server must 409 and the engine must
     // revert local state to the last good state.
-    srv.advance(31_000);
+    srv.advance(11_000);
     clientState.money = 3001;
     await engine.requestSave("test");
     await waitFor(() => saveStatus === "error");
@@ -521,10 +521,10 @@ test("rate-limited save reports the retry delay, and a later load reports the sa
     assert.deepEqual(savedAtCalls, []);
     assert.deepEqual(retryCalls, []);
 
-    // 29s after minting, a save is rate-limited with retryAfterSeconds = 1.
+    // 9s after minting, a save is rate-limited with retryAfterSeconds = 1.
     // The engine must report the wait (status "retrying" + the delay) so
     // the footer can count down instead of showing a bare "Saving...".
-    srv.advance(29_000);
+    srv.advance(9_000);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
       engine.recordClick();

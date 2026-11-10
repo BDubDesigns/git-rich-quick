@@ -51,8 +51,8 @@ export const MAX_CLICKS_PER_SECOND = 10;
 export const CLICK_GRACE = 10;
 /** Offline passive accrual is capped at 8 hours. */
 export const MAX_OFFLINE_ACCRUAL_SECONDS = 8 * 60 * 60;
-/** At most one accepted save per 30 seconds per player. */
-export const SAVE_RATE_LIMIT_SECONDS = 30;
+/** At most one accepted save per 10 seconds per player. */
+export const SAVE_RATE_LIMIT_SECONDS = 10;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -206,7 +206,7 @@ export function validateSave(prev, body, nowMs) {
   const newState = body.state;
   const actions = body.actionsSinceLastSave;
 
-  // Rule 9 — rate limit: at most one accepted save per 30 seconds.
+  // Rule 9 — rate limit: at most one accepted save per 10 seconds.
   if (nowMs - prev.savedAtMs < SAVE_RATE_LIMIT_SECONDS * 1000) {
     return fail(
       "RATE_LIMIT",

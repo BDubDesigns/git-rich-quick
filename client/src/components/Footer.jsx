@@ -39,7 +39,7 @@ function SaveStatus() {
   const [retryEndsAtMs, setRetryEndsAtMs] = useState(null);
   const showRelative = saveStatus === "saved" && lastSavedAt != null;
   const showRetry = saveStatus === "retrying";
-  // Seconds until a manual save can land (server allows one per 30s).
+  // Seconds until a manual save can land (server allows one per 10s).
   // Null when no save has landed yet (nothing to count down from).
   const cooldownSeconds =
     lastSavedAt == null
