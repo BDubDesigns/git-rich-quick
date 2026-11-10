@@ -345,19 +345,31 @@ export class SaveSync {
     }
   }
 
+  /**
+   * Schedule a retry after the server's delay. If a retry is already
+   * pending, keep it — don't re-arm the timer. Every Ship click during
+   * the wait was sending another save that 429'd and reset the 30s
+   * countdown, so the save kept getting pushed back and the footer
+   * stayed on "Retrying..." forever. The pending retry sends the latest
+   * state when it fires, so nothing is lost. Returns true when a new
+   * timer was scheduled, false when one was already pending.
+   */
   _scheduleRetry(seconds) {
-    this._clearRetryTimer();
+    if (this._retryTimer != null) return false;
     const delayMs = Math.max(1, seconds) * 1000;
-    this._retryTimer = setTimeout(
-      () => this.requestSave("retry"),
-      delayMs
-    );
+    this._retryTimer = setTimeout(() => {
+      // Clear before requesting, so the retry's own requestSave doesn't
+      // hit a stale timer.
+      this._retryTimer = null;
+      this.requestSave("retry");
+    }, delayMs);
     if (
       typeof this._retryTimer.unref === "function" &&
       typeof process !== "undefined"
     ) {
       this._retryTimer.unref();
     }
+    return true;
   }
 
   async _doSave(reason, { keepalive } = {}) {
@@ -458,15 +470,17 @@ export class SaveSync {
       }
       if (result.status === 429) {
         // Rate limit: keep the actions and retry after the server's delay.
-        // Never reset the accumulator here. Report the wait so the footer
-        // can show a countdown ("Retrying in 25s") instead of a bare
-        // "Saving..." that looks hung.
+        // Never reset the accumulator here. Only report the wait (and
+        // re-arm the footer countdown) when a new retry was actually
+        // scheduled — a save that 429s while a retry is already pending
+        // must not reset the countdown the footer is showing.
         outcome = "rate-limited";
         const retryAfter =
           result.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS;
         console.info(`[save] rate-limited, retrying in ${retryAfter}s`);
-        this._scheduleRetry(retryAfter);
-        this.onRetry(retryAfter);
+        if (this._scheduleRetry(retryAfter)) {
+          this.onRetry(retryAfter);
+        }
         this.setStatus("retrying");
         return;
       }

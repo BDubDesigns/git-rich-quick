@@ -234,6 +234,76 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
   }
 });
 
+test("saves during a retry wait do not reset the retry timer", async () => {
+  const srv = await startTestServer();
+  const storage = memoryStorage();
+  let clientState = makeClientState();
+  let saveStatus = "loading";
+  let playerId = null;
+  const engine = new SaveSync({
+    apiBaseUrl: srv.base,
+    getState: () => clientState,
+    restore: (saveState) => {
+      clientState = {
+        ...clientState,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
+      };
+    },
+    onStatus: (status) => {
+      saveStatus = status;
+    },
+    onPlayerId: (id) => {
+      playerId = id;
+    },
+    storage,
+  });
+  try {
+    await engine.init();
+    srv.advance(31_000);
+    await engine.requestSave("test");
+    assert.equal(saveStatus, "saved");
+
+    // 29s after the last accepted save, a save is rate-limited with
+    // retryAfterSeconds = 1, and a retry is scheduled for 1s real time.
+    srv.advance(29_000);
+    for (let i = 0; i < 5; i += 1) {
+      fakeClick(clientState);
+      engine.recordClick();
+    }
+    await engine.requestSave("test");
+    assert.equal(saveStatus, "retrying");
+    const firstTimer = engine._retryTimer;
+    assert.ok(firstTimer, "a retry timer is scheduled");
+
+    // Big-action saves during the wait (Ship clicks): each sends a save
+    // that 429s, but none may reset the retry timer — otherwise every
+    // Ship click pushes the save back another 30s and it never lands.
+    for (let i = 0; i < 3; i += 1) {
+      await engine.requestSave("big-action");
+      assert.equal(
+        engine._retryTimer,
+        firstTimer,
+        "retry timer not reset by a save during the wait"
+      );
+    }
+
+    // Advance past the rate limit; the ORIGINAL retry fires and the save
+    // lands with all the accumulated clicks.
+    srv.advance(5_000);
+    await waitFor(async () => {
+      const state = await loadServerState(srv.base, playerId);
+      return state.totalLinesOfCode === 5 ? state : null;
+    });
+    assert.equal(saveStatus, "saved");
+    assert.equal(engine.clicks, 0, "clicks reset after the retried save");
+  } finally {
+    engine.stop();
+    await srv.stop();
+  }
+});
+
 test("tampered save is rejected with 409 and the client reverts", async () => {
   const srv = await startTestServer();
   const storage = memoryStorage();
