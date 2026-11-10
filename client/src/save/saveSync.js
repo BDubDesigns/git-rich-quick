@@ -55,6 +55,13 @@ import {
 export const SAVE_HEARTBEAT_MS = 60_000;
 /** Fallback retry delay when the server gives no retryAfterSeconds. */
 export const DEFAULT_RETRY_AFTER_SECONDS = 30;
+/**
+ * Minimum seconds between accepted saves, enforced by the server.
+ * Must match SAVE_RATE_LIMIT_SECONDS in server/src/validate.js.
+ * The footer uses it to grey out "Save now" until a manual save can
+ * actually land, instead of letting the user tap it into a 429 retry.
+ */
+export const SAVE_RATE_LIMIT_SECONDS = 30;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

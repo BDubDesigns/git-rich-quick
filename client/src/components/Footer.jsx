@@ -3,6 +3,7 @@ import { useGameContext } from "../context/GameContext";
 import { ClickButton } from "./ClickButton";
 import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";
+import { SAVE_RATE_LIMIT_SECONDS } from "../save/saveSync.js";
 
 // Save status (Slice 2, server-authoritative saves). The engine reports it
 // via context; the footer just renders it, it never drives a save.
@@ -28,6 +29,9 @@ function formatSavedAgo(savedAtMs, nowMs) {
 // session, plus a "Save now" button that forces an immediate save.
 // While a rate-limited save waits to retry, it counts down
 // ("Retrying in 25s") instead of a bare "Saving..." that looks hung.
+// The button also greys out (with its own countdown) until the server's
+// rate limit has passed since the last accepted save, so tapping it can't
+// just land in a 429 retry — when it's enabled, a manual save will land.
 function SaveStatus() {
   const { saveStatus, lastSavedAt, retryInSeconds, saveNow } =
     useGameContext();
@@ -35,6 +39,18 @@ function SaveStatus() {
   const [retryEndsAtMs, setRetryEndsAtMs] = useState(null);
   const showRelative = saveStatus === "saved" && lastSavedAt != null;
   const showRetry = saveStatus === "retrying";
+  // Seconds until a manual save can land (server allows one per 30s).
+  // Null when no save has landed yet (nothing to count down from).
+  const cooldownSeconds =
+    lastSavedAt == null
+      ? null
+      : Math.max(
+          0,
+          Math.ceil(
+            (SAVE_RATE_LIMIT_SECONDS * 1000 - (nowMs - lastSavedAt)) / 1000
+          )
+        );
+  const onCooldown = cooldownSeconds != null && cooldownSeconds > 0;
 
   // Arm the countdown when a retry wait starts (re-arms if a later 429
   // reports a new delay). The engine's retry timer fires at the same
@@ -45,14 +61,14 @@ function SaveStatus() {
     return undefined;
   }, [showRetry, retryInSeconds]);
 
-  // Tick the relative time while a successful save is being shown, and
-  // the retry countdown while waiting to retry.
+  // Tick the relative time while a successful save is being shown, the
+  // retry countdown while waiting to retry, and the button cooldown.
   useEffect(() => {
-    if (!showRelative && !showRetry) return undefined;
+    if (!showRelative && !showRetry && !onCooldown) return undefined;
     setNowMs(Date.now());
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [showRelative, showRetry]);
+  }, [showRelative, showRetry, onCooldown]);
 
   let label;
   if (showRetry) {
@@ -66,13 +82,15 @@ function SaveStatus() {
   } else {
     label = SAVE_STATUS_LABELS[saveStatus] ?? "";
   }
-  // Disabled while a save is in flight, while waiting to retry, or while
-  // the server is unreachable.
+  // Disabled while a save is in flight, while waiting to retry, while the
+  // server is unreachable, or while the rate-limit cooldown hasn't passed
+  // since the last accepted save.
   const saveDisabled =
     saveStatus === "saving" ||
     saveStatus === "retrying" ||
     saveStatus === "offline" ||
-    saveStatus === "loading";
+    saveStatus === "loading" ||
+    onCooldown;
 
   return (
     <div className="mt-1 flex items-center justify-center gap-2 text-[11px] leading-none opacity-60">
@@ -83,7 +101,7 @@ function SaveStatus() {
         disabled={saveDisabled}
         className="rounded border border-current px-1.5 py-0.5 opacity-80 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        Save now
+        {onCooldown ? `Save in ${cooldownSeconds}s` : "Save now"}
       </button>
     </div>
   );
