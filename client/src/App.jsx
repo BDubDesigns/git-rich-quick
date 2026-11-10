@@ -57,11 +57,16 @@ function App() {
             <Shop />
           </div>
 
-          {/* Center pane: Dynamic (controlled by activeTab) */}
+          {/* Center pane: Dynamic (controlled by activeTab). Shop and
+              Projects are NOT rendered here — they live in the fixed side
+              panes, and rendering them here duplicated them (Shop showed
+              in the left and center panes, Projects in the center and
+              right). When the active tab is Shop or Projects, the center
+              falls back to Open Source so the pane is never empty. */}
           <div className="overflow-y-auto">
-            {state.activeTab === "shop" && <Shop />}
-            {state.activeTab === "projects" && <Projects />}
             {state.activeTab === "openSource" && <OpenSource />}
+            {(state.activeTab === "shop" ||
+              state.activeTab === "projects") && <OpenSource />}
             {/* Email and Settings can be added here later */}
           </div>
 
