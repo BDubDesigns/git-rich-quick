@@ -3,8 +3,18 @@ import { ClickButton } from "./ClickButton";
 import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";
 
+// Save status (Slice 2, server-authoritative saves). The engine reports it
+// via context; the footer just renders it, it never drives a save.
+const SAVE_STATUS_LABELS = {
+  loading: "Connecting to save server…",
+  saving: "Saving…",
+  saved: "Progress saved",
+  offline: "Offline — progress will sync when reconnected",
+  error: "Save error — progress reverted to the last good save",
+};
+
 export function Footer() {
-  const { state } = useGameContext();
+  const { saveStatus } = useGameContext();
 
   return (
     <>
@@ -16,6 +26,9 @@ export function Footer() {
         <div className="text-center mt-2 pb-5 panel">
           <CPSMeter />
           <ClickButton />
+          <div className="text-xs opacity-60 mt-2">
+            {SAVE_STATUS_LABELS[saveStatus] ?? ""}
+          </div>
         </div>
       </div>
 
@@ -33,6 +46,9 @@ export function Footer() {
           </div>
           <div className="flex flex-col items-end gap-1">
             <ClickButton />
+            <div className="text-xs opacity-60">
+              {SAVE_STATUS_LABELS[saveStatus] ?? ""}
+            </div>
           </div>
         </span>
       </div>

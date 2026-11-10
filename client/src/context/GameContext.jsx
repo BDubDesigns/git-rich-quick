@@ -1,4 +1,18 @@
-import { useReducer, useContext, createContext } from "react";
+import {
+  useReducer,
+  useContext,
+  createContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
+
+// Server-authoritative saves (Slice 2, guest-only). The engine is
+// framework-free; the provider owns it because it owns the reducer state
+// the engine reads and restores.
+import { SaveSync } from "../save/saveSync.js";
+import { saveStateToGameFields } from "../save/serialize.js";
 
 //  icons for employees
 import { GiPlasticDuck } from "react-icons/gi";
@@ -460,6 +474,20 @@ function gameReducer(state, action) {
             },
           },
         },
+      };
+    }
+
+    // Restore the game fields from a server snapshot (initial load, or a
+    // 409 revert to the last good state). UI state (active tab, panes) is
+    // preserved; only the saved game fields are replaced. Click history is
+    // display-only, so it resets.
+    case "RESTORE_SAVE": {
+      const { state: saveState } = action.payload;
+      return {
+        ...state,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
       };
     }
 
@@ -1044,9 +1072,65 @@ export function getEmployeeCost(employeeType, state) {
 // GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(gameReducer, initialState);
+  const stateRef = useRef(state);
+  const [saveStatus, setSaveStatus] = useState("loading");
+  const [savePlayerId, setSavePlayerId] = useState(null);
+
+  // Keep a ref to the latest state for the save engine (avoids stale closures).
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // The save engine (guest-only, Slice 2). Created once; the provider owns
+  // it because it owns the reducer state the engine reads and restores.
+  const saveSyncRef = useRef(null);
+  if (saveSyncRef.current === null) {
+    saveSyncRef.current = new SaveSync({
+      getState: () => stateRef.current,
+      restore: (saveState) =>
+        dispatch({ type: "RESTORE_SAVE", payload: { state: saveState } }),
+      onStatus: (status) => setSaveStatus(status),
+      onPlayerId: (id) => setSavePlayerId(id),
+    });
+  }
+
+  // Wrap dispatch so clicks are counted exactly. WRITE_CODE always applies
+  // (it unconditionally adds LOC), so counting it here is exact; hires,
+  // projects, and open-source levels are derived from state deltas by the
+  // engine instead, so a reducer-rejected action is never counted.
+  const trackedDispatch = useCallback(
+    (action) => {
+      dispatch(action);
+      if (action.type === "WRITE_CODE") {
+        saveSyncRef.current.recordClick();
+      }
+    },
+    [dispatch]
+  );
+
+  // Start the save loop (mint/load, then the 60s heartbeat + page-hide saves).
+  useEffect(() => {
+    const engine = saveSyncRef.current;
+    let cancelled = false;
+    engine.start().catch((err) => {
+      if (!cancelled) console.error("[save] failed to start:", err);
+    });
+    return () => {
+      cancelled = true;
+      engine.stop();
+    };
+  }, []);
+
+  // Tell the engine about every state change so it can save on big actions
+  // (a hire, a project completion, an open-source level).
+  useEffect(() => {
+    saveSyncRef.current.noteState(state);
+  }, [state]);
 
   return (
-    <GameContext.Provider value={{ state, dispatch }}>
+    <GameContext.Provider
+      value={{ state, dispatch: trackedDispatch, saveStatus, savePlayerId }}
+    >
       {children}
     </GameContext.Provider>
   );
