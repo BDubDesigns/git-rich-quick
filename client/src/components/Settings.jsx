@@ -25,6 +25,13 @@ import { SectionLayout } from "./SectionLayout.jsx";
 
 const { useSession, signUp, signIn, signOut } = authClient;
 
+// Shared action-button style for every button in Settings (solid blue,
+// the same as the sign-in button and the other tabs' action buttons).
+// One place, so the logged-in and logged-out buttons can never drift
+// apart again.
+const ACTION_BUTTON_CLASS =
+  "rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50";
+
 function shortId(id) {
   if (!id) return "—";
   return `${id.slice(0, 8)}…${id.slice(-4)}`;
@@ -236,7 +243,7 @@ export function Settings() {
             <button
               type="submit"
               disabled={busy}
-              className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+              className={ACTION_BUTTON_CLASS}
             >
               {busy
                 ? "Working…"
@@ -289,7 +296,7 @@ export function Settings() {
                   type="button"
                   disabled={busy || !guestPlayerId}
                   onClick={handleLink}
-                  className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+                  className={ACTION_BUTTON_CLASS}
                 >
                   Link this save
                 </button>
@@ -299,7 +306,7 @@ export function Settings() {
                   type="button"
                   disabled={busy}
                   onClick={handleLoadLinked}
-                  className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+                  className={ACTION_BUTTON_CLASS}
                 >
                   Load linked save
                 </button>
@@ -309,7 +316,7 @@ export function Settings() {
                   type="button"
                   disabled={busy}
                   onClick={handleUnlink}
-                  className="rounded border border-[#2d2d2d] px-3 py-1 text-sm text-[#cccccc] disabled:opacity-50"
+                  className={ACTION_BUTTON_CLASS}
                 >
                   Unlink save
                 </button>
@@ -318,7 +325,7 @@ export function Settings() {
                 type="button"
                 disabled={busy}
                 onClick={handleSignOut}
-                className="rounded border border-[#2d2d2d] px-3 py-1 text-sm text-[#cccccc] disabled:opacity-50"
+                className={ACTION_BUTTON_CLASS}
               >
                 Sign out
               </button>
