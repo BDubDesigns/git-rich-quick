@@ -489,10 +489,13 @@ export class SaveSync {
       }
       if (result.status === 409) {
         // Validation failure: the local state was wrong. Revert to the
-        // server's last good state and reset the accumulator.
+        // server's last good state and reset the accumulator. Log the
+        // sent state and actions too, so the browser console shows
+        // exactly what was rejected and why (not just the rule).
         const lastGood = result.data?.lastGoodState;
         console.error(
-          `[save] save rejected (${result.data?.rule}: ${result.data?.detail}); reverting to the last good state`
+          `[save] save rejected (${result.data?.rule}: ${result.data?.detail}); reverting to the last good state`,
+          { sentState: saveState, sentActions: actions }
         );
         if (lastGood) {
           this.baseline = lastGood.state;
@@ -519,10 +522,12 @@ export class SaveSync {
         return;
       }
       if (result.status === 400) {
-        // Malformed body: a client bug. Log it; keep the state and let
-        // the next heartbeat retry with fresh state.
+        // Malformed body: a client bug. Log it (with the sent state and
+        // actions, so the browser console shows what was malformed);
+        // keep the state and let the next heartbeat retry with fresh state.
         console.error(
-          `[save] save rejected as malformed (${result.data?.rule}: ${result.data?.detail})`
+          `[save] save rejected as malformed (${result.data?.rule}: ${result.data?.detail})`,
+          { sentState: saveState, sentActions: actions }
         );
         this.setStatus("error");
         return;

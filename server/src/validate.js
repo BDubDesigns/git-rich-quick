@@ -315,10 +315,33 @@ export function validateSave(prev, body, nowMs) {
     );
   }
 
-  // Rule 6 — LOC accounting. Tolerance covers fractional-tick rounding.
+  // Rule 6 — LOC accounting. The tolerance covers the discrete-tick
+  // error: the client earns passive LOC in whole 1-second GAME_TICKs,
+  // but the server credits it continuously by elapsed wall-clock
+  // seconds. In a window of W seconds the client can fire up to
+  // ceil(W) ticks while the server credits W seconds, so legitimate
+  // play can hold up to one full tick of passive LOC beyond the
+  // continuous credit. That excess is (ceil(W) - W) * locPerSecond,
+  // which approaches one tick as W approaches an integer from below.
+  // The old tolerance (1% of expectedLoc, min 10) collapsed to the
+  // 10 LOC floor exactly when a player ships heavily — shipping
+  // spends LOC, driving expectedLoc toward 0 — while the tick excess
+  // stays up to one tick (the player's LOC/sec, e.g. 150). The save
+  // was then falsely 409'd. The tolerance is therefore at least one
+  // tick of passive LOC at the new snapshot's rate, which is both
+  // necessary and sufficient: the legitimate excess is bounded above
+  // by one tick, and the 1% term still covers fractional rounding.
   const expectedLoc =
     prevState.linesOfCode + maxPassive + maxClickLoc - projectLocCost - openSourceLocCost;
-  const tolerance = Math.max(10, 0.01 * Math.max(expectedLoc, 0));
+  const oneTickLoc = locPerSecond(
+    newState.employees,
+    newState.openSourceProjects
+  );
+  const tolerance = Math.max(
+    10,
+    0.01 * Math.max(expectedLoc, 0),
+    oneTickLoc
+  );
   if (newState.linesOfCode > expectedLoc + tolerance) {
     return fail(
       "LOC",

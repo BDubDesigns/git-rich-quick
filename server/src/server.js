@@ -252,6 +252,20 @@ export function createServer(store, { clock = Date.now, auth } = {}) {
       return;
     }
     if (result.status === "rejected") {
+      // Log rejected saves with the state and reason, so a 409/400/429
+      // can be diagnosed from the server logs without asking the player
+      // for a screenshot. One line per rejection; no secrets or tokens.
+      console.warn(
+        "[save] rejected save",
+        JSON.stringify({
+          playerId: body.playerId,
+          rule: result.rule,
+          detail: result.detail,
+          prevSavedAtMs: result.lastGood?.savedAtMs ?? null,
+          state: body.state,
+          actionsSinceLastSave: body.actionsSinceLastSave,
+        })
+      );
       if (result.rule === "RATE_LIMIT") {
         const retryAfter = Math.max(
           1,
