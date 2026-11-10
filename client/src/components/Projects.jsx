@@ -1,7 +1,5 @@
-import {
-  useGameContext,
-  FREELANCE_PROJECTS_CONFIG,
-} from "../context/GameContext";
+import { useGameContext } from "../context/useGameContext";
+import { FREELANCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { ProjectCard } from "./ProjectCard.jsx";
 

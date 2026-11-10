@@ -1,7 +1,6 @@
 import { formatMoney } from "../utils/currency";
 
-import { ActionButton } from "./ActionButton.jsx";
-import { HiOutlineBanknotes } from "react-icons/hi2";
+import { BouncyButton } from "./BouncyButton.jsx";
 
 export function EmployeeCard({
   config,
@@ -9,6 +8,7 @@ export function EmployeeCard({
   ownedCount,
   canAfford,
   onPurchase,
+  quantity = 1,
 }) {
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
@@ -33,19 +33,21 @@ export function EmployeeCard({
           <p className="text-xs text-gray-300">{config.description}</p>
         </div>
 
-        {/* Right: Button with Price */}
-        <button
+        {/* Right: Hire button — a game-action button, so it bounces and
+            floats "+{quantity}" plus the employee's own icon on hire,
+            like the other game action buttons. currentCost is the TOTAL
+            for `quantity` hires (see getEmployeeBulkCost); the label
+            says how many that buys. */}
+        <BouncyButton
           onClick={onPurchase}
           disabled={!canAfford}
-          className={`flex flex-col items-center gap-1 shrink-0 px-3 py-2 rounded font-bold text-xs whitespace-nowrap ${
-            canAfford
-              ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
-              : "bg-gray-700 text-gray-500 cursor-not-allowed"
-          }`}
+          floatText={`+${quantity}`}
+          icon={<config.Icon size={20} color={config.color} />}
+          className="shrink-0"
         >
-          <div>Hire</div>
+          <div>{quantity > 1 ? `Hire x${quantity}` : "Hire"}</div>
           <div>(${formatMoney(currentCost)})</div>
-        </button>
+        </BouncyButton>
       </div>
     </div>
   );

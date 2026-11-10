@@ -5,8 +5,7 @@ import { BouncyButton } from "./BouncyButton.jsx";
  *
  * Wrapper component that centers a full-width BouncyButton inside a flex container.
  * Designed to be used as a footer/action control that can include an icon, optional
- * floating text, and children content (label or nodes). The visual style is controlled
- * by the `variant` prop which defaults to "blue".
+ * floating text, and children content (label or nodes).
  *
  * @param {Object} props - Component props.
  * @param {(event?: any) => void} [props.onClick] - Click handler invoked when the button is activated.
@@ -14,7 +13,8 @@ import { BouncyButton } from "./BouncyButton.jsx";
  * @param {React.ReactNode} [props.children] - Content to render inside the button (text, elements).
  * @param {string} [props.floatText] - Optional floating text passed through to the BouncyButton.
  * @param {React.ReactNode} [props.icon] - Optional icon element to render inside the BouncyButton.
- * @param {string} [props.variant="blue"] - Visual variant name forwarded to the BouncyButton for styling.
+ * @param {string} [props.className=""] - Extra classes on the wrapper div.
+ * @param {boolean} [props.fullWidth=true] - Whether the wrapper takes the full width.
  * @returns {JSX.Element} A centered, full-width action button wrapped in a container.
  */
 export function ActionButton({

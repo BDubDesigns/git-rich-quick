@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { FloatingText } from "./FloatingText";
 import { useFloatingText } from "../hooks/useFloatingText.js";
+import { Button } from "./Button.jsx";
 import "./BouncyButton.css";
 
 /**
  * BouncyButton
  *
- * A clickable button that briefly "bounces" (re-renders with a new key to retrigger CSS animation)
- * and triggers a floating text/graphic at the click coordinates via the useFloatingText hook.
+ * A game-action button: the shared Button visual, plus a bounce (the
+ * button remounts with a new key on each click, replaying the CSS
+ * animation) and floating text at the click coordinates.
+ *
+ * The visual lives in Button (one place); this component only adds the
+ * behavior. Plain buttons (Settings, LOCKED cards, the bulk-buy
+ * selector) use Button directly and get no bounce or floating text.
  *
  * Clicking the button will:
  * - call the provided onClick handler (if any),
@@ -23,7 +29,7 @@ import "./BouncyButton.css";
  * @param {React.ReactNode} [props.children] - Content to display inside the button.
  * @param {string} [props.floatText="+10"] - Text to show in the floating text when the button is clicked.
  * @param {React.ReactNode} [props.icon] - Optional icon to include in the floating text element.
- * @param {"blue"|"green"} [props.variant="blue"] - Visual variant for the button; controls CSS class selection.
+ * @param {string} [props.className=""] - Extra classes forwarded to Button (layout only, e.g. shrink-0).
  * @returns {JSX.Element} The rendered button and any active FloatingText components.
  */
 
@@ -33,7 +39,7 @@ export function BouncyButton({
   children,
   floatText = "+10",
   icon,
-  variant = "blue",
+  className = "",
 }) {
   const [bounceKey, setBounceKey] = useState(0);
   const [transformOrigin, setTransformOrigin] = useState("center");
@@ -62,21 +68,15 @@ export function BouncyButton({
 
   return (
     <>
-      <button
+      <Button
         key={bounceKey}
         onClick={handleButtonClick}
         disabled={disabled}
         style={{ transformOrigin }}
-        className={`
-          bouncy-button
-          ${
-            variant === "green" ? "bouncy-button--green" : "bouncy-button--blue"
-          }
-          ${disabled ? "bouncy-button--disabled" : ""}
-        `}
+        className={`bouncy-button ${className}`}
       >
         {children}
-      </button>
+      </Button>
 
       {floatingTexts.map((floatingText) => (
         <FloatingText

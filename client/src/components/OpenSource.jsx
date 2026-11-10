@@ -1,10 +1,10 @@
+import { useGameContext } from "../context/useGameContext";
+import { OPEN_SOURCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import {
-  useGameContext,
-  OPEN_SOURCE_PROJECTS_CONFIG,
   isOpenSourceProjectUnlocked,
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
-} from "../context/GameContext";
+} from "../context/gameLogic";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { OpenSourceCard } from "./OpenSourceCard.jsx";
 import { LockedOpenSourceCard } from "./LockedOpenSourceCard.jsx";

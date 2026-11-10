@@ -1,4 +1,5 @@
-import { calculateLOCPerClick, useGameContext } from "../context/GameContext";
+import { calculateLOCPerClick } from "../context/gameLogic";
+import { useGameContext } from "../context/useGameContext";
 import { HiMiniCodeBracket } from "react-icons/hi2";
 import { KeyPressButton } from "./KeyPressButton";
 

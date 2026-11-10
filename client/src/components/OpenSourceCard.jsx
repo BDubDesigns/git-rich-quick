@@ -1,4 +1,3 @@
-import { formatMoney } from "../utils/currency";
 import { ActionButton } from "./ActionButton.jsx";
 
 export function OpenSourceCard({

@@ -12,15 +12,9 @@
 import { formatMoney } from "../utils/currency";
 import { ProgressBar } from "./ProgressBar.jsx";
 import { formatCondition } from "../utils/formatCondition.js";
+import { Button } from "./Button.jsx";
 
 export function LockedEmployeeCard({ config, progress }) {
-  // Calculate if all conditions are met (derived state, not stored)
-  // Guard against empty progress array as defensive measure, though in practice
-  // this component is only rendered for locked employees with non-empty progress.
-  const allConditionsMet =
-    progress.length > 0 &&
-    progress.every((progressItem) => progressItem.remaining === 0);
-
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Top: Employee Name */}
@@ -53,14 +47,12 @@ export function LockedEmployeeCard({ config, progress }) {
           })}
         </div>
 
-        {/* Right: Button with Price */}
-        <button
-          disabled={true}
-          className={`flex flex-col items-center gap-1 shrink-0 px-3 py-2 rounded font-bold text-xs whitespace-nowrap bg-gray-700 text-gray-500 cursor-not-allowed`}
-        >
+        {/* Right: Button with Price — always disabled; the shared
+            Button's grey disabled state is the LOCKED look. */}
+        <Button disabled className="shrink-0">
           <div>LOCKED</div>
           <div>(${formatMoney(config.baseCost)})</div>
-        </button>
+        </Button>
       </div>
     </div>
   );

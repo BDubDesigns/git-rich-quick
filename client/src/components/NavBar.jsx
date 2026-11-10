@@ -1,4 +1,5 @@
-import { NAV_TABS, useGameContext } from "../context/GameContext.jsx";
+import { NAV_TABS } from "../context/gameConfig.js";
+import { useGameContext } from "../context/useGameContext.js";
 import { NavButton } from "./NavButton.jsx";
 
 export function NavBar() {

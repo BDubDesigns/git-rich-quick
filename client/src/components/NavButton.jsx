@@ -1,4 +1,7 @@
 export function NavButton({ id, label, Icon, isActive, onClick }) {
+  // Alias so the prop counts as used: a destructured prop rendered
+  // directly as a JSX tag is not counted as a reference by no-unused-vars.
+  const IconComponent = Icon;
   return (
     <button
       key={id}
@@ -10,7 +13,7 @@ export function NavButton({ id, label, Icon, isActive, onClick }) {
       }`}
       title={label}
     >
-      <Icon size={24} />
+      <IconComponent size={24} />
     </button>
   );
 }

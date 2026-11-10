@@ -4,11 +4,10 @@ import { LiaMoneyBillWaveAltSolid } from "react-icons/lia"; // Currency icon
 import { TbUserCode } from "react-icons/tb"; // Employee/passive generation icon
 
 import {
-  calculateLOCPerClick,
   getTotalEmployeeCount,
   calculateLOCPerSecond,
-} from "../context/GameContext.jsx";
-import { useGameContext } from "../context/GameContext.jsx";
+} from "../context/gameLogic.js";
+import { useGameContext } from "../context/useGameContext.js";
 import { formatMoney } from "../utils/currency.js";
 
 // UI Components for the button box layout
@@ -53,7 +52,6 @@ export function StatBox() {
         <div className="flex justify-items-normal items-center gap-6 mt-2 py-2 px-6 w-full panel mb-2">
           {/* Game stat displays: LOC currency */}
           <StatDisplay
-            label="LOC"
             icon={
               <HiMiniCodeBracket
                 size={24}
@@ -65,14 +63,12 @@ export function StatBox() {
 
           {/* Game stat displays: Money currency (in dollars) */}
           <StatDisplay
-            label="Money"
             icon={<LiaMoneyBillWaveAltSolid color="green" size={24} />}
             value={`$${displayMoney}`}
           />
 
           {/* Game stat displays: Total employee count across all job levels */}
           <StatDisplay
-            label="Employees"
             icon={
               <EmployeeCountIcon
                 color="var(--classes-text-color)"
@@ -88,7 +84,6 @@ export function StatBox() {
               floating text animations relative to it */}
           <StatDisplay
             ref={locPerSecondRef}
-            label="LOC/sec"
             icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
             value={locPerSecond + "/s"}
           />

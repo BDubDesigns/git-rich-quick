@@ -1,4 +1,5 @@
-import { useGameContext, SECTIONS_CONFIG } from "../context/GameContext.jsx";
+import { SECTIONS_CONFIG } from "../context/gameConfig.js";
+import { useGameContext } from "../context/useGameContext.js";
 import { SectionTitleBar } from "./SectionTitleBar.jsx";
 import { CodeComment } from "./CodeComment.jsx";
 
