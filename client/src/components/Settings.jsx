@@ -192,14 +192,14 @@ export function Settings() {
       {/* Account */}
       <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
-        <p className="m-0 text-xs text-[#858585]">
+        <p className="m-0 text-xs">
           Optional. Guests play fine without one — an account just keeps
           your save if you clear browser data or switch devices. No email
           verification needed to sign up.
         </p>
 
         {isPending ? (
-          <p className="m-0 text-xs text-[#858585]">Checking session…</p>
+          <p className="m-0 text-xs">Checking session…</p>
         ) : !user ? (
           <form onSubmit={handleAuthSubmit} className="flex flex-col gap-2">
             {mode === "signup" && (
@@ -250,7 +250,7 @@ export function Settings() {
               onClick={() =>
                 setMode(mode === "signup" ? "signin" : "signup")
               }
-              className="text-xs text-[#858585] underline hover:text-[#cccccc]"
+              className="text-xs underline"
             >
               {mode === "signup"
                 ? "Already have an account? Sign in"
@@ -262,7 +262,7 @@ export function Settings() {
             <p className="m-0 text-xs text-[#cccccc]">
               Signed in as <strong>{user.email}</strong>
             </p>
-            <p className="m-0 text-xs text-[#858585]">
+            <p className="m-0 text-xs">
               This device&apos;s save:{" "}
               <code>{shortId(guestPlayerId)}</code>
             </p>
@@ -279,7 +279,7 @@ export function Settings() {
               </p>
             )}
             {!linkedPlayerId && (
-              <p className="m-0 text-xs text-[#858585]">
+              <p className="m-0 text-xs">
                 No save linked to your account yet.
               </p>
             )}
@@ -340,7 +340,7 @@ export function Settings() {
       {/* Sound — volume controls are issue #32, not this slice. */}
       <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Sound</h3>
-        <p className="m-0 text-xs text-[#858585]">
+        <p className="m-0 text-xs">
           Volume controls are coming (issue #32).
         </p>
       </section>
