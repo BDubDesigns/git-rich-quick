@@ -190,7 +190,7 @@ export function Settings() {
   return (
     <SectionLayout sectionId="settings">
       {/* Account */}
-      <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
+      <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
         <p className="m-0 text-xs text-[#858585]">
           Optional. Guests play fine without one — an account just keeps
@@ -338,7 +338,7 @@ export function Settings() {
       </section>
 
       {/* Sound — volume controls are issue #32, not this slice. */}
-      <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
+      <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Sound</h3>
         <p className="m-0 text-xs text-[#858585]">
           Volume controls are coming (issue #32).
