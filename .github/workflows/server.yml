@@ -83,4 +83,4 @@ jobs:
             ghcr.io/bdubdesigns/git-rich-quick-save:${{ github.sha }}
             ghcr.io/bdubdesigns/git-rich-quick-save:latest
       - name: Trigger Coolify redeploy
-        run: curl -fsS "${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}"
+        run: curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" "${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}"
