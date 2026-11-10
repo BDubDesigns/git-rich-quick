@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "better-auth": "^1.7.19",
     "keyboard-css": "^1.2.4",
     "nanoid": "^3.3.11",
     "react": "^19.1.1",

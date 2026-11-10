@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "better-auth": "^1.7.19",
     "pg": "^8.13.0"
   },
   "description": "Server-authoritative save service for Get Rich Quick GIT",

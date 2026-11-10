@@ -8,6 +8,7 @@ import { calculateLOCPerSecond } from "./context/GameContext";
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
+import { Settings } from "./components/Settings";
 import { GameLayout } from "./components/GameLayout";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 
@@ -67,7 +68,8 @@ function App() {
             {state.activeTab === "openSource" && <OpenSource />}
             {(state.activeTab === "shop" ||
               state.activeTab === "projects") && <OpenSource />}
-            {/* Email and Settings can be added here later */}
+            {state.activeTab === "settings" && <Settings />}
+            {/* Email can be added here later (issue #31) */}
           </div>
 
           {/* Right pane: Always Projects */}
@@ -81,7 +83,8 @@ function App() {
           {state.activeTab === "shop" && <Shop />}
           {state.activeTab === "projects" && <Projects />}
           {state.activeTab === "openSource" && <OpenSource />}
-          {/* Email and Settings can be added here later */}
+          {state.activeTab === "settings" && <Settings />}
+          {/* Email can be added here later (issue #31) */}
         </div>
       )}
     </GameLayout>

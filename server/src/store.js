@@ -30,6 +30,62 @@ const CREATE_TABLE_SQL = `
   )
 `;
 
+/**
+ * Better Auth core tables (Slice 3, issue #28). This is Better Auth's
+ * required core schema (user / session / account / verification); the auth
+ * library owns all reads and writes to these tables. Embedded here to
+ * match the existing ensureSchema() pattern (no separate migration step).
+ * The SQL is the core schema from Better Auth's docs (camelCase columns);
+ * a fresh install's `npx auth@latest generate` produces the same four
+ * tables. We could not run the generator here — it needs a live Postgres
+ * to validate, and this VM has none — so the tables are covered by the
+ * auth tests below instead.
+ */
+const CREATE_AUTH_TABLES_SQL = `
+  CREATE TABLE IF NOT EXISTS "user" (
+    "id" TEXT PRIMARY KEY NOT NULL,
+    "name" TEXT NOT NULL,
+    "email" TEXT NOT NULL UNIQUE,
+    "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+    "image" TEXT,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS "session" (
+    "id" TEXT PRIMARY KEY NOT NULL,
+    "expiresAt" TIMESTAMP NOT NULL,
+    "token" TEXT NOT NULL UNIQUE,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "ipAddress" TEXT,
+    "userAgent" TEXT,
+    "userId" TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS "account" (
+    "id" TEXT PRIMARY KEY NOT NULL,
+    "accountId" TEXT NOT NULL,
+    "providerId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+    "accessToken" TEXT,
+    "refreshToken" TEXT,
+    "idToken" TEXT,
+    "accessTokenExpiresAt" TIMESTAMP,
+    "refreshTokenExpiresAt" TIMESTAMP,
+    "scope" TEXT,
+    "password" TEXT,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS "verification" (
+    "id" TEXT PRIMARY KEY NOT NULL,
+    "identifier" TEXT NOT NULL,
+    "value" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP NOT NULL,
+    "createdAt" TIMESTAMP,
+    "updatedAt" TIMESTAMP
+  );
+`;
+
 function toMs(value) {
   if (value instanceof Date) return value.getTime();
   if (typeof value === "number") return value;
@@ -49,6 +105,18 @@ export function createStore(pool) {
   return {
     async ensureSchema() {
       await pool.query(CREATE_TABLE_SQL);
+      await pool.query(CREATE_AUTH_TABLES_SQL);
+      // Link a guest save to a Better Auth account (Slice 3). One
+      // account links to at most one guest playerId, and a playerId
+      // links to at most one account (unique partial index below).
+      await pool.query(`
+        ALTER TABLE git_saves
+          ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"("id") ON DELETE SET NULL
+      `);
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS git_saves_user_id_unique
+          ON git_saves (user_id) WHERE user_id IS NOT NULL
+      `);
     },
 
     async close() {
@@ -88,6 +156,80 @@ export function createStore(pool) {
       );
       if (res.rowCount === 0) return null;
       return rowToSnapshot(res.rows[0]);
+    },
+
+    /**
+     * Link a guest save to a Better Auth account (Slice 3, issue #28).
+     * One account links to at most one guest playerId, and a playerId
+     * links to at most one account. Returns one of:
+     * - `{ status: "ok", playerId }`
+     * - `{ status: "unknown-player" }` (no save row for that playerId)
+     * - `{ status: "conflict", reason: "player-linked" }` (playerId is
+     *   already linked to a different account)
+     * - `{ status: "conflict", reason: "user-linked" }` (account already
+     *   links to a different playerId)
+     * Linking the same playerId to the same account again is a no-op ok.
+     */
+    async linkPlayerToUser(playerId, userId) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT player_id, user_id FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const existingUserId = res.rows[0].user_id;
+        if (existingUserId && existingUserId !== userId) {
+          await client.query("ROLLBACK");
+          return { status: "conflict", reason: "player-linked" };
+        }
+        const other = await client.query(
+          `SELECT player_id FROM git_saves WHERE user_id = $1 AND player_id <> $2`,
+          [userId, playerId]
+        );
+        if (other.rowCount > 0) {
+          await client.query("ROLLBACK");
+          return { status: "conflict", reason: "user-linked" };
+        }
+        await client.query(
+          `UPDATE git_saves SET user_id = $1 WHERE player_id = $2`,
+          [userId, playerId]
+        );
+        await client.query("COMMIT");
+        return { status: "ok", playerId };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /** The playerId linked to an account, or null if none. */
+    async getPlayerIdForUser(userId) {
+      const res = await pool.query(
+        `SELECT player_id FROM git_saves WHERE user_id = $1`,
+        [userId]
+      );
+      if (res.rowCount === 0) return null;
+      return res.rows[0].player_id;
+    },
+
+    /** Remove the link between a guest save and an account. */
+    async unlinkPlayerFromUser(userId) {
+      const res = await pool.query(
+        `UPDATE git_saves SET user_id = NULL WHERE user_id = $1 RETURNING player_id`,
+        [userId]
+      );
+      return res.rowCount > 0 ? res.rows[0].player_id : null;
     },
 
     /**

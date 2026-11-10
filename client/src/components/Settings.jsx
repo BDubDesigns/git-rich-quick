@@ -1,0 +1,353 @@
+/**
+ * Settings tab (Slice 3, issue #28): optional account + save linking.
+ *
+ * Guests stay the default — an account is only a way to keep a save when
+ * browser data is cleared or to pick it up on another device. Sign-up
+ * does NOT ask for email verification (Brandon, Nov 9): there is no
+ * trading, so multiple accounts give no in-game advantage, and email is
+ * only the password-reset safety net. An account links to ONE guest
+ * playerId (v1 has no cross-platform save beyond that link).
+ *
+ * Volume controls live here too, but they are issue #32, not this slice
+ * — the Sound section below is a placeholder until then.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  authClient,
+  linkSaveToAccount,
+  getLinkedPlayerId,
+  unlinkSaveFromAccount,
+  currentGuestPlayerId,
+} from "../authClient.js";
+import { PLAYER_ID_KEY } from "../save/api.js";
+
+const { useSession, signUp, signIn, signOut } = authClient;
+
+function shortId(id) {
+  if (!id) return "—";
+  return `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+
+export function Settings() {
+  const { data: session, isPending } = useSession();
+  const user = session?.user ?? null;
+
+  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null); // { kind: "ok" | "error", text }
+  const [linkedPlayerId, setLinkedPlayerId] = useState(null);
+  const [guestPlayerId, setGuestPlayerId] = useState(() =>
+    currentGuestPlayerId()
+  );
+
+  const refreshLink = useCallback(async () => {
+    if (!user) {
+      setLinkedPlayerId(null);
+      return;
+    }
+    setLinkedPlayerId(await getLinkedPlayerId());
+  }, [user]);
+
+  useEffect(() => {
+    refreshLink();
+  }, [refreshLink]);
+
+  // The guest id can change (first run mints one); re-read it when the
+  // tab becomes visible so the link button always uses the live one.
+  useEffect(() => {
+    const update = () => setGuestPlayerId(currentGuestPlayerId());
+    window.addEventListener("focus", update);
+    return () => window.removeEventListener("focus", update);
+  }, []);
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result =
+        mode === "signup"
+          ? await signUp.email({ email, password, name: name || "Player" })
+          : await signIn.email({ email, password });
+      if (result.error) {
+        setMessage({ kind: "error", text: result.error.message });
+      } else {
+        setMessage({
+          kind: "ok",
+          text:
+            mode === "signup"
+              ? "Account created — link your save below so it survives clearing browser data."
+              : "Signed in.",
+        });
+        setPassword("");
+      }
+    } catch (err) {
+      setMessage({ kind: "error", text: String(err?.message ?? err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLink() {
+    if (!guestPlayerId) {
+      setMessage({
+        kind: "error",
+        text: "No guest save on this device yet — play a little first, then link it.",
+      });
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { status, data } = await linkSaveToAccount(guestPlayerId);
+      if (status === 200) {
+        setLinkedPlayerId(guestPlayerId);
+        setMessage({
+          kind: "ok",
+          text: "Save linked to your account. Clearing browser data or switching devices will not lose it — sign in and load the linked save.",
+        });
+      } else if (status === 409 && data?.reason === "player-linked") {
+        setMessage({
+          kind: "error",
+          text: "This save is already linked to a different account.",
+        });
+      } else if (status === 409 && data?.reason === "user-linked") {
+        setMessage({
+          kind: "error",
+          text: "Your account already links to a different save. Unlink it first if you want to link this one instead.",
+        });
+      } else if (status === 404) {
+        setMessage({
+          kind: "error",
+          text: "That save is not on the server. Refresh the page and try again.",
+        });
+      } else {
+        setMessage({
+          kind: "error",
+          text: `Link failed (HTTP ${status}). Try again.`,
+        });
+      }
+    } catch (err) {
+      setMessage({ kind: "error", text: String(err?.message ?? err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUnlink() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { status } = await unlinkSaveFromAccount();
+      if (status === 200) {
+        setLinkedPlayerId(null);
+        setMessage({ kind: "ok", text: "Save unlinked from your account." });
+      } else {
+        setMessage({
+          kind: "error",
+          text: `Unlink failed (HTTP ${status}). Try again.`,
+        });
+      }
+    } catch (err) {
+      setMessage({ kind: "error", text: String(err?.message ?? err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleLoadLinked() {
+    if (!linkedPlayerId) return;
+    try {
+      localStorage.setItem(PLAYER_ID_KEY, linkedPlayerId);
+    } catch {
+      setMessage({
+        kind: "error",
+        text: "Could not store the linked save id in this browser.",
+      });
+      return;
+    }
+    // Reload so the save engine boots from the linked playerId.
+    window.location.reload();
+  }
+
+  async function handleSignOut() {
+    setBusy(true);
+    await signOut();
+    setLinkedPlayerId(null);
+    setMessage(null);
+    setBusy(false);
+  }
+
+  const linkedHere = linkedPlayerId && linkedPlayerId === guestPlayerId;
+  const linkedElsewhere =
+    linkedPlayerId && linkedPlayerId !== guestPlayerId;
+
+  return (
+    <div className="primary-text flex flex-col gap-4 p-2">
+      <div className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border-t border-[#0078d4] text-sm text-[#cccccc] w-fit">
+        <span className="text-[#c5c53f]">GRQ</span>
+        <h2 className="m-0">Settings</h2>
+      </div>
+
+      {/* Account */}
+      <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
+        <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
+        <p className="m-0 text-xs text-[#858585]">
+          Optional. Guests play fine without one — an account just keeps
+          your save if you clear browser data or switch devices. No email
+          verification needed to sign up.
+        </p>
+
+        {isPending ? (
+          <p className="m-0 text-xs text-[#858585]">Checking session…</p>
+        ) : !user ? (
+          <form onSubmit={handleAuthSubmit} className="flex flex-col gap-2">
+            {mode === "signup" && (
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Name (optional)"
+                autoComplete="name"
+                className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
+              />
+            )}
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              required
+              autoComplete="email"
+              className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password (8+ characters)"
+              required
+              minLength={8}
+              autoComplete={
+                mode === "signup" ? "new-password" : "current-password"
+              }
+              className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+            >
+              {busy
+                ? "Working…"
+                : mode === "signup"
+                  ? "Create account"
+                  : "Sign in"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                setMode(mode === "signup" ? "signin" : "signup")
+              }
+              className="text-xs text-[#858585] underline hover:text-[#cccccc]"
+            >
+              {mode === "signup"
+                ? "Already have an account? Sign in"
+                : "No account yet? Create one"}
+            </button>
+          </form>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="m-0 text-xs text-[#cccccc]">
+              Signed in as <strong>{user.email}</strong>
+            </p>
+            <p className="m-0 text-xs text-[#858585]">
+              This device&apos;s save:{" "}
+              <code>{shortId(guestPlayerId)}</code>
+            </p>
+            {linkedHere && (
+              <p className="m-0 text-xs text-[#4ec9b0]">
+                ✓ This save is linked to your account.
+              </p>
+            )}
+            {linkedElsewhere && (
+              <p className="m-0 text-xs text-[#dcdcaa]">
+                Your account links to a different save (
+                <code>{shortId(linkedPlayerId)}</code>) than this
+                device&apos;s.
+              </p>
+            )}
+            {!linkedPlayerId && (
+              <p className="m-0 text-xs text-[#858585]">
+                No save linked to your account yet.
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {!linkedHere && (
+                <button
+                  type="button"
+                  disabled={busy || !guestPlayerId}
+                  onClick={handleLink}
+                  className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+                >
+                  Link this save
+                </button>
+              )}
+              {linkedElsewhere && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleLoadLinked}
+                  className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+                >
+                  Load linked save
+                </button>
+              )}
+              {linkedPlayerId && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleUnlink}
+                  className="rounded border border-[#2d2d2d] px-3 py-1 text-sm text-[#cccccc] disabled:opacity-50"
+                >
+                  Unlink save
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleSignOut}
+                className="rounded border border-[#2d2d2d] px-3 py-1 text-sm text-[#cccccc] disabled:opacity-50"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
+
+        {message && (
+          <p
+            className={`m-0 text-xs ${
+              message.kind === "error" ? "text-[#f48771]" : "text-[#4ec9b0]"
+            }`}
+          >
+            {message.text}
+          </p>
+        )}
+      </section>
+
+      {/* Sound — volume controls are issue #32, not this slice. */}
+      <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
+        <h3 className="m-0 text-sm text-[#cccccc]">Sound</h3>
+        <p className="m-0 text-xs text-[#858585]">
+          Volume controls are coming (issue #32).
+        </p>
+      </section>
+    </div>
+  );
+}
