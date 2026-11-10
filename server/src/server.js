@@ -30,11 +30,22 @@ import { SAVE_RATE_LIMIT_SECONDS } from "./validate.js";
 const MAX_BODY_BYTES = 64 * 1024;
 
 // The Vercel-hosted game client, plus local dev/preview origins.
+// Any *.vercel.app origin is allowed so Vercel preview deployments work,
+// not just the production domain.
 const ALLOWED_ORIGINS = new Set([
   "https://gitrichquick.vercel.app",
   "http://localhost:5173",
   "http://localhost:4173",
 ]);
+
+function isAllowedOrigin(origin) {
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    return new URL(origin).hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -63,7 +74,7 @@ function sendJson(res, status, body, extraHeaders = {}) {
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader("access-control-allow-origin", origin);
     res.setHeader("vary", "Origin");
   }

@@ -201,3 +201,27 @@ test("unknown players, malformed requests, health, and CORS", async () => {
     await srv.stop();
   }
 });
+
+test("CORS allows any *.vercel.app origin (preview deployments)", async () => {
+  const srv = await startTestServer();
+  try {
+    const previewOrigin =
+      "https://git-rich-quick-client-git-slice-2-bdubdesigns-projects.vercel.app";
+    const preview = await fetch(`${srv.base}/healthz`, {
+      headers: { origin: previewOrigin },
+    });
+    assert.equal(preview.status, 200);
+    assert.equal(
+      preview.headers.get("access-control-allow-origin"),
+      previewOrigin
+    );
+
+    const evil = await fetch(`${srv.base}/healthz`, {
+      headers: { origin: "https://evil.example.com" },
+    });
+    assert.equal(evil.status, 200);
+    assert.equal(evil.headers.get("access-control-allow-origin"), null);
+  } finally {
+    await srv.stop();
+  }
+});
