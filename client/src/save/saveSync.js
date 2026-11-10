@@ -9,6 +9,9 @@
  * - localStorage holds ONLY the anonymous playerId, never currency.
  * - 429 (rate limit, one accepted save per 30s): keep the actions and
  *   retry after the server's retry delay. Never reset the accumulator.
+ *   While waiting, the engine reports status "retrying" and the delay
+ *   (via onRetry) so the footer can show a countdown instead of a bare
+ *   "Saving...".
  * - 409 (validation failure): revert local state to the server's
  *   lastGoodState and reset the accumulator — the local state was wrong.
  * - 400 (shape): log it; it is a client bug, not a state problem.
@@ -85,10 +88,17 @@ export class SaveSync {
    * @param {string} apiBaseUrl - save service base URL.
    * @param {() => object} getState - returns the current client reducer state.
    * @param {(saveState) => void} restore - replaces the game fields with a server snapshot.
-   * @param {(status: string) => void} onStatus - "loading" | "saving" | "saved" | "offline" | "error".
+   * @param {(status: string) => void} onStatus - "loading" | "saving" |
+   *   "retrying" | "saved" | "offline" | "error".
    * @param {(playerId: string) => void} [onPlayerId] - called when the player id is known.
    * @param {(timestampMs: number) => void} [onSavedAt] - called when a save is
    *   accepted, with the time it completed (drives the footer's "Saved Xs ago").
+   *   Also called with the loaded save's savedAt when init loads an
+   *   existing save, so the footer shows the real relative time.
+   * @param {(seconds: number | null) => void} [onRetry] - called with the
+   *   retry delay in seconds when a save is rate-limited and a retry is
+   *   scheduled, and with null once the retry wait is over (save
+   *   accepted or rejected). Drives the footer's "Retrying in Ns".
    * @param {object} [storage] - getItem/setItem/removeItem (defaults to localStorage).
    */
   constructor({
@@ -98,6 +108,7 @@ export class SaveSync {
     onStatus,
     onPlayerId,
     onSavedAt,
+    onRetry,
     storage,
   } = {}) {
     this.apiBaseUrl = apiBaseUrl;
@@ -106,6 +117,7 @@ export class SaveSync {
     this.onStatus = onStatus || (() => {});
     this.onPlayerId = onPlayerId || (() => {});
     this.onSavedAt = onSavedAt || (() => {});
+    this.onRetry = onRetry || (() => {});
     this.storage = storage || defaultStorage();
 
     this.playerId = null;
@@ -220,6 +232,11 @@ export class SaveSync {
           this.restore(data.state);
           this._lastSeenBig = bigActionFields(data.state);
           this.initialized = true;
+          // The load tells us when the server last accepted a save;
+          // report it so the footer shows the real relative time
+          // ("Saved 5m ago") instead of the "Progress saved" fallback.
+          const savedAtMs = Date.parse(data.savedAt);
+          if (!Number.isNaN(savedAtMs)) this.onSavedAt(savedAtMs);
           this.setStatus("saved");
           return;
         }
@@ -355,6 +372,9 @@ export class SaveSync {
               this._lastSeenBig = bigActionFields(data.state);
               this.clicks = 0;
               this.needsLoad = false;
+              // Same as init's load: report when the server last saved.
+              const savedAtMs = Date.parse(data.savedAt);
+              if (!Number.isNaN(savedAtMs)) this.onSavedAt(savedAtMs);
               this.setStatus("saved");
               return;
             }
@@ -424,19 +444,23 @@ export class SaveSync {
         this.baseline = saveState;
         this.clicks = Math.max(0, this.clicks - sentClicks);
         this._clearRetryTimer();
+        this.onRetry(null);
         this.onSavedAt(Date.now());
         this.setStatus("saved");
         return;
       }
       if (result.status === 429) {
         // Rate limit: keep the actions and retry after the server's delay.
-        // Never reset the accumulator here.
+        // Never reset the accumulator here. Report the wait so the footer
+        // can show a countdown ("Retrying in 25s") instead of a bare
+        // "Saving..." that looks hung.
         outcome = "rate-limited";
         const retryAfter =
           result.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS;
         console.info(`[save] rate-limited, retrying in ${retryAfter}s`);
         this._scheduleRetry(retryAfter);
-        this.setStatus("saving");
+        this.onRetry(retryAfter);
+        this.setStatus("retrying");
         return;
       }
       if (result.status === 409) {
@@ -453,6 +477,7 @@ export class SaveSync {
         }
         this.clicks = 0;
         this._clearRetryTimer();
+        this.onRetry(null);
         this.setStatus("error");
         return;
       }

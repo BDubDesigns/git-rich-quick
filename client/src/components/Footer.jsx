@@ -26,25 +26,51 @@ function formatSavedAgo(savedAtMs, nowMs) {
 
 // Compact save line: live relative time once a save has landed this
 // session, plus a "Save now" button that forces an immediate save.
+// While a rate-limited save waits to retry, it counts down
+// ("Retrying in 25s") instead of a bare "Saving..." that looks hung.
 function SaveStatus() {
-  const { saveStatus, lastSavedAt, saveNow } = useGameContext();
+  const { saveStatus, lastSavedAt, retryInSeconds, saveNow } =
+    useGameContext();
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [retryEndsAtMs, setRetryEndsAtMs] = useState(null);
   const showRelative = saveStatus === "saved" && lastSavedAt != null;
+  const showRetry = saveStatus === "retrying";
 
-  // Tick the relative time while a successful save is being shown.
+  // Arm the countdown when a retry wait starts (re-arms if a later 429
+  // reports a new delay). The engine's retry timer fires at the same
+  // deadline, so the two stay in sync.
   useEffect(() => {
-    if (!showRelative) return undefined;
+    if (!showRetry || retryInSeconds == null) return undefined;
+    setRetryEndsAtMs(Date.now() + retryInSeconds * 1000);
+    return undefined;
+  }, [showRetry, retryInSeconds]);
+
+  // Tick the relative time while a successful save is being shown, and
+  // the retry countdown while waiting to retry.
+  useEffect(() => {
+    if (!showRelative && !showRetry) return undefined;
     setNowMs(Date.now());
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [showRelative]);
+  }, [showRelative, showRetry]);
 
-  const label = showRelative
-    ? formatSavedAgo(lastSavedAt, nowMs)
-    : SAVE_STATUS_LABELS[saveStatus] ?? "";
-  // Disabled while a save is in flight or the server is unreachable.
+  let label;
+  if (showRetry) {
+    const remaining =
+      retryEndsAtMs == null
+        ? null
+        : Math.max(0, Math.ceil((retryEndsAtMs - nowMs) / 1000));
+    label = remaining == null ? "Saving…" : `Retrying in ${remaining}s`;
+  } else if (showRelative) {
+    label = formatSavedAgo(lastSavedAt, nowMs);
+  } else {
+    label = SAVE_STATUS_LABELS[saveStatus] ?? "";
+  }
+  // Disabled while a save is in flight, while waiting to retry, or while
+  // the server is unreachable.
   const saveDisabled =
     saveStatus === "saving" ||
+    saveStatus === "retrying" ||
     saveStatus === "offline" ||
     saveStatus === "loading";
 

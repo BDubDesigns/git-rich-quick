@@ -1075,9 +1075,13 @@ export function GameProvider({ children }) {
   const stateRef = useRef(state);
   const [saveStatus, setSaveStatus] = useState("loading");
   const [savePlayerId, setSavePlayerId] = useState(null);
-  // When the last save was accepted (ms since epoch); null until the first
-  // save this session completes. Drives the footer's "Saved Xs ago".
+  // When the last save was accepted (ms since epoch); null until a save
+  // is accepted this session, or init loads an existing save (whose
+  // savedAt is reported the same way). Drives the footer's "Saved Xs ago".
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  // Seconds until a rate-limited save retries; null when no retry is
+  // pending. Drives the footer's "Retrying in Ns" countdown.
+  const [retryInSeconds, setRetryInSeconds] = useState(null);
 
   // Keep a ref to the latest state for the save engine (avoids stale closures).
   useEffect(() => {
@@ -1095,6 +1099,7 @@ export function GameProvider({ children }) {
       onStatus: (status) => setSaveStatus(status),
       onPlayerId: (id) => setSavePlayerId(id),
       onSavedAt: (timestampMs) => setLastSavedAt(timestampMs),
+      onRetry: (seconds) => setRetryInSeconds(seconds),
     });
   }
 
@@ -1146,6 +1151,7 @@ export function GameProvider({ children }) {
         saveStatus,
         savePlayerId,
         lastSavedAt,
+        retryInSeconds,
         saveNow,
       }}
     >

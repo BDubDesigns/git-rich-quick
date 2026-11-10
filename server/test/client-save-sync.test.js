@@ -180,7 +180,7 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
     // Awaiting the save makes the test deterministic: the server clock
     // only moves when the test advances it.
     await engine.requestSave("test");
-    assert.equal(saveStatus, "saving");
+    assert.equal(saveStatus, "retrying");
     assert.equal(engine.clicks, 50, "clicks are kept after a 429");
 
     // Advance the server clock past the rate limit and save again: the
@@ -219,7 +219,7 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
       engine.recordClick();
     }
     await engine.requestSave("test");
-    assert.equal(saveStatus, "saving");
+    assert.equal(saveStatus, "retrying");
     assert.equal(engine.clicks, 5, "clicks are kept after a 429");
     srv.advance(5_000);
     await waitFor(async () => {
@@ -347,4 +347,107 @@ test("serialize round-trips the client state through the save shape", () => {
   assert.equal(back.openSourceProjects.overReactFramework.level, 1);
   assert.equal(back.unlockedEmployees.junior, true);
   assert.equal(back.money, 45200);
+});
+
+test("rate-limited save reports the retry delay, and a later load reports the savedAt", async () => {
+  const srv = await startTestServer();
+  const storage = memoryStorage();
+  let clientState = makeClientState();
+  let saveStatus = "loading";
+  let playerId = null;
+  const retryCalls = [];
+  const savedAtCalls = [];
+  const engine = new SaveSync({
+    apiBaseUrl: srv.base,
+    getState: () => clientState,
+    restore: (saveState) => {
+      clientState = {
+        ...clientState,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
+      };
+    },
+    onStatus: (status) => {
+      saveStatus = status;
+    },
+    onPlayerId: (id) => {
+      playerId = id;
+    },
+    onSavedAt: (ms) => {
+      savedAtCalls.push(ms);
+    },
+    onRetry: (seconds) => {
+      retryCalls.push(seconds);
+    },
+    storage,
+  });
+  let engine2 = null;
+  try {
+    await engine.init();
+    // A fresh mint has no prior save, so nothing is reported yet.
+    assert.deepEqual(savedAtCalls, []);
+    assert.deepEqual(retryCalls, []);
+
+    // 29s after minting, a save is rate-limited with retryAfterSeconds = 1.
+    // The engine must report the wait (status "retrying" + the delay) so
+    // the footer can count down instead of showing a bare "Saving...".
+    srv.advance(29_000);
+    for (let i = 0; i < 5; i += 1) {
+      fakeClick(clientState);
+      engine.recordClick();
+    }
+    await engine.requestSave("test");
+    assert.equal(saveStatus, "retrying");
+    assert.deepEqual(retryCalls, [1]);
+
+    // Advance the server clock past the limit; the scheduled retry (1s
+    // real time) fires, the save is accepted, and the retry wait clears.
+    srv.advance(5_000);
+    await waitFor(() => saveStatus === "saved");
+    assert.deepEqual(retryCalls, [1, null]);
+    // An accepted save reports the time it completed (client wall clock).
+    assert.equal(savedAtCalls.length, 1);
+    assert.ok(Number.isFinite(savedAtCalls[0]) && savedAtCalls[0] > 0);
+    const saved = await loadServerState(srv.base, playerId);
+    assert.equal(saved.totalLinesOfCode, 5);
+
+    // A fresh engine (new session) loading the same player must report the
+    // loaded save's savedAt, so the footer shows the real relative time
+    // ("Saved 5m ago") instead of the "Progress saved" fallback.
+    let clientState2 = makeClientState();
+    let saveStatus2 = "loading";
+    const savedAtCalls2 = [];
+    engine2 = new SaveSync({
+      apiBaseUrl: srv.base,
+      getState: () => clientState2,
+      restore: (saveState) => {
+        clientState2 = {
+          ...clientState2,
+          ...saveStateToGameFields(saveState),
+          clickHistory: [],
+          currentCPS: 0,
+        };
+      },
+      onStatus: (status) => {
+        saveStatus2 = status;
+      },
+      onPlayerId: () => {},
+      onSavedAt: (ms) => {
+        savedAtCalls2.push(ms);
+      },
+      storage,
+    });
+    await engine2.init();
+    assert.equal(saveStatus2, "saved");
+    assert.equal(savedAtCalls2.length, 1);
+    // The loaded save's savedAt is the server time of the accepted save
+    // (the controlled server clock, T0 + 29s + 5s).
+    assert.equal(savedAtCalls2[0], srv.now());
+    assert.equal(clientState2.totalLinesOfCode, 5);
+  } finally {
+    engine.stop();
+    if (engine2) engine2.stop();
+    await srv.stop();
+  }
 });
