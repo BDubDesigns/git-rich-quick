@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 // Import game context
-import { useGameContext } from "./context/GameContext";
+import { useGameContext } from "./context/useGameContext";
 // Import game balance and LOC calculation
-import { GAME_BALANCE_CONFIG } from "./context/GameContext";
-import { calculateLOCPerSecond } from "./context/GameContext";
+import { GAME_BALANCE_CONFIG } from "./context/gameConfig";
+import { calculateLOCPerSecond } from "./context/gameLogic";
 // Import components
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";

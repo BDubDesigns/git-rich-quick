@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useGameContext } from "../context/GameContext";
+import { useGameContext } from "../context/useGameContext";
 import { ClickButton } from "./ClickButton";
 import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";

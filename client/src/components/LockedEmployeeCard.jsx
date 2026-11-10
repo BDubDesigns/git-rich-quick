@@ -15,13 +15,6 @@ import { formatCondition } from "../utils/formatCondition.js";
 import { Button } from "./Button.jsx";
 
 export function LockedEmployeeCard({ config, progress }) {
-  // Calculate if all conditions are met (derived state, not stored)
-  // Guard against empty progress array as defensive measure, though in practice
-  // this component is only rendered for locked employees with non-empty progress.
-  const allConditionsMet =
-    progress.length > 0 &&
-    progress.every((progressItem) => progressItem.remaining === 0);
-
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Top: Employee Name */}

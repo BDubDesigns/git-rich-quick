@@ -1,4 +1,3 @@
-import { formatMoney } from "../utils/currency";
 import { ProgressBar } from "./ProgressBar.jsx";
 import { formatCondition } from "../utils/formatCondition.js";
 import { Button } from "./Button.jsx";

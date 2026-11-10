@@ -1,4 +1,4 @@
-import { useGameContext } from "../context/GameContext";
+import { useGameContext } from "../context/useGameContext";
 
 const cpsColorClasses = {
   low: "text-green-500",

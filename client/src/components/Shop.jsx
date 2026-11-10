@@ -1,12 +1,12 @@
 import { useState } from "react";
+import { useGameContext } from "../context/useGameContext";
+import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
 import {
-  useGameContext,
-  EMPLOYEE_CONFIGS,
   getEmployeeBulkCost,
   isEmployeeUnlocked,
   getUnlockProgress,
   hasCrossedUnlockThreshold,
-} from "../context/GameContext";
+} from "../context/gameLogic";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
