@@ -25,6 +25,13 @@ import { SectionLayout } from "./SectionLayout.jsx";
 
 const { useSession, signUp, signIn, signOut } = authClient;
 
+// Shared action-button style for every button in Settings (solid blue,
+// the same as the sign-in button and the other tabs' action buttons).
+// One place, so the logged-in and logged-out buttons can never drift
+// apart again.
+const ACTION_BUTTON_CLASS =
+  "rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50";
+
 function shortId(id) {
   if (!id) return "—";
   return `${id.slice(0, 8)}…${id.slice(-4)}`;
@@ -190,16 +197,16 @@ export function Settings() {
   return (
     <SectionLayout sectionId="settings">
       {/* Account */}
-      <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
+      <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
-        <p className="m-0 text-xs text-[#858585]">
+        <p className="m-0 text-xs">
           Optional. Guests play fine without one — an account just keeps
           your save if you clear browser data or switch devices. No email
           verification needed to sign up.
         </p>
 
         {isPending ? (
-          <p className="m-0 text-xs text-[#858585]">Checking session…</p>
+          <p className="m-0 text-xs">Checking session…</p>
         ) : !user ? (
           <form onSubmit={handleAuthSubmit} className="flex flex-col gap-2">
             {mode === "signup" && (
@@ -236,7 +243,7 @@ export function Settings() {
             <button
               type="submit"
               disabled={busy}
-              className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+              className={ACTION_BUTTON_CLASS}
             >
               {busy
                 ? "Working…"
@@ -250,7 +257,7 @@ export function Settings() {
               onClick={() =>
                 setMode(mode === "signup" ? "signin" : "signup")
               }
-              className="text-xs text-[#858585] underline hover:text-[#cccccc]"
+              className="text-xs underline"
             >
               {mode === "signup"
                 ? "Already have an account? Sign in"
@@ -262,7 +269,7 @@ export function Settings() {
             <p className="m-0 text-xs text-[#cccccc]">
               Signed in as <strong>{user.email}</strong>
             </p>
-            <p className="m-0 text-xs text-[#858585]">
+            <p className="m-0 text-xs">
               This device&apos;s save:{" "}
               <code>{shortId(guestPlayerId)}</code>
             </p>
@@ -279,7 +286,7 @@ export function Settings() {
               </p>
             )}
             {!linkedPlayerId && (
-              <p className="m-0 text-xs text-[#858585]">
+              <p className="m-0 text-xs">
                 No save linked to your account yet.
               </p>
             )}
@@ -289,7 +296,7 @@ export function Settings() {
                   type="button"
                   disabled={busy || !guestPlayerId}
                   onClick={handleLink}
-                  className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+                  className={ACTION_BUTTON_CLASS}
                 >
                   Link this save
                 </button>
@@ -299,7 +306,7 @@ export function Settings() {
                   type="button"
                   disabled={busy}
                   onClick={handleLoadLinked}
-                  className="rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50"
+                  className={ACTION_BUTTON_CLASS}
                 >
                   Load linked save
                 </button>
@@ -309,7 +316,7 @@ export function Settings() {
                   type="button"
                   disabled={busy}
                   onClick={handleUnlink}
-                  className="rounded border border-[#2d2d2d] px-3 py-1 text-sm text-[#cccccc] disabled:opacity-50"
+                  className={ACTION_BUTTON_CLASS}
                 >
                   Unlink save
                 </button>
@@ -318,7 +325,7 @@ export function Settings() {
                 type="button"
                 disabled={busy}
                 onClick={handleSignOut}
-                className="rounded border border-[#2d2d2d] px-3 py-1 text-sm text-[#cccccc] disabled:opacity-50"
+                className={ACTION_BUTTON_CLASS}
               >
                 Sign out
               </button>
@@ -338,9 +345,9 @@ export function Settings() {
       </section>
 
       {/* Sound — volume controls are issue #32, not this slice. */}
-      <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
+      <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Sound</h3>
-        <p className="m-0 text-xs text-[#858585]">
+        <p className="m-0 text-xs">
           Volume controls are coming (issue #32).
         </p>
       </section>
