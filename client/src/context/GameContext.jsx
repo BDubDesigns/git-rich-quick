@@ -325,9 +325,14 @@ function gameReducer(state, action) {
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
     }
-    // Buy an employee (intern, junior, or senior)
+    // Buy employee(s) (intern, junior, or senior). `quantity` is the
+    // bulk-buy amount from the Shop selector (default 1). The total
+    // cost is the sum of the next `quantity` individual costs — each
+    // successive hire costs more — computed by the same shared helper
+    // the save server uses for money accounting (rule 7), so the
+    // displayed price and the charged price can never disagree.
     case "BUY_EMPLOYEE": {
-      const { employeeType } = action.payload;
+      const { employeeType, quantity = 1 } = action.payload;
       const config = EMPLOYEE_CONFIGS[employeeType];
       const employee = state.employees[employeeType];
 
@@ -342,19 +347,22 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // Calculate current cost with exponential scaling
-      const currentCost = getEmployeeCost(employeeType, state);
+      // Total cost for `quantity` hires, starting from the owned count.
+      const totalCost = shared
+        .employeePurchaseCosts(employeeType, employee.count, quantity)
+        .reduce((sum, cost) => sum + cost, 0);
+
       // Check if player has enough money, if so run the purchase
-      if (state.money >= currentCost) {
+      if (state.money >= totalCost) {
         // Build newState with all changes from this action
         const newState = {
           ...state,
-          money: state.money - currentCost,
+          money: state.money - totalCost,
           employees: {
             ...state.employees,
             [employeeType]: {
               ...employee,
-              count: employee.count + 1,
+              count: employee.count + quantity,
             },
           },
         };
@@ -1075,6 +1083,25 @@ export function getEmployeeCost(employeeType, state) {
 
   // Calculate current cost in cents (increases with each purchase)
   return shared.employeeCost(employeeType, employee.count);
+}
+
+// Total cost in cents of buying `quantity` hires of a type, starting
+// from the currently owned count. The sum of the next `quantity`
+// individual costs (each successive hire costs more than the previous)
+// — the same sum the save server recomputes for money accounting, so
+// the price the Hire button shows and the price the reducer charges
+// can never disagree. Quantity 1 is exactly getEmployeeCost.
+export function getEmployeeBulkCost(employeeType, state, quantity) {
+  const employee = state.employees[employeeType];
+
+  if (!EMPLOYEE_CONFIGS[employeeType] || !employee) {
+    console.warn(`Unknown employee type: ${employeeType}`);
+    return 0;
+  }
+
+  return shared
+    .employeePurchaseCosts(employeeType, employee.count, quantity)
+    .reduce((sum, cost) => sum + cost, 0);
 }
 // GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {

@@ -22,15 +22,9 @@ import {
 } from "../authClient.js";
 import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
+import { Button } from "./Button.jsx";
 
 const { useSession, signUp, signIn, signOut } = authClient;
-
-// Shared action-button style for every button in Settings (solid blue,
-// the same as the sign-in button and the other tabs' action buttons).
-// One place, so the logged-in and logged-out buttons can never drift
-// apart again.
-const ACTION_BUTTON_CLASS =
-  "rounded bg-[#0078d4] px-3 py-1 text-sm text-white disabled:opacity-50";
 
 function shortId(id) {
   if (!id) return "—";
@@ -240,17 +234,13 @@ export function Settings() {
               }
               className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
             />
-            <button
-              type="submit"
-              disabled={busy}
-              className={ACTION_BUTTON_CLASS}
-            >
+            <Button type="submit" disabled={busy}>
               {busy
                 ? "Working…"
                 : mode === "signup"
                   ? "Create account"
                   : "Sign in"}
-            </button>
+            </Button>
             <button
               type="button"
               disabled={busy}
@@ -292,43 +282,27 @@ export function Settings() {
             )}
             <div className="flex flex-wrap gap-2">
               {!linkedHere && (
-                <button
+                <Button
                   type="button"
                   disabled={busy || !guestPlayerId}
                   onClick={handleLink}
-                  className={ACTION_BUTTON_CLASS}
                 >
                   Link this save
-                </button>
+                </Button>
               )}
               {linkedElsewhere && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleLoadLinked}
-                  className={ACTION_BUTTON_CLASS}
-                >
+                <Button type="button" disabled={busy} onClick={handleLoadLinked}>
                   Load linked save
-                </button>
+                </Button>
               )}
               {linkedPlayerId && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleUnlink}
-                  className={ACTION_BUTTON_CLASS}
-                >
+                <Button type="button" disabled={busy} onClick={handleUnlink}>
                   Unlink save
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleSignOut}
-                className={ACTION_BUTTON_CLASS}
-              >
+              <Button type="button" disabled={busy} onClick={handleSignOut}>
                 Sign out
-              </button>
+              </Button>
             </div>
           </div>
         )}

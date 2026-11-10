@@ -1,6 +1,7 @@
 import { formatMoney } from "../utils/currency";
 import { ProgressBar } from "./ProgressBar.jsx";
 import { formatCondition } from "../utils/formatCondition.js";
+import { Button } from "./Button.jsx";
 
 export function LockedOpenSourceCard({
   project,
@@ -58,14 +59,12 @@ export function LockedOpenSourceCard({
             <span className="text-xs comment-text">{`*/`}</span>
           </div>
         </div>
-        {/* Right: Locked Button */}
-        <button
-          disabled={true}
-          className={`flex flex-col items-center gap-1 shrink-0 px-3 py-2 rounded font-bold text-sm whitespace-nowrap bg-gray-700 text-gray-500 cursor-not-allowed`}
-        >
+        {/* Right: Locked Button — always disabled; the shared Button's
+            grey disabled state is the LOCKED look. */}
+        <Button disabled className="shrink-0">
           <div>LOCKED</div>
           <div>({locCost} LOC)</div>
-        </button>
+        </Button>
       </div>
     </div>
   );
