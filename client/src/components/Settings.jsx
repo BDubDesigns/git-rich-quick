@@ -21,6 +21,7 @@ import {
   currentGuestPlayerId,
 } from "../authClient.js";
 import { PLAYER_ID_KEY } from "../save/api.js";
+import { SectionLayout } from "./SectionLayout.jsx";
 
 const { useSession, signUp, signIn, signOut } = authClient;
 
@@ -187,12 +188,7 @@ export function Settings() {
     linkedPlayerId && linkedPlayerId !== guestPlayerId;
 
   return (
-    <div className="primary-text flex flex-col gap-4 p-2">
-      <div className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border-t border-[#0078d4] text-sm text-[#cccccc] w-fit">
-        <span className="text-[#c5c53f]">GRQ</span>
-        <h2 className="m-0">Settings</h2>
-      </div>
-
+    <SectionLayout sectionId="settings">
       {/* Account */}
       <section className="flex flex-col gap-2 rounded border border-[#2d2d2d] bg-[#1e1e1e] p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
@@ -348,6 +344,6 @@ export function Settings() {
           Volume controls are coming (issue #32).
         </p>
       </section>
-    </div>
+    </SectionLayout>
   );
 }

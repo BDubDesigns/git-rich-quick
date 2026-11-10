@@ -106,6 +106,12 @@ export const SECTIONS_CONFIG = Object.freeze({
     description:
       "Contribute your LOC to open-source projects to unlock permanent bonuses.",
   },
+  settings: {
+    id: "settings",
+    displayName: "Settings",
+    description:
+      "Account and game settings — link a save to your account so it survives clearing browser data.",
+  },
 });
 
 // Immutable employee configuration
@@ -274,6 +280,7 @@ const initialState = {
       shop: { isDescriptionVisible: true },
       projects: { isDescriptionVisible: true },
       openSource: { isDescriptionVisible: true },
+      settings: { isDescriptionVisible: true },
     },
   },
 };
