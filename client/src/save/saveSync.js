@@ -87,6 +87,8 @@ export class SaveSync {
    * @param {(saveState) => void} restore - replaces the game fields with a server snapshot.
    * @param {(status: string) => void} onStatus - "loading" | "saving" | "saved" | "offline" | "error".
    * @param {(playerId: string) => void} [onPlayerId] - called when the player id is known.
+   * @param {(timestampMs: number) => void} [onSavedAt] - called when a save is
+   *   accepted, with the time it completed (drives the footer's "Saved Xs ago").
    * @param {object} [storage] - getItem/setItem/removeItem (defaults to localStorage).
    */
   constructor({
@@ -95,6 +97,7 @@ export class SaveSync {
     restore,
     onStatus,
     onPlayerId,
+    onSavedAt,
     storage,
   } = {}) {
     this.apiBaseUrl = apiBaseUrl;
@@ -102,6 +105,7 @@ export class SaveSync {
     this.restore = restore;
     this.onStatus = onStatus || (() => {});
     this.onPlayerId = onPlayerId || (() => {});
+    this.onSavedAt = onSavedAt || (() => {});
     this.storage = storage || defaultStorage();
 
     this.playerId = null;
@@ -420,6 +424,7 @@ export class SaveSync {
         this.baseline = saveState;
         this.clicks = Math.max(0, this.clicks - sentClicks);
         this._clearRetryTimer();
+        this.onSavedAt(Date.now());
         this.setStatus("saved");
         return;
       }

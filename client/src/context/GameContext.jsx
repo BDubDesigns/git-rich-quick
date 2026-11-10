@@ -1075,6 +1075,9 @@ export function GameProvider({ children }) {
   const stateRef = useRef(state);
   const [saveStatus, setSaveStatus] = useState("loading");
   const [savePlayerId, setSavePlayerId] = useState(null);
+  // When the last save was accepted (ms since epoch); null until the first
+  // save this session completes. Drives the footer's "Saved Xs ago".
+  const [lastSavedAt, setLastSavedAt] = useState(null);
 
   // Keep a ref to the latest state for the save engine (avoids stale closures).
   useEffect(() => {
@@ -1091,8 +1094,16 @@ export function GameProvider({ children }) {
         dispatch({ type: "RESTORE_SAVE", payload: { state: saveState } }),
       onStatus: (status) => setSaveStatus(status),
       onPlayerId: (id) => setSavePlayerId(id),
+      onSavedAt: (timestampMs) => setLastSavedAt(timestampMs),
     });
   }
+
+  // Force an immediate save (the footer's "Save now" button), bypassing the
+  // 60s heartbeat. The engine serializes, so calling while a save is in
+  // flight just queues one after it.
+  const saveNow = useCallback(() => {
+    saveSyncRef.current.requestSave("manual");
+  }, []);
 
   // Wrap dispatch so clicks are counted exactly. WRITE_CODE always applies
   // (it unconditionally adds LOC), so counting it here is exact; hires,
@@ -1129,7 +1140,14 @@ export function GameProvider({ children }) {
 
   return (
     <GameContext.Provider
-      value={{ state, dispatch: trackedDispatch, saveStatus, savePlayerId }}
+      value={{
+        state,
+        dispatch: trackedDispatch,
+        saveStatus,
+        savePlayerId,
+        lastSavedAt,
+        saveNow,
+      }}
     >
       {children}
     </GameContext.Provider>
