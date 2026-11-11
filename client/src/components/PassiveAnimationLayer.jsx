@@ -2,6 +2,9 @@ import { useEffect } from "react";
 import { HiMiniCodeBracket } from "react-icons/hi2";
 import { useFloatingText } from "../hooks/useFloatingText.js";
 import { FloatingText } from "./FloatingText.jsx";
+// Number abbreviation (issue #42) — the shared formatter, so the
+// passive-LOC floating text abbreviates at high LOC/s.
+import { formatNumber } from "../../../shared/formatNumber.js";
 
 /**
  * PassiveAnimationLayer
@@ -34,7 +37,7 @@ export function PassiveAnimationLayer({ locPerSecondRef }) {
         // Create a code bracket icon to display alongside the LOC amount
         const icon = <HiMiniCodeBracket size={20} color="gray" />;
         // Trigger the floating text animation with the LOC amount and icon
-        triggerFloatingText(startX, startY, `+${amount}`, icon);
+        triggerFloatingText(startX, startY, `+${formatNumber(amount)}`, icon);
       }
     };
 

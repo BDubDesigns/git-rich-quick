@@ -9,7 +9,13 @@
  *   have unlock conditions, so progress array is always populated.
  */
 
-import { formatMoney } from "../utils/currency";
+// Number abbreviation (issue #42) — the shared formatter. formatMoney
+// returns the string WITH the "$" attached, so the locked cost now shows
+// "($25.00)" where it previously showed "(25.00)" with no $ sign.
+import {
+  formatMoney,
+  formatNumber,
+} from "../../../shared/formatNumber.js";
 import { ProgressBar } from "./ProgressBar.jsx";
 import { formatCondition } from "../utils/formatCondition.js";
 import { Button } from "./Button.jsx";
@@ -22,7 +28,7 @@ export function LockedEmployeeCard({ config, progress }) {
         <span className="text-sm font-bold">{config.name}</span>{" "}
         <span className="text-xs comment-text">
           {`// `}
-          {config.locPerSecond} LOC per Sec
+          {formatNumber(config.locPerSecond)} LOC per Sec
         </span>
       </div>
 

@@ -1,4 +1,10 @@
-import { formatMoney } from "../utils/currency";
+// Number abbreviation (issue #42) — the shared formatter. formatMoney
+// returns the string WITH the "$" attached, so the manual "$" prefixes
+// on the reward are dropped (they would double up to "$$").
+import {
+  formatMoney,
+  formatNumber,
+} from "../../../shared/formatNumber.js";
 
 import { ActionButton } from "./ActionButton.jsx";
 import { HiOutlineBanknotes } from "react-icons/hi2";
@@ -25,13 +31,16 @@ export function ProjectCard({
             <br />
             <span className="text-blue-400">@param</span>
             <span className="text-cyan-300"> {`{LOC}`}</span>
-            <span className="text-gray-400"> {project.loc}</span>
+            <span className="text-gray-400">
+              {" "}
+              {formatNumber(project.loc)}
+            </span>
             <br />
             <span className="text-blue-400"> @returns</span>
             <span className="text-cyan-300"> {`{Currency}`}</span>
             <span className="text-green-400">
               {" "}
-              ${formatMoney(project.reward)}
+              {formatMoney(project.reward)}
             </span>
             <br />
             <span className="comment-text">{`*/`}</span>
@@ -42,16 +51,18 @@ export function ProjectCard({
         {/* Left: Icon + Name + Count */}
         <div className="flex flex-col items-center gap-1 shrink-0 py-2">
           <project.icon size={36} color={project.color} />
-          <div className="text-xs text-gray-400">x{completionCount}</div>
+          <div className="text-xs text-gray-400">
+            x{formatNumber(completionCount)}
+          </div>
           <ActionButton
             onClick={onComplete}
             disabled={!canComplete}
-            floatText={`+$${formatMoney(project.reward)}`}
+            floatText={`+${formatMoney(project.reward)}`}
             icon={<HiOutlineBanknotes size={20} />}
             fullWidth={false}
           >
             <div>Ship!</div>
-            <div>({project.loc} LOC)</div>
+            <div>({formatNumber(project.loc)} LOC)</div>
           </ActionButton>
         </div>
       </div>

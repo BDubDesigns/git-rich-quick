@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { SAVE_API_URL, getLeaderboard } from "../save/api.js";
+// Number abbreviation (issue #42) — the shared formatter. formatMoney
+// returns the string WITH the "$" attached.
+import {
+  formatMoney,
+  formatNumber,
+} from "../../../shared/formatNumber.js";
 
 /**
  * Leaderboard (issue #29): the top 10 ACCOUNTS only (guests never
@@ -21,10 +27,10 @@ const SORTS = [
 
 function formatScore(sort, entry) {
   if (sort === "cash") {
-    return `$${(entry.money / 100).toFixed(2)}`;
+    return formatMoney(entry.money);
   }
   const value = sort === "current" ? entry.currentLoc : entry.lifetimeLoc;
-  return `${Math.floor(value).toLocaleString()} LOC`;
+  return `${formatNumber(Math.floor(value))} LOC`;
 }
 
 export function Leaderboard() {
