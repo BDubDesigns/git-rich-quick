@@ -116,7 +116,16 @@ export function saveStateToGameFields(saveState) {
     money: saveState.money,
     employees: inflateCounts(saveState.employees),
     aiAssistants: { noPilot: { count: saveState.aiAssistants.noPilot } },
-    freelanceProjectsCompleted: { ...saveState.freelanceProjectsCompleted },
+    // A save from before PR #78 shipped the four new freelance
+    // projects has no key for a never-shipped one; default each missing
+    // key to 0, the same way releaseManagerAssignments and
+    // autoShipsCompleted do below. Without this, shipping a
+    // never-shipped project reads `undefined`, and `undefined + 1` is
+    // NaN, which poisons the count, the unlock total, and the save.
+    freelanceProjectsCompleted: FREELANCE_PROJECT_KEYS.reduce((acc, key) => {
+      acc[key] = saveState.freelanceProjectsCompleted?.[key] ?? 0;
+      return acc;
+    }, {}),
     // Release Manager assignments and cumulative auto-ship counts. A
     // save from before the Release Manager shipped has neither — default
     // them to all-zero here, the same way the server's
