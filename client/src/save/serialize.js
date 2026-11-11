@@ -21,6 +21,7 @@ import {
   deriveUnlockedCosmetics,
   freelanceProjectUnlockConditionsMet,
   initialSaveState,
+  openSourceUnlockConditionsMet,
 } from "../../../shared/game-balance.js";
 
 function flatCounts(nested) {
@@ -92,7 +93,21 @@ export function saveStateToGameFields(saveState) {
     freelanceProjectsCompleted: { ...saveState.freelanceProjectsCompleted },
     openSourceProjects: inflateLevels(saveState.openSourceProjects),
     unlockedEmployees: { ...saveState.unlockedEmployees },
-    unlockedOpenSourceProjects: { ...saveState.unlockedOpenSourceProjects },
+    // Constellation shipped unlocked, then gained a TOTAL_LOC >= 500
+    // condition (star fix slice). A save from before the condition
+    // carries latch=true with lifetime LOC below the threshold, so the
+    // latch is re-derived from the save's own lifetime LOC here, the
+    // same way the server's normalizeSaveState does on save — a
+    // veteran at/above 500 LOC keeps the unlock, a veteran below it
+    // gets it locked (with progress shown). The other two latches
+    // were always condition-gated, so only Constellation needs this.
+    unlockedOpenSourceProjects: {
+      ...saveState.unlockedOpenSourceProjects,
+      constellation: openSourceUnlockConditionsMet(
+        "constellation",
+        saveState
+      ),
+    },
     // A save from before project unlocks shipped (issue #19) has no
     // freelance latch — the load path returns the raw stored state,
     // so derive it from the save's own shipped counts here, the same

@@ -80,6 +80,7 @@ import {
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
+  STAR_CONFIG,
   STAR_EFFECT_IDS,
   baseLocPerSecond,
   canEquipCosmetic,
@@ -561,8 +562,17 @@ function sameStarClaim(a, b) {
  * there is no separate plausibility pass anymore. The spawn cap is
  * enforced at issuance (the server only issues a star when one is
  * due), not here.
+ *
+ * An issued outcome EXPIRES 30s after it was issued (the star's
+ * lifetime, star fix slice): a claim for an outcome older than that is
+ * rejected even if it matches exactly and is unconsumed, so a stale
+ * outcome cannot be claimed late by a tampered client. The store
+ * attaches `issuedAtMs` to each issued entry (from
+ * star_issues.issued_at); entries without one — synthetic test data
+ * that does not model issue time — skip the expiry check. `nowMs` is
+ * the save time; when it is null the expiry check is skipped too.
  */
-export function matchIssuedStarClaims(claims, issued) {
+export function matchIssuedStarClaims(claims, issued, nowMs = null) {
   const unused = [...issued];
   const claimIds = [];
   for (const claim of claims) {
@@ -575,6 +585,20 @@ export function matchIssuedStarClaims(claims, issued) {
       return {
         ok: false,
         detail: `star claim ${claim.claimId} does not match a server-issued outcome`,
+      };
+    }
+    const issuedClaim = unused[index];
+    if (
+      nowMs !== null &&
+      typeof issuedClaim.issuedAtMs === "number" &&
+      nowMs >
+        issuedClaim.issuedAtMs +
+          STAR_CONFIG.starLifetimeSeconds * 1000 +
+          STAR_CLOCK_SKEW_GRACE_MS
+    ) {
+      return {
+        ok: false,
+        detail: `star claim ${claim.claimId} expired: an issued outcome is only valid for ${STAR_CONFIG.starLifetimeSeconds}s after issue`,
       };
     }
     claimIds.push(unused[index].claimId);
@@ -863,6 +887,24 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
         `open-source unlock claimed without meeting conditions: ${projectId}`
       );
     }
+    // A level claimed without meeting the unlock condition is rejected
+    // too (star fix slice): the latch alone does not gate a level —
+    // a save could claim Constellation level 1 with the latch false —
+    // so the level itself must satisfy the conditions. This is what
+    // enforces the Constellation TOTAL_LOC >= 500 unlock on the level
+    // a save claims, not just on the latch it carries. It applies to
+    // every open-source project (same loop); OverReact has no
+    // conditions, and Blocker's 5-junior condition is met by any
+    // legitimate owner.
+    if (
+      newState.openSourceProjects[projectId] > 0 &&
+      !openSourceUnlockConditionsMet(projectId, newState)
+    ) {
+      return fail(
+        "UNLOCK",
+        `open-source level claimed without meeting unlock conditions: ${projectId}`
+      );
+    }
   }
   for (const key of FREELANCE_PROJECT_KEYS) {
     if (
@@ -921,7 +963,7 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   // in the LOC/money rules below. A failed claim is a STAR rejection
   // (409 with the last good state).
   const starClaims = actions.starClaims ?? [];
-  const starMatch = matchIssuedStarClaims(starClaims, issuedStarClaims);
+  const starMatch = matchIssuedStarClaims(starClaims, issuedStarClaims, nowMs);
   if (!starMatch.ok) return fail("STAR", starMatch.detail);
   const {
     locNet: starLocNet,

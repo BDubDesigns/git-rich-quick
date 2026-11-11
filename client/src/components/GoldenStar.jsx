@@ -199,8 +199,14 @@ export function GoldenStar() {
   }, [savePlayerId, constellationLevel]);
 
   // (Re)fetch when the player or the Constellation level changes.
+  // The countdown is cleared alongside the star: while the next time
+  // is being fetched, no star is due, and the show-star effect must
+  // not re-spawn the cleared star from a stale secondsLeft of 0
+  // (the double-star bug).
   useEffect(() => {
     setStar(null);
+    setSecondsLeft(null);
+    setCountdownTotalSeconds(null);
     fetchNext();
   }, [fetchNext]);
 
@@ -235,7 +241,14 @@ export function GoldenStar() {
     return () => clearInterval(id);
   }, [liveEffects.length]);
 
-  // Show the star the moment the countdown hits zero.
+  // Show the star the moment the countdown hits zero. secondsLeft is
+  // null while no star is due (awaiting the next roll), so the guard
+  // below only fires on the countdown actually reaching 0 — never on
+  // a star that was just dismissed (click / despawn / refetch), which
+  // clears the countdown to null first. That clearing is what stops
+  // the double-star bug: without it, the effect re-fires while the
+  // claim is still in flight (secondsLeft still 0) and spawns a
+  // second star whose claim the server rejects (409 star-not-due).
   useEffect(() => {
     if (star !== null || secondsLeft !== 0) return undefined;
     setStar(randomStarPosition());
@@ -244,7 +257,10 @@ export function GoldenStar() {
 
   // Despawn an unclicked star after its lifetime, then re-fetch the
   // next star time (the server rolls a fresh one). The star starts
-  // fading starFadeSeconds before it despawns (issue #49).
+  // fading starFadeSeconds before it despawns (issue #49). The
+  // countdown is cleared alongside the star, so the show-star effect
+  // does not re-spawn it — without the clearing the star stayed up
+  // ~60s (two 30s windows) instead of its 30s lifetime.
   useEffect(() => {
     if (star === null) return undefined;
     setFading(false);
@@ -260,6 +276,8 @@ export function GoldenStar() {
     );
     const despawnId = setTimeout(() => {
       setStar(null);
+      setSecondsLeft(null);
+      setCountdownTotalSeconds(null);
       fetchNext();
     }, STAR_CONFIG.starLifetimeSeconds * 1000);
     return () => {
@@ -271,8 +289,15 @@ export function GoldenStar() {
   const handleStarClick = useCallback(async () => {
     if (!star || !savePlayerId) return;
     // Hide the star immediately so a double-click cannot claim twice;
-    // the server also only issues one outcome per due star.
+    // the server also only issues one outcome per due star. Clear the
+    // countdown too: while the claim is in flight, no star is due, and
+    // the show-star effect must not re-spawn a second star from the
+    // stale secondsLeft of 0 (the double-star bug — the second star's
+    // claim was rejected 409 star-not-due). The claim response arms
+    // the next countdown below; a failed claim re-fetches it.
     setStar(null);
+    setSecondsLeft(null);
+    setCountdownTotalSeconds(null);
     try {
       const { status, data } = await claimStar(SAVE_API_URL, savePlayerId);
       if (!mountedRef.current) return;

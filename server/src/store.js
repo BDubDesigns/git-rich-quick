@@ -414,9 +414,13 @@ export function createStore(pool) {
      * - `{ claim, nextStarAtMs }` (the claim carries its claimId)
      * - `{ status: "unknown-player" }`
      * - `{ status: "no-stars" }` (Constellation level 0)
-     * - `{ status: "not-due", nextStarAtMs }` (no star is due yet)
+     * - `{ status: "not-due", nextStarAtMs, expired }` (no star is due
+     *   yet, or the due star already burned out)
      * A small grace (5s) covers client-timer skew: the client's
-     * countdown can fire a hair before the server's spawn time.
+     * countdown can fire a hair before the server's spawn time. The
+     * same grace applies past the star's 30s lifetime (star fix
+     * slice): a star is only claimable inside its lifetime, so a claim
+     * long after the star was due is rejected instead of succeeding.
      */
     async claimStar(playerId, nowMs) {
       const client = await pool.connect();
@@ -438,15 +442,24 @@ export function createStore(pool) {
         }
         const nextStarAtMs = res.rows[0].next_star_at_ms;
         const STAR_CLAIM_GRACE_MS = 5000;
+        const lifetimeMs = STAR_CONFIG.starLifetimeSeconds * 1000;
+        // The star burned out when its 30s lifetime passed (plus the
+        // 5s grace): a claim after that is not due anymore, even though
+        // the stored next-star time has not been re-rolled yet.
+        const expired =
+          nextStarAtMs !== null &&
+          nowMs > Number(nextStarAtMs) + lifetimeMs + STAR_CLAIM_GRACE_MS;
         if (
           nextStarAtMs === null ||
-          nowMs < Number(nextStarAtMs) - STAR_CLAIM_GRACE_MS
+          nowMs < Number(nextStarAtMs) - STAR_CLAIM_GRACE_MS ||
+          expired
         ) {
           await client.query("ROLLBACK");
           return {
             status: "not-due",
             nextStarAtMs:
               nextStarAtMs === null ? null : Number(nextStarAtMs),
+            expired,
           };
         }
         // Roll the outcome from the stored state (server-trusted rates).
@@ -495,16 +508,21 @@ export function createStore(pool) {
     /**
      * The player's unconsumed server-issued star outcomes (issue #29),
      * as claim objects (each carrying its claimId). A save's star
-     * claims are only valid if they match these exactly.
+     * claims are only valid if they match these exactly. Each entry
+     * also carries `issuedAtMs` (from star_issues.issued_at), so the
+     * validator can expire outcomes 30s after issue (star fix slice).
      */
     async getIssuedStarClaims(playerId) {
       const res = await pool.query(
-        `SELECT claim FROM star_issues
+        `SELECT claim, issued_at FROM star_issues
          WHERE player_id = $1 AND consumed_at IS NULL
          ORDER BY issued_at ASC`,
         [playerId]
       );
-      return res.rows.map((row) => row.claim);
+      return res.rows.map((row) => ({
+        ...row.claim,
+        issuedAtMs: new Date(row.issued_at).getTime(),
+      }));
     },
 
     /**
@@ -536,12 +554,15 @@ export function createStore(pool) {
         // locked player row, so a claim cannot be consumed twice by two
         // concurrent saves.
         const issuedRows = await client.query(
-          `SELECT claim FROM star_issues
+          `SELECT claim, issued_at FROM star_issues
            WHERE player_id = $1 AND consumed_at IS NULL
            ORDER BY issued_at ASC`,
           [playerId]
         );
-        const issuedClaims = issuedRows.rows.map((row) => row.claim);
+        const issuedClaims = issuedRows.rows.map((row) => ({
+          ...row.claim,
+          issuedAtMs: new Date(row.issued_at).getTime(),
+        }));
         const verdict = validateSave(prev, body, nowMs, issuedClaims);
         if (!verdict.ok) {
           await client.query("ROLLBACK");
@@ -565,7 +586,7 @@ export function createStore(pool) {
         // ids are recomputed here (same pure matcher) to keep
         // validateSave's return shape unchanged.
         const sentClaims = body.actionsSinceLastSave?.starClaims ?? [];
-        const match = matchIssuedStarClaims(sentClaims, issuedClaims);
+        const match = matchIssuedStarClaims(sentClaims, issuedClaims, nowMs);
         // One UPDATE per claimId (not `claim_id = ANY($1)`): an array
         // parameter is not portable across drivers, and a silent
         // no-match here would let a consumed outcome be replayed.

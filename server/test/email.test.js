@@ -256,6 +256,50 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
   assert.equal(emails[2].triggerKey, "opensource-unlocked:blocker");
 });
 
+test("Constellation teaser + unlock emails fire at 50 / 500 lifetime LOC", () => {
+  // Constellation unlocks at TOTAL_LOC >= 500 (star fix slice);
+  // visible at 10% progress (50 LOC). The adapters are generic over
+  // OPEN_SOURCE_IDS, so the new condition flows through them. Junior
+  // and Senior are already unlocked here, so their own visibility
+  // emails (which also trigger on lifetime LOC) do not fire — only
+  // the Constellation mail does.
+  const alreadyUnlocked = { intern: true, junior: true, senior: true };
+  const locked = gameState({
+    unlockedEmployees: alreadyUnlocked,
+    unlockedOpenSourceProjects: {
+      overReactFramework: true,
+      blocker: false,
+      constellation: false,
+    },
+  });
+  const visible = gameState({
+    totalLinesOfCode: 50,
+    unlockedEmployees: alreadyUnlocked,
+    unlockedOpenSourceProjects: {
+      overReactFramework: true,
+      blocker: false,
+      constellation: false,
+    },
+  });
+  const teaser = collectTriggerEmails(locked, visible).emails;
+  assert.equal(teaser.length, 1);
+  assert.equal(teaser[0].triggerKey, "opensource-visible:constellation");
+  assert.equal(teaser[0].sender, "GitNub");
+
+  const unlocked = gameState({
+    totalLinesOfCode: 500,
+    unlockedEmployees: alreadyUnlocked,
+    unlockedOpenSourceProjects: {
+      overReactFramework: true,
+      blocker: false,
+      constellation: true,
+    },
+  });
+  const { emails } = collectTriggerEmails(visible, unlocked);
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].triggerKey, "opensource-unlocked:constellation");
+});
+
 test("freelance teaser fires once when the project becomes visible", () => {
   // Hobby Website unlocks at 50 To Do List Apps; visibility is 10%
   // progress (5 shipped).

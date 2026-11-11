@@ -142,6 +142,10 @@ export class SaveSync {
     // these (recordStarClaim), with the effect and amounts the server
     // validates. Reset on an accepted save or a revert, kept on a 429.
     this.starClaims = [];
+    // A prompt save is pending for the recorded claims (star fix
+    // slice). Set by recordStarClaim, cleared when noteState starts
+    // the save — one prompt attempt per claim, not one per tick.
+    this._starClaimSavePending = false;
     this.initialized = false;
     // True when init could not reach the server: play locally from the
     // initial state and retry the load before the first save.
@@ -303,10 +307,13 @@ export class SaveSync {
    * shared/game-balance.js; the server validates it and credits it in
    * the LOC/money rules. Call it in the same handler that dispatches
    * the reward, with the exact deltas applied, so the claim and the
-   * state change can never disagree.
+   * state change can never disagree. Marks a prompt save as pending —
+   * noteState requests it once the state change propagates (star fix
+   * slice: the issued outcome expires 30s after issue).
    */
   recordStarClaim(claim) {
     this.starClaims.push({ ...claim });
+    this._starClaimSavePending = true;
   }
 
   /**
@@ -323,7 +330,27 @@ export class SaveSync {
       this._lastSeenBig = big;
       return;
     }
-    if (bigActionIncreased(this._lastSeenBig, big)) {
+    // A golden-star claim must reach the server promptly: the issued
+    // outcome expires 30s after issue (star fix slice), and the claim
+    // only reaches the server in a save. The big-action email trigger
+    // does not cover it — when the inbox is full (25 emails), a new
+    // email deletes the oldest, the count stays 25, and no big-action
+    // save fires, so the claim would wait for the 60s heartbeat and
+    // expire. Request one prompt save per claim (recordStarClaim sets
+    // the flag); the save splices the claims out on success, so it
+    // fires once. No save is started while one is in flight (the flag
+    // stays set, so the next state change retries it) or while a
+    // rate-limit retry is already scheduled, so a rate-limited or
+    // offline claim does not spam a save on every tick.
+    if (
+      this._starClaimSavePending &&
+      this.starClaims.length > 0 &&
+      !this._inFlight &&
+      this._retryTimer == null
+    ) {
+      this._starClaimSavePending = false;
+      this.requestSave("star-claim");
+    } else if (bigActionIncreased(this._lastSeenBig, big)) {
       this.requestSave("big-action");
     }
     this._lastSeenBig = big;

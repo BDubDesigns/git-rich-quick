@@ -72,6 +72,16 @@ async function setState(srv, playerId, overrides) {
         ? { ...state[key], ...value }
         : value;
   }
+  // A player who owns Constellation levels necessarily met the
+  // TOTAL_LOC >= 500 unlock (L1 costs 1000 LOC), so the fixture
+  // carries a realistic lifetime-LOC base — otherwise the level rule
+  // (star fix slice) rejects the state on save.
+  if (
+    (state.openSourceProjects?.constellation ?? 0) > 0 &&
+    state.totalLinesOfCode < 1000
+  ) {
+    state.totalLinesOfCode = 1000;
+  }
   await srv.pool.query(
     `UPDATE git_saves SET state = $1 WHERE player_id = $2`,
     [JSON.stringify(state), playerId]
@@ -251,6 +261,97 @@ test("claiming a due star returns a server-rolled outcome and rolls the next tim
   }
 });
 
+test("claiming a star after its 30s window has burned out is rejected", async () => {
+  // Star fix slice: a star is only claimable inside its 30s lifetime
+  // (plus 5s grace for client-timer skew). Once the window passes,
+  // the claim is not due anymore — the client re-fetches and the
+  // server rolls a fresh star.
+  const srv = await startTestServer();
+  try {
+    const playerId = await mintPlayer(srv.base);
+    await setState(srv, playerId, {
+      openSourceProjects: { constellation: 1 },
+      employees: { intern: 1 },
+    });
+    const next = await (
+      await fetch(`${srv.base}/api/star/next?playerId=${playerId}`)
+    ).json();
+    // Past the 30s lifetime plus the 5s grace.
+    srv.advance(
+      next.nextStarAtMs - T0 + STAR_CONFIG.starLifetimeSeconds * 1000 + 6000
+    );
+    const claimed = await post(srv.base, "/api/star/claim", { playerId });
+    assert.equal(claimed.status, 409);
+    const data = await claimed.json();
+    assert.equal(data.error, "star-not-due");
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("an issued outcome older than 30s is rejected on save, even if it matches", async () => {
+  // Star fix slice: an issued outcome expires 30s after issue (plus
+  // 5s grace). The claim below matches the issued outcome exactly and
+  // is unconsumed, but the save arrives 60s after the claim, so the
+  // save is a STAR rejection — a stale outcome cannot be claimed late.
+  const srv = await startTestServer();
+  try {
+    const playerId = await mintPlayer(srv.base);
+    const stored = await setState(srv, playerId, {
+      openSourceProjects: { constellation: 1 },
+      employees: { intern: 1 },
+      linesOfCode: 0,
+      totalLinesOfCode: 0,
+      money: 0,
+    });
+    const next = await (
+      await fetch(`${srv.base}/api/star/next?playerId=${playerId}`)
+    ).json();
+    srv.advance(next.nextStarAtMs - T0);
+    const nowMs = srv.now();
+
+    const claimed = await post(srv.base, "/api/star/claim", { playerId });
+    assert.equal(claimed.status, 200);
+    const claim = (await claimed.json()).claim;
+
+    // The save arrives 60s after the claim — past the 30s + 5s expiry.
+    srv.advance(60_000);
+    const saveNowMs = srv.now();
+    const elapsedSeconds = (saveNowMs - T0) / 1000;
+    const passive = Math.floor(
+      locPerSecond(stored.employees, stored.openSourceProjects) *
+        elapsedSeconds
+    );
+    const newState = {
+      ...stored,
+      linesOfCode: Math.max(0, passive + claim.locDelta),
+      totalLinesOfCode:
+        stored.totalLinesOfCode + passive + Math.max(0, claim.locDelta),
+      money: Math.max(0, stored.money + claim.moneyDelta),
+      activeStarEffects:
+        claim.multiplier !== null
+          ? [
+              {
+                effect: claim.effect,
+                multiplier: claim.multiplier,
+                expiresAtMs: nowMs + claim.durationSeconds * 1000,
+                employeeType: claim.employeeType,
+              },
+            ]
+          : [],
+    };
+    const saved = await post(srv.base, "/api/save", {
+      playerId,
+      state: newState,
+      actionsSinceLastSave: { ...zeroActions(), starClaims: [claim] },
+    });
+    assert.equal(saved.status, 409);
+    assert.equal((await saved.json()).rule, "STAR");
+  } finally {
+    await srv.stop();
+  }
+});
+
 test("end-to-end: a server-issued claim saves, and replaying it is rejected", async () => {
   const srv = await startTestServer();
   try {
@@ -290,7 +391,8 @@ test("end-to-end: a server-issued claim saves, and replaying it is rejected", as
     const newState = {
       ...stored,
       linesOfCode: Math.max(0, passive + claim.locDelta),
-      totalLinesOfCode: passive + Math.max(0, claim.locDelta),
+      totalLinesOfCode:
+        stored.totalLinesOfCode + passive + Math.max(0, claim.locDelta),
       money: Math.max(0, stored.money + claim.moneyDelta),
       activeStarEffects:
         claim.multiplier !== null
@@ -312,13 +414,17 @@ test("end-to-end: a server-issued claim saves, and replaying it is rejected", as
     assert.equal(saved.status, 200, await saved.text());
 
     // The leaderboard reflects the save: the account's lifetime LOC
-    // is the passive LOC plus the claimed star gain.
+    // is the stored lifetime LOC plus the passive LOC plus the claimed
+    // star gain.
     const board = await fetch(`${srv.base}/api/leaderboard`);
     assert.equal(board.status, 200);
     const boardData = await board.json();
     assert.equal(boardData.entries.length, 1);
     assert.equal(boardData.entries[0].displayName, "E2E");
-    assert.equal(boardData.entries[0].lifetimeLoc, passive + Math.max(0, claim.locDelta));
+    assert.equal(
+      boardData.entries[0].lifetimeLoc,
+      stored.totalLinesOfCode + passive + Math.max(0, claim.locDelta)
+    );
 
     // Replay the SAME claim in a later save: the issued outcome was
     // consumed, so it is rejected as a STAR violation.
