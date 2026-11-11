@@ -766,7 +766,8 @@ export function createStore(pool) {
      * as claim objects (each carrying its claimId). A save's star
      * claims are only valid if they match these exactly. Each entry
      * also carries `issuedAtMs` (from star_issues.issued_at), so the
-     * validator can expire outcomes 30s after issue (star fix slice).
+     * validator can expire outcomes issuedOutcomeValidSeconds after
+     * issue (star-claim-expiry fix).
      */
     async getIssuedStarClaims(playerId) {
       const res = await pool.query(

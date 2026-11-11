@@ -415,6 +415,21 @@ export const STAR_CONFIG = Object.freeze({
   /** How long an unclicked star stays on screen, in seconds. */
   starLifetimeSeconds: 30,
   /**
+   * How long an already-issued star outcome stays valid at save time,
+   * in seconds (star-claim-expiry fix). This is deliberately LONGER
+   * than starLifetimeSeconds and decoupled from it: the star's
+   * on-screen lifetime is 30s, but the outcome is issued at CLICK
+   * time, and the save carrying the claim can be delayed past 30s by
+   * a deploy restart (the prompt save hits a restarting server and
+   * retries on the 60s heartbeat), a network failure, or 10s
+   * rate-limit retries — a legitimate claim then bounced as expired
+   * and the reward was lost on revert. 300s covers a deploy restart
+   * plus retries; a genuinely stale claim (older than 300s + 5s
+   * grace) is still rejected, and the claim is consumed on accept so
+   * it cannot be replayed.
+   */
+  issuedOutcomeValidSeconds: 300,
+  /**
    * How long before despawn the star starts fading out, in seconds
    * (issue #49): the fade is the "click me now or lose me" signal.
    * The CSS fade-out duration in GoldenStar.css must match this.

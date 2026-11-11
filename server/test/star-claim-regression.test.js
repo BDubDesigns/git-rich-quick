@@ -206,10 +206,10 @@ test("veteran L5: claim window — click offset after the star is due", async ()
   }
 });
 
-test("veteran L5: claim + save delayed 10s / 20s / 35s / 40s", async () => {
+test("veteran L5: claim + save delayed 10s / 60s / 240s / 300s / 310s", async () => {
   const srv = await startTestServer();
   try {
-    for (const saveDelaySeconds of [10, 20, 35, 40]) {
+    for (const saveDelaySeconds of [10, 60, 240, 300, 310]) {
       const playerId = await mintPlayer(srv.base);
       const stored = await setVeteranState(srv, playerId);
       const next = await (
@@ -234,10 +234,15 @@ test("veteran L5: claim + save delayed 10s / 20s / 35s / 40s", async () => {
         state: newState,
         actionsSinceLastSave: { ...zeroActions(), starClaims: [claim] },
       });
-      // The issued outcome expires 30s after issue (+5s grace): a save
-      // within 35s succeeds, past it the save is a STAR rejection and
-      // the client reverts — the buff/email vanish.
-      const expected = saveDelaySeconds <= 35 ? 200 : 409;
+      // The issued outcome stays valid 300s after issue (+5s grace):
+      // a save within 305s succeeds — including a save delayed 60s by
+      // a deploy restart or network failure (the prompt save retries
+      // on the 60s heartbeat) or 240s by stacked rate-limit retries —
+      // past it the save is a STAR rejection and the client reverts.
+      // The 30s star lifetime still governs the CLICK window (above);
+      // only the save-time validity of an already-issued outcome is
+      // 300s (star-claim-expiry fix).
+      const expected = saveDelaySeconds <= 305 ? 200 : 409;
       assert.equal(
         saved.status,
         expected,
