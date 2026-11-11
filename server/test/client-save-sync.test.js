@@ -204,6 +204,10 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
       const state = await loadServerState(srv.base, playerId);
       return state.employees.intern === 1 ? state : null;
     });
+    // Wait for the client status callback to settle (issue #50): the
+    // server state is visible before the engine's fetch resolves and
+    // onStatus("saved") runs, so asserting immediately races.
+    await waitFor(() => saveStatus === "saved");
     const afterHire = await loadServerState(srv.base, playerId);
     assert.equal(afterHire.employees.intern, 1);
     assert.equal(afterHire.money, 500, "3000c - 2500c intern cost");
@@ -226,6 +230,10 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
       const state = await loadServerState(srv.base, playerId);
       return state.totalLinesOfCode === 55 ? state : null;
     });
+    // Wait for the client status callback to settle (issue #50): the
+    // server state is visible before the engine's fetch resolves and
+    // onStatus("saved") runs, so asserting immediately races.
+    await waitFor(() => saveStatus === "saved");
     assert.equal(saveStatus, "saved");
     assert.equal(engine.clicks, 0, "clicks reset after the retried save");
   } finally {
@@ -296,6 +304,11 @@ test("saves during a retry wait do not reset the retry timer", async () => {
       const state = await loadServerState(srv.base, playerId);
       return state.totalLinesOfCode === 5 ? state : null;
     });
+    // Wait for the client status callback to settle (issue #50): the
+    // server state is visible before the engine's fetch resolves and
+    // onStatus("saved") runs, so asserting immediately races — this
+    // is the flake ('saving' !== 'saved') that failed on CI.
+    await waitFor(() => saveStatus === "saved");
     assert.equal(saveStatus, "saved");
     assert.equal(engine.clicks, 0, "clicks reset after the retried save");
   } finally {
@@ -359,6 +372,10 @@ test("completing a project (Ship) does not trigger a save", async () => {
       const s = await loadServerState(srv.base, playerId);
       return s.employees.intern === 1 ? s : null;
     });
+    // Wait for the client status callback to settle (issue #50): the
+    // server state is visible before the engine's fetch resolves and
+    // onStatus("saved") runs, so asserting immediately races.
+    await waitFor(() => saveStatus === "saved");
     assert.equal(saveStatus, "saved");
   } finally {
     engine.stop();
