@@ -64,20 +64,43 @@
   }
 }
 
-/* Next-star countdown (issue #29): a small pill beneath the stats
-   bar, shown only once the countdown is unlocked. It is portaled into
-   the header slot (see Header.jsx), so it flows in the layout —
-   centered, never overlapping the Commit button or the clicks/sec line.
-   Subtle gold on dark, so it reads as a star timer rather than a
-   button. */
-.star-countdown {
-  margin-top: 4px;
-  padding: 2px 10px;
-  border: 1px solid rgba(255, 215, 0, 0.4);
+/* Next-star countdown (issue #29): a thin progress bar beneath the
+   stats bar, shown only once the countdown is unlocked. It is portaled
+   into the header slot (see Header.jsx), so it flows in the layout —
+   full width, never overlapping the Commit button or the clicks/sec
+   line. The gold fill grows left to right as the star approaches
+   (0% just rolled, 100% due); the small seconds-remaining text sits
+   inside the bar, centered, white with a dark shadow so it reads on
+   both the gold fill and the dark track. The fill eases over 1s so
+   the once-a-second tick reads as a smooth fill. */
+.star-countdown-bar {
+  position: relative;
+  width: 100%;
+  height: 16px;
   border-radius: 999px;
-  background: rgba(24, 24, 24, 0.85);
-  color: #ffd700;
-  font-size: 12px;
-  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
   pointer-events: none;
+}
+
+.star-countdown-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b8860b, #ffd700);
+  transition: width 1s linear;
+}
+
+.star-countdown-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  white-space: nowrap;
 }
