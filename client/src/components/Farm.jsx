@@ -84,7 +84,7 @@ export function Farm() {
     const canAfford = state.money >= FARM_CONFIG.purchaseCostCents;
     return (
       <SectionLayout sectionId="farm">
-        <div className="flex flex-col gap-2 p-3 border border-[#3a3a3a] rounded bg-[#1e1e1e]">
+        <div className="panel flex flex-col gap-2 p-3">
           <p className="m-0">
             Your staff have been dreaming of quitting to start an alpaca
             farm. You let them build it — but you never accepted their
@@ -151,16 +151,14 @@ export function Farm() {
               key={index}
               type="button"
               onClick={() => handleStallClick(index)}
-              className="flex flex-col items-center gap-1 p-2 border rounded min-h-[84px] cursor-pointer"
-              style={{
-                backgroundColor: `${lighting.color}22`,
-                borderColor: isSelected
-                  ? "#ffffff"
+              className={`panel stall flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
+                isSelected
+                  ? " stall--selected"
                   : isEligible
-                    ? lighting.color
-                    : "#3a3a3a",
-                borderWidth: isSelected || isEligible ? 2 : 1,
-              }}
+                    ? " stall--eligible"
+                    : ""
+              }`}
+              style={{ "--stall-light": lighting.color }}
               title={
                 stall.llama
                   ? `${lighting.label}: ${lighting.description} Click to change the lighting.`
@@ -192,7 +190,7 @@ export function Farm() {
 
       {/* Buy a llama into the selected empty stall. */}
       {selectedStallEmpty && (
-        <div className="flex flex-col gap-2 p-3 border border-[#3a3a3a] rounded bg-[#1e1e1e]">
+        <div className="panel flex flex-col gap-2 p-3">
           <p className="m-0 text-sm">
             Buy a llama for stall {selectedStall + 1} —{" "}
             {formatMoney(FARM_CONFIG.llamaPriceCents)} each. Only the base
