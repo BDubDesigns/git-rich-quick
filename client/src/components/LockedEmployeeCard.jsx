@@ -52,7 +52,7 @@ export function LockedEmployeeCard({ config, progress }) {
             Button's grey disabled state is the LOCKED look. */}
         <Button disabled className="shrink-0">
           <div>LOCKED</div>
-          <div>(${formatMoney(config.baseCost)})</div>
+          <div>({formatMoney(config.baseCost)})</div>
         </Button>
       </div>
     </div>

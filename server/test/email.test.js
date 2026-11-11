@@ -13,6 +13,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addEmail,
+  deleteEmail,
+  highlightAmounts,
   markEmailRead,
   unreadEmailCount,
   collectTriggerEmails,
@@ -503,4 +505,107 @@ test("save shape round-trips emails, and a new email is a big action", () => {
     bigActionIncreased(bigActionFields(saveState), bigActionFields(saveState)),
     false
   );
+});
+
+test("deleteEmail: removes the entry, unknown id returns the same array", () => {
+  const a = validEmail({ id: "123e4567-e89b-42d3-a456-426614174002" });
+  const b = validEmail({
+    id: "123e4567-e89b-42d3-a456-426614174003",
+    triggerKey: "test:two",
+  });
+  const inbox = [a, b];
+  const after = deleteEmail(inbox, a.id);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].id, b.id);
+  // The original array is untouched (pure function).
+  assert.equal(inbox.length, 2);
+  // Deleting an unknown id returns the same array.
+  assert.equal(
+    deleteEmail(after, "123e4567-e89b-42d3-a456-426614174099"),
+    after
+  );
+  // Deleting the last email leaves an empty inbox.
+  assert.deepEqual(deleteEmail(after, b.id), []);
+});
+
+test("deleteEmail: the unread badge drops when the deleted mail was unread", () => {
+  const unread = validEmail({
+    id: "123e4567-e89b-42d3-a456-426614174002",
+  });
+  const read = validEmail({
+    id: "123e4567-e89b-42d3-a456-426614174003",
+    triggerKey: "test:two",
+    read: true,
+  });
+  const inbox = [unread, read];
+  assert.equal(unreadEmailCount(inbox), 1);
+  // Deleting the unread mail drops the badge to zero.
+  assert.equal(unreadEmailCount(deleteEmail(inbox, unread.id)), 0);
+  // Deleting a read mail leaves the badge unchanged.
+  assert.equal(unreadEmailCount(deleteEmail(inbox, read.id)), 1);
+});
+
+test("a deleted email is a big action (saves promptly, like a new email)", () => {
+  const one = {
+    ...initialSaveState(),
+    emails: [validEmail()],
+  };
+  const empty = initialSaveState();
+  assert.equal(
+    bigActionIncreased(bigActionFields(one), bigActionFields(empty)),
+    true
+  );
+  assert.equal(
+    bigActionIncreased(bigActionFields(empty), bigActionFields(empty)),
+    false
+  );
+});
+
+test("highlightAmounts: gains green, losses red, for LOC and money", () => {
+  // Star email bodies: "Rug Pull: -11.21K LOC." / "Airdrop: +11.21K LOC."
+  const loss = highlightAmounts("Rug Pull: -11.21K LOC.");
+  assert.deepEqual(loss, [
+    { text: "Rug Pull: ", tone: null },
+    { text: "-11.21K LOC", tone: "loss" },
+    { text: ".", tone: null },
+  ]);
+  const gain = highlightAmounts("Airdrop: +500 LOC.");
+  assert.deepEqual(gain, [
+    { text: "Airdrop: ", tone: null },
+    { text: "+500 LOC", tone: "gain" },
+    { text: ".", tone: null },
+  ]);
+  // Money, with and without a suffix.
+  assert.deepEqual(highlightAmounts("You got +$10.54."), [
+    { text: "You got ", tone: null },
+    { text: "+$10.54", tone: "gain" },
+    { text: ".", tone: null },
+  ]);
+  assert.deepEqual(highlightAmounts("You lost -$1.5K."), [
+    { text: "You lost ", tone: null },
+    { text: "-$1.5K", tone: "loss" },
+    { text: ".", tone: null },
+  ]);
+  // A shooting-stars burst reports both in one line.
+  const burst = highlightAmounts("+11.21K LOC +$10.54");
+  assert.deepEqual(burst, [
+    { text: "+11.21K LOC", tone: "gain" },
+    { text: " ", tone: null },
+    { text: "+$10.54", tone: "gain" },
+  ]);
+});
+
+test("highlightAmounts: no sign or no unit means no coloring", () => {
+  // Multipliers and plain numbers are not amounts.
+  assert.deepEqual(highlightAmounts("Production x7"), [
+    { text: "Production x7", tone: null },
+  ]);
+  assert.deepEqual(highlightAmounts("Earn 100 total lines of code"), [
+    { text: "Earn 100 total lines of code", tone: null },
+  ]);
+  // A bare signed number with no unit ("level +5") stays plain.
+  assert.deepEqual(highlightAmounts("Bonus level +5 applied"), [
+    { text: "Bonus level +5 applied", tone: null },
+  ]);
+  assert.deepEqual(highlightAmounts(""), []);
 });

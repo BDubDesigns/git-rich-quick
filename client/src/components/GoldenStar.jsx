@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FaStar } from "react-icons/fa";
 import { useGameContext } from "../context/useGameContext";
 import { useFloatingText } from "../hooks/useFloatingText";
@@ -84,6 +85,14 @@ export function GoldenStar() {
   const [countdownUnlocked, setCountdownUnlocked] = useState(false);
   // Seconds until the next star appears (null = no star scheduled).
   const [secondsLeft, setSecondsLeft] = useState(null);
+  // The header slot the countdown pill portals into (see Header.jsx):
+  // the pill sits directly beneath the stats bar instead of floating
+  // above the Commit button. Grabbed after mount — the header is in
+  // the same commit, so it always exists by then.
+  const [countdownSlot, setCountdownSlot] = useState(null);
+  useEffect(() => {
+    setCountdownSlot(document.getElementById("star-countdown-slot"));
+  }, []);
   const constellationLevel = getConstellationLevel(state);
   const mountedRef = useRef(true);
   const retryTimerRef = useRef(null);
@@ -242,11 +251,14 @@ export function GoldenStar() {
           <FaStar size={STAR_SIZE_PX} color="#ffd700" />
         </button>
       )}
-      {showCountdown && (
-        <div className="star-countdown" aria-live="off">
-          Next star in {formatCountdown(secondsLeft)}
-        </div>
-      )}
+      {showCountdown &&
+        countdownSlot &&
+        createPortal(
+          <div className="star-countdown" aria-live="off">
+            Next star in {formatCountdown(secondsLeft)}
+          </div>,
+          countdownSlot
+        )}
       {floatingTexts.map((ft) => (
         <FloatingText
           key={ft.id}

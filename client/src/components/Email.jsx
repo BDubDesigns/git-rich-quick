@@ -1,4 +1,6 @@
 import { useGameContext } from "../context/useGameContext.js";
+import { highlightAmounts } from "../email/email.js";
+import { Button } from "./Button.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 
 /** "5m ago", "2h ago", "3d ago" for an email's arrival time. */
@@ -13,25 +15,90 @@ function formatEmailAge(createdAtMs, nowMs) {
 }
 
 /**
+ * Renders email text with gains green and losses red (signed amounts
+ * only — see highlightAmounts). Plain segments render as-is.
+ */
+function EmailText({ text, className }) {
+  return (
+    <span className={className}>
+      {highlightAmounts(text).map((segment, index) => (
+        <span
+          key={index}
+          className={
+            segment.tone === "gain"
+              ? "text-green-400"
+              : segment.tone === "loss"
+                ? "text-red-400"
+                : undefined
+          }
+        >
+          {segment.text}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** First non-empty line of a body — the list preview snippet. */
+function emailSnippet(body) {
+  return (body ?? "").split("\n").find((line) => line.trim() !== "") ?? "";
+}
+
+/**
  * In-game inbox (issue #31): a fictional mailbox in the game world,
- * not real email. The list is newest first. Clicking a row opens it
- * (and marks it read); clicking the open row collapses it back to the
- * list. Opening the tab does NOT mark anything read — only opening an
- * email does. The inbox is capped at 25; the oldest mail is deleted
- * automatically when a new one arrives past the cap.
+ * not real email. Gmail-style: the list shows sender, subject (bold
+ * when unread), a preview snippet, and a timestamp; unread rows stand
+ * out, read rows are muted. Tapping a row OPENS the email — the detail
+ * view takes over the whole tab, with Back to inbox and Delete. Opening
+ * an email marks it read; opening the tab does NOT mark anything read.
+ * Deleting removes the mail from the inbox (a big-action save persists
+ * it) and returns to the list. The inbox is capped at 25; the oldest
+ * mail is deleted automatically when a new one arrives past the cap.
  */
 export function Email() {
   const { state, dispatch } = useGameContext();
   const emails = [...(state.emails ?? [])].reverse();
-  const selectedEmailId = state.selectedEmailId;
+  const selectedEmail = emails.find(
+    (entry) => entry.id === state.selectedEmailId
+  );
 
-  const handleRowClick = (emailId) => {
-    if (selectedEmailId === emailId) {
-      dispatch({ type: "CLOSE_EMAIL" });
-    } else {
-      dispatch({ type: "OPEN_EMAIL", payload: { emailId } });
-    }
-  };
+  // Detail view: the opened email takes over the whole tab.
+  if (selectedEmail) {
+    return (
+      <SectionLayout sectionId="email">
+        <div className="panel flex flex-col gap-3 px-3 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <Button onClick={() => dispatch({ type: "CLOSE_EMAIL" })}>
+              ← Back to inbox
+            </Button>
+            <Button
+              onClick={() =>
+                dispatch({
+                  type: "DELETE_EMAIL",
+                  payload: { emailId: selectedEmail.id },
+                })
+              }
+            >
+              Delete
+            </Button>
+          </div>
+          <div>
+            <div className="text-sm opacity-70">
+              From: {selectedEmail.sender}
+            </div>
+            <div className="text-lg font-bold">{selectedEmail.subject}</div>
+            <div className="text-xs opacity-60">
+              {formatEmailAge(selectedEmail.createdAtMs, Date.now())}
+            </div>
+          </div>
+          <EmailText
+            text={selectedEmail.body}
+            className="text-sm whitespace-pre-line"
+          />
+        </div>
+      </SectionLayout>
+    );
+  }
 
   return (
     <SectionLayout sectionId="email">
@@ -43,41 +110,51 @@ export function Email() {
       )}
       {emails.length > 0 && (
         <div className="panel flex flex-col gap-1">
-          {emails.map((email) => {
-            const isOpen = selectedEmailId === email.id;
-            return (
-              <div key={email.id}>
-                <button
-                  type="button"
-                  onClick={() => handleRowClick(email.id)}
-                  className="w-full text-left px-2 py-1 rounded hover:bg-white/5 flex items-center gap-2"
-                >
-                  {/* Unread dot; read mail drops the bold. */}
+          {emails.map((email) => (
+            <button
+              key={email.id}
+              type="button"
+              onClick={() =>
+                dispatch({ type: "OPEN_EMAIL", payload: { emailId: email.id } })
+              }
+              className={`w-full text-left px-3 py-2 rounded hover:bg-white/5 flex items-start gap-2 ${
+                email.read ? "opacity-60" : "bg-white/5"
+              }`}
+            >
+              {/* Unread dot; read mail drops the bold. */}
+              <span
+                aria-label={email.read ? "read" : "unread"}
+                className={`shrink-0 inline-block w-2 h-2 rounded-full mt-1.5 ${
+                  email.read ? "bg-transparent" : "bg-blue-400"
+                }`}
+              />
+              <span className="flex-1 min-w-0">
+                <span className="flex items-baseline justify-between gap-2">
                   <span
-                    aria-label={email.read ? "read" : "unread"}
-                    className={`shrink-0 inline-block w-2 h-2 rounded-full ${
-                      email.read ? "bg-transparent" : "bg-blue-400"
+                    className={`truncate text-sm ${
+                      email.read ? "" : "font-bold"
                     }`}
-                  />
-                  <span
-                    className={`flex-1 min-w-0 ${email.read ? "" : "font-bold"}`}
                   >
-                    <span className="block truncate text-sm">
-                      {email.sender} — {email.subject}
-                    </span>
-                    <span className="block text-xs opacity-60">
-                      {formatEmailAge(email.createdAtMs, Date.now())}
-                    </span>
+                    {email.sender}
                   </span>
-                </button>
-                {isOpen && (
-                  <div className="px-2 pb-2 pt-1 text-sm whitespace-pre-line">
-                    {email.body}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  <span className="shrink-0 text-xs opacity-60">
+                    {formatEmailAge(email.createdAtMs, Date.now())}
+                  </span>
+                </span>
+                <span
+                  className={`block truncate text-sm ${
+                    email.read ? "" : "font-bold"
+                  }`}
+                >
+                  {email.subject}
+                </span>
+                <EmailText
+                  text={emailSnippet(email.body)}
+                  className="block truncate text-xs opacity-60"
+                />
+              </span>
+            </button>
+          ))}
         </div>
       )}
     </SectionLayout>
