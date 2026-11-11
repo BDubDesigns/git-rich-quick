@@ -15,6 +15,20 @@
  *   the ONE test player's saved state, bypassing save validation. Bearer
  *   token (ADMIN_TOKEN) required, test-player-only — see admin.js.
  *   Disabled (501) when ADMIN_TOKEN is unset.
+ * - GET  /api/admin/player/:playerId — admin read-only (issue #45): one
+ *   player's current save state, by explicit playerId. Bearer token
+ *   required; read-only, audit-logged. This one MAY read a real
+ *   player's save (that is the point — debugging a specific player's
+ *   issue); it never modifies anything. Disabled (501) when unset.
+ * - GET  /api/admin/rejected-saves — admin read-only (issue #45): recent
+ *   rejected saves (rule, detail, playerId, timestamp) from an
+ *   in-memory ring buffer fed by the PR #44 rejection logging.
+ * - GET  /api/admin/stats — admin read-only (issue #45): aggregate
+ *   counts (players, linked accounts, recent save/rejection activity).
+ *   All /api/admin/* endpoints share the bearer-token auth (ADMIN_TOKEN)
+ *   and audit logging; see admin.js for the guardrail distinction
+ *   (seed is test-player-only, read-only endpoints are per-player
+ *   debugging by explicit playerId).
  * - GET  /api/leaderboard — leaderboard (issue #29): top 10 accounts
  *   only, by lifetime LOC (default), current LOC, or cash. Public read.
  * - GET  /api/star/next — next golden star (issue #29): when the
@@ -153,6 +167,42 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
   }
 
   /**
+   * Admin gate (issues #45/#46): 501 when ADMIN_TOKEN is not
+   * configured, 401 for a missing/wrong/malformed token. Returns true
+   * when the request is authorized; on failure it has already sent the
+   * response (and audit-logged) and the caller returns.
+   */
+  function requireAdmin(req, res, action) {
+    if (!adminToken) {
+      auditAdmin(action, { status: "admin-not-configured" });
+      sendJson(res, 501, { error: "admin-not-configured" });
+      return false;
+    }
+    if (!isAdminAuthorized(req, adminToken)) {
+      auditAdmin(action, { status: "unauthorized" });
+      sendJson(res, 401, { error: "unauthorized" });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Recent rejected saves (issue #45): an in-memory ring buffer fed by
+   * the same rejection event the PR #44 logging writes to the console
+   * (see handleSave). In-memory on purpose — this endpoint is for
+   * debugging RECENT rejections, and a DB table would need schema,
+   * pruning, and a migration for data the console log already keeps.
+   * Capped at 100 entries (oldest dropped); lost on restart. Entries
+   * are `{ playerId, rule, detail, rejectedAtMs }`, newest last.
+   */
+  const MAX_REJECTED_SAVES = 100;
+  const rejectedSaves = [];
+  function recordRejectedSave(entry) {
+    rejectedSaves.push(entry);
+    if (rejectedSaves.length > MAX_REJECTED_SAVES) rejectedSaves.shift();
+  }
+
+  /**
    * Admin seed (issue #46): POST /api/admin/seed-test-player, body
    * `{ playerId, state }`. Bearer token required; the seed only ever
    * touches the one test player (linked to the test account — see
@@ -163,16 +213,7 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
    * unknown playerId, 400 for a malformed body or state.
    */
   async function handleAdminSeed(req, res) {
-    if (!adminToken) {
-      auditAdmin("seed-test-player", { status: "admin-not-configured" });
-      sendJson(res, 501, { error: "admin-not-configured" });
-      return;
-    }
-    if (!isAdminAuthorized(req, adminToken)) {
-      auditAdmin("seed-test-player", { status: "unauthorized" });
-      sendJson(res, 401, { error: "unauthorized" });
-      return;
-    }
+    if (!requireAdmin(req, res, "seed-test-player")) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -237,6 +278,99 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       playerId: body.playerId,
       savedAt: iso(result.savedAtMs),
       state: result.state,
+    });
+  }
+
+  /**
+   * Admin read-only (issue #45): GET /api/admin/player/:playerId — one
+   * player's current save state. Read-only: it returns the snapshot,
+   * never modifies anything. Unlike the seed endpoint, this one MAY
+   * read a REAL player's save — that is its purpose (debugging a
+   * specific player's issue, by explicit playerId). It is still
+   * token-protected and audit-logged, and there is no bulk/list
+   * endpoint. 400 for a malformed id, 404 for an unknown player.
+   */
+  async function handleAdminPlayer(req, res, playerId) {
+    if (!requireAdmin(req, res, "player")) return;
+    if (!UUID_RE.test(playerId)) {
+      sendJson(res, 400, { error: "invalid-player-id" });
+      return;
+    }
+    const snapshot = await store.get(playerId);
+    if (!snapshot) {
+      auditAdmin("player", { status: "unknown-player", playerId });
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    auditAdmin("player", { status: "ok", playerId });
+    sendJson(res, 200, {
+      playerId: snapshot.playerId,
+      state: snapshot.state,
+      savedAt: iso(snapshot.savedAtMs),
+      createdAt: iso(snapshot.createdAtMs),
+    });
+  }
+
+  /**
+   * Admin read-only (issue #45): GET /api/admin/rejected-saves —
+   * recent rejected saves, most recent first. Each entry is the rule,
+   * detail, playerId, and timestamp — the same event the PR #44
+   * logging writes to the console. `?limit=` caps the list (default
+   * 50, max 100, the ring buffer size). Read-only: it never touches
+   * player data, it only reads the in-memory buffer.
+   */
+  async function handleAdminRejectedSaves(req, res, url) {
+    if (!requireAdmin(req, res, "rejected-saves")) return;
+    const parsed = Number.parseInt(
+      url.searchParams.get("limit") ?? "50",
+      10
+    );
+    const limit = Number.isFinite(parsed)
+      ? Math.min(100, Math.max(1, parsed))
+      : 50;
+    const entries = [...rejectedSaves]
+      .reverse()
+      .slice(0, limit)
+      .map((entry) => ({
+        playerId: entry.playerId,
+        rule: entry.rule,
+        detail: entry.detail,
+        rejectedAt: iso(entry.rejectedAtMs),
+      }));
+    auditAdmin("rejected-saves", { status: "ok", count: entries.length });
+    sendJson(res, 200, { rejections: entries, count: entries.length });
+  }
+
+  /**
+   * Admin read-only (issue #45): GET /api/admin/stats — aggregate
+   * counts only, never individual player data. Windows are the last
+   * 1 hour and the last 24 hours (documented here and in the README):
+   * - playerCount / linkedAccounts: rows in git_saves, and rows linked
+   *   to an account.
+   * - savesLastHour / savesLastDay: players whose last accepted save
+   *   is inside the window (activity proxy, not a save-event count).
+   * - rejectionsLastHour / rejectionsLastDay: rejection events in the
+   *   ring buffer inside the window; rejectionsStored is the buffer
+   *   size. Read-only: it only counts.
+   */
+  async function handleAdminStats(req, res) {
+    if (!requireAdmin(req, res, "stats")) return;
+    const nowMs = clock();
+    const counts = await store.getAdminStats(nowMs);
+    const hourAgo = nowMs - 60 * 60 * 1000;
+    const dayAgo = nowMs - 24 * 60 * 60 * 1000;
+    const rejectionsLastHour = rejectedSaves.filter(
+      (entry) => entry.rejectedAtMs >= hourAgo
+    ).length;
+    const rejectionsLastDay = rejectedSaves.filter(
+      (entry) => entry.rejectedAtMs >= dayAgo
+    ).length;
+    auditAdmin("stats", { status: "ok" });
+    sendJson(res, 200, {
+      ...counts,
+      rejectionsLastHour,
+      rejectionsLastDay,
+      rejectionsStored: rejectedSaves.length,
     });
   }
 
@@ -379,6 +513,14 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
           actionsSinceLastSave: body.actionsSinceLastSave,
         })
       );
+      // Feed the admin rejected-saves ring buffer (issue #45) with
+      // the same event, so the list and the log can never disagree.
+      recordRejectedSave({
+        playerId: body.playerId,
+        rule: result.rule,
+        detail: result.detail,
+        rejectedAtMs: nowMs,
+      });
       if (result.rule === "RATE_LIMIT") {
         const retryAfter = Math.max(
           1,
@@ -578,6 +720,19 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleUnlink(req, res);
       } else if (req.method === "POST" && url.pathname === "/api/admin/seed-test-player") {
         await handleAdminSeed(req, res);
+      } else if (req.method === "GET" && url.pathname.startsWith("/api/admin/player/")) {
+        // /api/admin/player/:playerId — one segment after the prefix;
+        // anything deeper is not a player route.
+        const playerId = url.pathname.slice("/api/admin/player/".length);
+        if (playerId.includes("/")) {
+          sendJson(res, 404, { error: "not-found" });
+        } else {
+          await handleAdminPlayer(req, res, playerId);
+        }
+      } else if (req.method === "GET" && url.pathname === "/api/admin/rejected-saves") {
+        await handleAdminRejectedSaves(req, res, url);
+      } else if (req.method === "GET" && url.pathname === "/api/admin/stats") {
+        await handleAdminStats(req, res);
       } else if (url.pathname.startsWith("/api/auth/") && authHandler) {
         // Better Auth owns everything under /api/auth/* (sign-up,
         // sign-in, sign-out, session...). It reads the raw body itself,

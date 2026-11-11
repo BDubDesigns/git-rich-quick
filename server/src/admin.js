@@ -1,20 +1,21 @@
 /**
- * Admin endpoints for Git Rich Quick (issue #46, seed endpoint; the same
- * bearer-token auth serves the read-only admin API, issue #45, next).
+ * Admin endpoints for Git Rich Quick (issue #46, seed endpoint; issue
+ * #45, read-only admin API). The admin surface is for jellybean's
+ * autonomous verification and debugging against the live save service.
+ * It is token-protected, never in the repo, and audit-logged.
  *
- * The admin surface is for jellybean's autonomous verification against
- * the live save service. It is token-protected, never in the repo, and
- * test-player-only: no admin endpoint can read or modify a real player's
- * save.
- *
- * TEST-PLAYER GUARDRAIL (issue #46, Brandon Nov 10): there is ONE test
- * player, the jellybean account, email jaybles@qcfailed.com. The seed
- * endpoint only ever touches a save row linked to that account. The
- * email is a hardcoded constant on purpose — widening it to another
- * account must be a deliberate code change with review, never an env
- * var someone sets by accident. A save that is not linked to the test
- * account (a guest, or any other account) is not a test player and can
- * never be seeded.
+ * GUARDRAIL DISTINCTION (read this before touching either side):
+ * - The SEED endpoint is test-player-only: it only ever touches a save
+ *   row linked to the ONE test account (email jaybles@qcfailed.com —
+ *   see TEST_ACCOUNT_EMAIL below). A real player's save can never be
+ *   seeded, even with a valid admin token.
+ * - The READ-ONLY endpoints (player, rejected-saves, stats) MAY read a
+ *   real player's save — that is their purpose (debugging a specific
+ *   player's issue, by explicit playerId). They are still
+ *   token-protected and audit-logged, they never modify or delete
+ *   anything, and there is no bulk/list-all-players endpoint: a
+ *   player's data is only pulled up by explicit playerId, never
+ *   browsed.
  *
  * Env: ADMIN_TOKEN (bearer token, set in Coolify; also in jellybean's
  * Secure Vault). When it is unset the admin endpoints answer 501.
