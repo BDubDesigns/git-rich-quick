@@ -8,6 +8,7 @@
  */
 
 import * as shared from "../../../shared/game-balance.js";
+import { formatNumber } from "../../../shared/formatNumber.js";
 import { COSMETICS_CONFIG, EMPLOYEE_CONFIGS } from "./gameConfig.js";
 
 // Unlock progress + visibility live in a pure shared-only module (see
@@ -131,6 +132,14 @@ export function getTotalPassiveBonus(state) {
  * A golden-star Click buff (AI Accelerator / Hallucination) multiplies the
  * click value while it is live. See activeStarBuff.
  *
+ * Commit Specialists add a flat bonus on top of the base click and the
+ * OverReact boost: +0.1 LOC per specialist. The FINAL total is floored
+ * to a whole number (Brandon: a click must never yield or commit a
+ * fractional amount — never 5093.1, always 5093), so 10 specialists
+ * = +1, 15 = +1, 25 = +2 once the total is floored. A Sprint on Commit
+ * Specialists multiplies their per-click bonus (+0.5 per specialist at
+ * 5x) before the Click buff multiplies the total.
+ *
  * @param {Object} state - The game state object
  * @returns {number} Total LOC generated from one click, including bonuses
  *
@@ -142,7 +151,12 @@ export function getTotalPassiveBonus(state) {
  * calculateLOCPerClick(state) // returns 13 (10 * 1.3)
  */
 export function calculateLOCPerClick(state) {
-  const base = shared.locPerClick(flatOpenSourceLevels(state));
+  const csSprint = activeStarBuff(state, "employee", "commitSpecialist");
+  const base = shared.locPerClick(
+    flatOpenSourceLevels(state),
+    flatEmployeeCounts(state),
+    csSprint ? csSprint.multiplier : 1
+  );
   const clickBuff = activeStarBuff(state, "click");
   return clickBuff ? base * clickBuff.multiplier : base;
 }
@@ -160,38 +174,107 @@ export function calculateLOCPerClick(state) {
  * Throttling) scales the whole passive rate — so the two multiply, they
  * do not add.
  *
+ * The Project Manager boost is already inside the base rate (shared
+ * locPerSecond): each manager multiplies the whole passive rate by
+ * (1 + 0.01 x N). A Sprint on Project Managers scales the boost
+ * contribution itself (the rate employeeBuffTypeRate returns for that
+ * type), so a 5x Sprint makes each manager give +5% while it is live.
+ * A Commit Specialist contributes nothing to passive LOC, so a Sprint
+ * on them adds nothing here — their bonus lives on clicks.
+ *
+ * The FINAL total is floored to a whole number, the same rule as the
+ * click total (Brandon: a tick must never commit a fractional amount).
+ * The shared base rate is already floored, but a live buff's extra can
+ * re-fractionalize the total (a Sprint scales a fractional type rate),
+ * so the floor sits on the final total here, not on any component.
+ *
  * @param {Object} state - The game state object
  * @returns {number} Total LOC generated per second from employees, including bonuses
  *
  * @example
- * // With 3 interns (3 LOC/sec each) and no bonuses:
- * calculateLOCPerSecond(state) // returns 9 (3 * 3 * 1.0)
+ * // With 3 interns (1 LOC/sec each) and no bonuses:
+ * calculateLOCPerSecond(state) // returns 3
  *
- * // Same setup with passive bonuses totaling 0.15:
- * calculateLOCPerSecond(state) // returns 10.35 (9 * 1.15)
+ * // Same setup with passive bonuses totaling 0.5 (Blocker L1):
+ * calculateLOCPerSecond(state) // returns 4 (3 * 1.5 = 4.5, floored)
  */
 export function calculateLOCPerSecond(state) {
   const employeeCounts = flatEmployeeCounts(state);
   const openSourceLevels = flatOpenSourceLevels(state);
   const base = shared.locPerSecond(employeeCounts, openSourceLevels);
-  const passiveBonusValue = shared.passiveBonus(openSourceLevels);
 
   // Employee buffs: each scales one type's contribution to the base rate.
   let total = base;
   for (const type of shared.EMPLOYEE_TYPES) {
     const buff = activeStarBuff(state, "employee", type);
     if (!buff) continue;
-    const typeRate =
-      shared.BALANCE.employees[type].locPerSecond *
-      (employeeCounts[type] ?? 0) *
-      (1 + passiveBonusValue);
+    const typeRate = shared.employeeBuffTypeRate(
+      type,
+      employeeCounts,
+      openSourceLevels
+    );
     total += (buff.multiplier - 1) * typeRate;
   }
 
   // Frenzy scales the whole passive rate (including any Employee extra).
   const frenzy = activeStarBuff(state, "frenzy");
   if (frenzy) total *= frenzy.multiplier;
-  return total;
+  // Floor the final total (Brandon: a tick must never commit a
+  // fractional amount). The shared base rate is already floored, but a
+  // live buff's extra can re-fractionalize the total, so the floor
+  // sits here, on the final total.
+  return Math.floor(total);
+}
+
+/**
+ * The `@returns` line for an employee card's jsdoc block, as plain data
+ * the card renders: the bonus type and its base value, plus the boosted
+ * value when a star buff (or the Project Manager boost) makes the
+ * effective multiplier differ from 1. One implementation for both
+ * EmployeeCard and LockedEmployeeCard (DRY): a Project Manager shows
+ * "+1% passive per Manager" and a Commit Specialist "+0.1 LOC per
+ * Click" instead of the normal "{N} LOC per Sec", because neither has
+ * a per-second rate — their value is the boost they give. The suffix
+ * is green for a buff (>1x) and red for a debuff (<1x), matching the
+ * card tint; when the multiplier is exactly 1 there is no suffix, so
+ * the card reads exactly like an unbuffed one.
+ *
+ * @param {object} config - the employee config (EMPLOYEE_CONFIGS[type])
+ * @param {number} effectMultiplier - the type's effective multiplier
+ *   (1 when nothing is live; a Project Manager's own Sprint/Meeting
+ *   multiplier for the PM card, a Commit Specialist's for the CS card,
+ *   effectiveEmployeeMultiplier for the other types)
+ * @returns {{ type: string, value: string, suffix: string,
+ *   suffixClassName: string }}
+ */
+export function employeeReturnsLine(config, effectMultiplier = 1) {
+  let type;
+  let value;
+  let boostedValue;
+  if (config.passiveBoostPerEmployee !== undefined) {
+    type = "PASSIVE";
+    value = `+${formatNumber(config.passiveBoostPerEmployee * 100)}% passive per Manager`;
+    boostedValue = `+${formatNumber(config.passiveBoostPerEmployee * effectMultiplier * 100)}% per Manager`;
+  } else if (config.clickBonusPerEmployee !== undefined) {
+    type = "CLICK";
+    value = `+${formatNumber(config.clickBonusPerEmployee)} LOC per Click`;
+    boostedValue = `+${formatNumber(config.clickBonusPerEmployee * effectMultiplier)} LOC per Click`;
+  } else {
+    type = "LOC";
+    value = `${formatNumber(config.locPerSecond)} LOC per Sec`;
+    boostedValue = `${formatNumber(config.locPerSecond * effectMultiplier)} LOC per Sec`;
+  }
+  return {
+    type,
+    value,
+    suffix: effectMultiplier !== 1 ? ` → ${boostedValue}` : "",
+    suffixClassName:
+      effectMultiplier > 1
+        ? "text-green-400"
+        : effectMultiplier < 1
+          ? "text-red-400"
+          : "",
+  };
 }
 
 /**

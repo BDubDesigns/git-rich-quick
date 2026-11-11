@@ -58,6 +58,8 @@ function gameState(overrides = {}) {
       intern: { count: 0 },
       junior: { count: 0 },
       senior: { count: 0 },
+      projectManager: { count: 0 },
+      commitSpecialist: { count: 0 },
     },
     aiAssistants: { noPilot: { count: 0 } },
     freelanceProjectsCompleted: {
@@ -65,7 +67,7 @@ function gameState(overrides = {}) {
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
     },
-    unlockedEmployees: { intern: true, junior: false, senior: false },
+    unlockedEmployees: { intern: true, junior: false, senior: false, projectManager: false, commitSpecialist: false },
     openSourceProjects: {
       overReactFramework: { level: 0 },
       blocker: { level: 0 },
@@ -168,7 +170,7 @@ test("employee unlock email fires on the latch flip, not the teaser", () => {
   const next = gameState({
     totalLinesOfCode: 150,
     emails: teaser,
-    unlockedEmployees: { intern: true, junior: true, senior: false },
+    unlockedEmployees: { intern: true, junior: true, senior: false, projectManager: false, commitSpecialist: false },
   });
   const { emails } = collectTriggerEmails(prev, next);
   assert.equal(emails.length, 2);
@@ -181,7 +183,7 @@ test("no teaser when visibility and unlock coincide in one jump", () => {
   const prev = gameState({ totalLinesOfCode: 0 });
   const next = gameState({
     totalLinesOfCode: 150,
-    unlockedEmployees: { intern: true, junior: true, senior: false },
+    unlockedEmployees: { intern: true, junior: true, senior: false, projectManager: false, commitSpecialist: false },
   });
   const { emails } = collectTriggerEmails(prev, next);
   assert.equal(emails.length, 1);
@@ -195,7 +197,7 @@ test("no backfill: an already-unlocked employee does not mail on restore", () =>
   // teaser fires either.
   const state = gameState({
     totalLinesOfCode: 50,
-    unlockedEmployees: { intern: true, junior: true, senior: false },
+    unlockedEmployees: { intern: true, junior: true, senior: false, projectManager: false, commitSpecialist: false },
   });
   const { emails, newEmailId } = collectTriggerEmails(state, state);
   assert.equal(emails.length, 0);
@@ -230,6 +232,8 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
       intern: { count: 0 },
       junior: { count: 1 },
       senior: { count: 0 },
+      projectManager: { count: 0 },
+      commitSpecialist: { count: 0 },
     },
   });
   const teaser = collectTriggerEmails(prev, visible).emails;
@@ -243,6 +247,8 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
       intern: { count: 0 },
       junior: { count: 5 },
       senior: { count: 0 },
+      projectManager: { count: 0 },
+      commitSpecialist: { count: 0 },
     },
     emails: teaser,
     unlockedOpenSourceProjects: {
@@ -251,9 +257,22 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
       constellation: true,
     },
   });
+  // Five juniors also make the two new employee types visible (5/25 =
+  // 20% of the Project Manager's employee-count condition, 5/20 = 25%
+  // of the Commit Specialist's — both past the 10% visibility
+  // threshold), so their teasers fire alongside the Blocker unlock.
   const { emails } = collectTriggerEmails(visible, unlocked);
-  assert.equal(emails.length, 3);
-  assert.equal(emails[2].triggerKey, "opensource-unlocked:blocker");
+  assert.equal(emails.length, 5);
+  assert.deepEqual(
+    emails.map((entry) => entry.triggerKey),
+    [
+      "employee-visible:senior",
+      "opensource-visible:blocker",
+      "employee-visible:projectManager",
+      "employee-visible:commitSpecialist",
+      "opensource-unlocked:blocker",
+    ]
+  );
 });
 
 test("Constellation teaser + unlock emails fire at 50 / 500 lifetime LOC", () => {

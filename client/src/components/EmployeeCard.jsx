@@ -1,13 +1,11 @@
 // Number abbreviation (issue #42) — the shared formatter. formatMoney
 // returns the string WITH the "$" attached, so the hire cost now shows
 // "($25.00)" where it previously showed "(25.00)" with no $ sign.
-import {
-  formatMoney,
-  formatNumber,
-} from "../../../shared/formatNumber.js";
+import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 
 import { BouncyButton } from "./BouncyButton.jsx";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
+import { employeeReturnsLine } from "../context/gameLogic.js";
 
 export function EmployeeCard({
   config,
@@ -17,13 +15,14 @@ export function EmployeeCard({
   onPurchase,
   quantity = 1,
   // Live golden-star production multiplier for this type: the global
-  // Frenzy buff (Overclock 7x / Throttling 0.5x) TIMES the
-  // type-specific Employee buff (Sprint 2x / Meeting 0.5x) — the same
-  // product the production math uses. 1 when nothing is live. The card
-  // tints green (buffed) or red (debuffed) while the effective rate
-  // differs from the base, and the @returns line shows the boosted
-  // amount next to the base amount — a visual indicator only,
-  // production itself is unchanged here.
+  // Frenzy buff (Overclock / Throttling) TIMES the type-specific
+  // Employee buff (Sprint / Meeting) — the same product the
+  // production math uses. 1 when nothing is live. The card tints green
+  // (buffed) or red (debuffed) while the effective rate differs from
+  // the base, and the @returns line shows the boosted amount next to
+  // the base amount — a visual indicator only, production itself is
+  // unchanged here. For the boost types (Project Manager, Commit
+  // Specialist) this is the type's own Sprint/Meeting multiplier.
   effectMultiplier = 1,
 }) {
   const tintClass =
@@ -32,18 +31,15 @@ export function EmployeeCard({
       : effectMultiplier < 1
         ? "debuffed"
         : "";
-  // The boosted per-employee rate: base LOC/s times the same combined
-  // multiplier as the tint. Shown only while an effect is live (a
-  // multiplier of exactly 1 means production is unchanged, including
-  // a Frenzy bad cancelled by an Employee good). Green when the rate
-  // is higher than base, red when lower.
-  const boostedLocPerSecond = config.locPerSecond * effectMultiplier;
-  const boostedSuffix =
-    effectMultiplier === 1
-      ? null
-      : ` → ${formatNumber(boostedLocPerSecond)} LOC per Sec`;
-  const boostedClassName =
-    effectMultiplier > 1 ? "text-green-400" : "text-red-400";
+  // The @returns line: the base bonus for this type, plus the boosted
+  // amount while an effect is live (a multiplier of exactly 1 means
+  // production is unchanged, including a Frenzy bad cancelled by an
+  // Employee good). Green when the rate is higher than base, red when
+  // lower. A Project Manager shows "+1% passive per Manager" and a
+  // Commit Specialist "+0.1 LOC per Click" instead of a LOC/s rate —
+  // see employeeReturnsLine (gameLogic.js), shared with the locked
+  // card so both cards agree.
+  const returnsLine = employeeReturnsLine(config, effectMultiplier);
   return (
     <div className={`panel px-3 pb-1 flex flex-col gap-1 m-0 ${tintClass}`}>
       <div className="flex items-center gap-4">
@@ -60,11 +56,11 @@ export function EmployeeCard({
             />
             <JsDocLine
               tag="@returns"
-              type="LOC"
-              value={`${formatNumber(config.locPerSecond)} LOC per Sec`}
+              type={returnsLine.type}
+              value={returnsLine.value}
               valueClassName="text-green-400"
-              suffix={boostedSuffix}
-              suffixClassName={boostedClassName}
+              suffix={returnsLine.suffix || null}
+              suffixClassName={returnsLine.suffixClassName}
             />
           </JsDocBlock>
         </div>

@@ -19,6 +19,7 @@ import {
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
   deriveUnlockedCosmetics,
+  employeeUnlockConditionsMet,
   freelanceProjectUnlockConditionsMet,
   initialSaveState,
   openSourceUnlockConditionsMet,
@@ -26,7 +27,10 @@ import {
 
 function flatCounts(nested) {
   return EMPLOYEE_TYPES.reduce((acc, key) => {
-    acc[key] = nested[key].count;
+    // A save from before Project Manager / Commit Specialist shipped
+    // has no entry for those types; default it to 0 instead of
+    // throwing on the missing entry.
+    acc[key] = nested[key]?.count ?? 0;
     return acc;
   }, {});
 }
@@ -42,7 +46,8 @@ function flatLevels(nested) {
 
 function inflateCounts(flat) {
   return EMPLOYEE_TYPES.reduce((acc, key) => {
-    acc[key] = { count: flat[key] };
+    // Same migration as flatCounts: an old save lacks the new types.
+    acc[key] = { count: flat[key] ?? 0 };
     return acc;
   }, {});
 }
@@ -92,7 +97,19 @@ export function saveStateToGameFields(saveState) {
     aiAssistants: { noPilot: { count: saveState.aiAssistants.noPilot } },
     freelanceProjectsCompleted: { ...saveState.freelanceProjectsCompleted },
     openSourceProjects: inflateLevels(saveState.openSourceProjects),
-    unlockedEmployees: { ...saveState.unlockedEmployees },
+    // A save from before Project Manager / Commit Specialist shipped
+    // has no latch for those types — the load path returns the raw
+    // stored state, so derive each missing latch from the save's own
+    // state here, the same way the server's normalizeSaveState does
+    // on save. A veteran who already meets a new type's condition
+    // gets it unlocked on load instead of locked behind a goal they
+    // already cleared.
+    unlockedEmployees: EMPLOYEE_TYPES.reduce((acc, key) => {
+      acc[key] =
+        saveState.unlockedEmployees?.[key] ??
+        employeeUnlockConditionsMet(key, saveState);
+      return acc;
+    }, {}),
     // Constellation shipped unlocked, then gained a TOTAL_LOC >= 500
     // condition (star fix slice). A save from before the condition
     // carries latch=true with lifetime LOC below the threshold, so the

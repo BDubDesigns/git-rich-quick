@@ -12,18 +12,21 @@
 // Number abbreviation (issue #42) — the shared formatter. formatMoney
 // returns the string WITH the "$" attached, so the locked cost now shows
 // "($25.00)" where it previously showed "(25.00)" with no $ sign.
-import {
-  formatMoney,
-  formatNumber,
-} from "../../../shared/formatNumber.js";
+import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 import { Button } from "./Button.jsx";
 import {
   JsDocBlock,
   JsDocLine,
   JsDocUnlockRequirements,
 } from "./JsDocBlock.jsx";
+import { employeeReturnsLine } from "../context/gameLogic.js";
 
 export function LockedEmployeeCard({ config, progress }) {
+  // The @returns line: the base bonus for this type. A Project Manager
+  // shows "+1% passive per Manager" and a Commit Specialist "+0.1 LOC
+  // per Click" instead of a LOC/s rate — see employeeReturnsLine
+  // (gameLogic.js), shared with the unlocked card so both cards agree.
+  const returnsLine = employeeReturnsLine(config);
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
       <div className="flex items-center gap-4">
@@ -40,8 +43,8 @@ export function LockedEmployeeCard({ config, progress }) {
             />
             <JsDocLine
               tag="@returns"
-              type="LOC"
-              value={`${formatNumber(config.locPerSecond)} LOC per Sec`}
+              type={returnsLine.type}
+              value={returnsLine.value}
               valueClassName="text-green-400"
             />
             <JsDocUnlockRequirements progress={progress} />

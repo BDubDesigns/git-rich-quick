@@ -209,7 +209,7 @@ test("link a guest save to an account, read it back, load the save", async () =>
       state: savedState,
       actionsSinceLastSave: {
         clicks: 50,
-        employeesBought: { intern: 0, junior: 0, senior: 0 },
+        employeesBought: { intern: 0, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
         projectsCompleted: {
           toDoListApp: 1,
           hobbyWebsite: 0,
