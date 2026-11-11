@@ -1,5 +1,9 @@
 // Number abbreviation (issue #42) — the shared formatter.
 import { formatNumber } from "../../../shared/formatNumber.js";
+import {
+  formatCooldownSeconds,
+  starBrokerCooldownSeconds,
+} from "../../../shared/game-balance.js";
 import { Button } from "./Button.jsx";
 import {
   JsDocBlock,
@@ -8,11 +12,15 @@ import {
 } from "./JsDocBlock.jsx";
 
 export function LockedOpenSourceCard({
+  projectId,
   project,
   progress,
   nextBonus,
   locCost,
 }) {
+  // StarBroker has no numeric bonus — v1.0 buys stars on an 8m
+  // cooldown — so the bonus line names the cooldown, not "+0 STAR".
+  const isStarBroker = projectId === "starBroker";
   return (
     <div className="panel locked px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Two-column layout */}
@@ -31,7 +39,11 @@ export function LockedOpenSourceCard({
             <JsDocLine
               tag="@returns"
               type="Bonus"
-              value={`+${formatNumber(nextBonus.value)} ${nextBonus.type}`}
+              value={
+                isStarBroker
+                  ? `Cooldown ${formatCooldownSeconds(starBrokerCooldownSeconds(1))} between bought stars`
+                  : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`
+              }
               valueClassName="text-green-400"
             />
             <JsDocUnlockRequirements progress={progress} />

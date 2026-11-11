@@ -3,6 +3,9 @@ import { ActionButton } from "./ActionButton.jsx";
 import { formatNumber } from "../../../shared/formatNumber.js";
 import {
   STAR_CONFIG,
+  formatCooldownSeconds,
+  starBrokerCooldownSeconds,
+  starBrokerLevelUpFloatText,
   starSpawnIntervalSeconds,
   unlockedStarEffects,
 } from "../../../shared/game-balance.js";
@@ -39,6 +42,16 @@ function constellationNextInfo(level) {
   return { nextInterval, newEffectName, fasterSpawns };
 }
 
+/**
+ * StarBroker cooldown label for a level ("8m", "30s"), or null at
+ * level 0. StarBroker has no numeric bonus — its bonus IS the shorter
+ * cooldown — so the card shows this instead of "+0 STAR".
+ */
+function starBrokerInfo(level) {
+  const cooldown = starBrokerCooldownSeconds(level);
+  return cooldown == null ? null : formatCooldownSeconds(cooldown);
+}
+
 export function OpenSourceCard({
   projectId,
   project,
@@ -51,11 +64,18 @@ export function OpenSourceCard({
   onContribute,
 }) {
   const isConstellation = projectId === "constellation";
+  const isStarBroker = projectId === "starBroker";
   const starInfo = isConstellation ? constellationInfo(currentLevel) : null;
   const starNext =
     isConstellation && !isMaxed ? constellationNextInfo(currentLevel) : null;
+  // StarBroker's cooldown at the current / next level (null at level 0).
+  const starBrokerCooldown =
+    isStarBroker && currentLevel > 0 ? starBrokerInfo(currentLevel) : null;
+  const starBrokerNextCooldown =
+    isStarBroker && !isMaxed ? starBrokerInfo(currentLevel + 1) : null;
   // The floating text on Contribute: for Constellation it names the
-  // unlock, not a numeric bonus (there is none).
+  // unlock, not a numeric bonus (there is none); for StarBroker it
+  // names the new cooldown, not "+0 STAR" (also no numeric bonus).
   const floatText = isMaxed
     ? ""
     : isConstellation
@@ -64,7 +84,9 @@ export function OpenSourceCard({
         : starNext.fasterSpawns
           ? "Faster stars!"
           : ""
-      : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
+      : isStarBroker
+        ? starBrokerLevelUpFloatText(currentLevel + 1)
+        : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
 
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
@@ -82,7 +104,8 @@ export function OpenSourceCard({
               value={`${formatNumber(locCost)} LOC needed for v.${currentLevel + 1}.0`}
             />
 
-            {/* current bonus, if any — for Constellation, the star info */}
+            {/* current bonus, if any — for Constellation, the star info;
+                for StarBroker, the cooldown (no numeric bonus) */}
             {isConstellation ? (
               <JsDocLine
                 tag="@returns"
@@ -92,6 +115,13 @@ export function OpenSourceCard({
                     ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
                     : "No stars yet — chart the first one"
                 }
+                valueClassName="text-green-400"
+              />
+            ) : isStarBroker && currentLevel > 0 ? (
+              <JsDocLine
+                tag="@returns"
+                type="STAR"
+                value={`Cooldown ${starBrokerCooldown} between bought stars`}
                 valueClassName="text-green-400"
               />
             ) : (
@@ -112,6 +142,13 @@ export function OpenSourceCard({
                   tag="@returns"
                   type="Bonus"
                   value={`${starNext.newEffectName ? `Unlocks ${starNext.newEffectName}` : ""}${starNext.newEffectName && starNext.fasterSpawns ? " · " : ""}${starNext.fasterSpawns ? `Stars spawn faster (${starNext.nextInterval.min}–${starNext.nextInterval.max}s)` : ""}`}
+                  valueClassName="text-green-400"
+                />
+              ) : isStarBroker ? (
+                <JsDocLine
+                  tag="@returns"
+                  type="Bonus"
+                  value={`Cooldown ${starBrokerNextCooldown} between bought stars`}
                   valueClassName="text-green-400"
                 />
               ) : (
