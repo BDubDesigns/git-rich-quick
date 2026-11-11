@@ -296,23 +296,23 @@ export const BALANCE = Object.freeze({
       ]),
       levels: Object.freeze([
         Object.freeze({
-          locCost: 5000,
+          locCost: 10000,
           bonus: Object.freeze({ type: "STAR", value: 0 }),
         }),
         Object.freeze({
-          locCost: 20000,
+          locCost: 40000,
           bonus: Object.freeze({ type: "STAR", value: 0 }),
         }),
         Object.freeze({
-          locCost: 75000,
+          locCost: 150000,
           bonus: Object.freeze({ type: "STAR", value: 0 }),
         }),
         Object.freeze({
-          locCost: 250000,
+          locCost: 500000,
           bonus: Object.freeze({ type: "STAR", value: 0 }),
         }),
         Object.freeze({
-          locCost: 1000000,
+          locCost: 2000000,
           bonus: Object.freeze({ type: "STAR", value: 0 }),
         }),
       ]),
@@ -402,13 +402,15 @@ export const STAR_CONFIG = Object.freeze({
       names: Object.freeze({ good: "Shooting Stars", bad: "Shooting Stars" }),
     }),
   }),
-  /** Lucky: instant chunk. Good = 20-50x LOC/sec OR 1-10% of cash; bad = half as bad. */
+  /** Lucky: instant chunk. Good = 20-50x LOC/sec OR 1-75% of cash
+   * (Brandon: people don't hoard cash, so up to 3/4 of cash on hand
+   * is fine); bad LOC = half as bad (10-25x), bad cash stays 1-5%. */
   luckyLocMultiplier: Object.freeze({
     good: Object.freeze({ min: 20, max: 50 }),
     bad: Object.freeze({ min: 10, max: 25 }),
   }),
   luckyMoneyFraction: Object.freeze({
-    good: Object.freeze({ min: 0.01, max: 0.1 }),
+    good: Object.freeze({ min: 0.01, max: 0.75 }),
     bad: Object.freeze({ min: 0.01, max: 0.05 }),
   }),
   /** Frenzy: all production (LOC/sec) x7 for 60s; bad = x0.5 for 30s. */

@@ -791,7 +791,7 @@ test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", (
     { ok: true }
   );
 
-  // (b) Lucky good, money: 100000c on hand, +5000c (5%, within 1-10%).
+  // (b) Lucky good, money: 100000c on hand, +5000c (5%, within 1-75%).
   const beforeB = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1145,8 +1145,8 @@ test("inflated star claims are rejected", () => {
   const cases = [
     // Lucky LOC gain far above the 50x rate max (50 LOC at 1 LOC/s).
     starClaim({ locDelta: 1000 }),
-    // Lucky money gain above the 10% max (10000c at 100000c).
-    starClaim({ moneyDelta: 50000 }),
+    // Lucky money gain above the 75% max (75000c at 100000c).
+    starClaim({ moneyDelta: 80000 }),
     // Shooting Stars LOC above the 5x Lucky max (250 LOC at 1 LOC/s).
     starClaim({ effect: "shootingStars", locDelta: 1000 }),
   ];
