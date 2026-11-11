@@ -272,6 +272,36 @@ export function createStore(pool) {
     },
 
     /**
+     * Admin stats (issue #45, read-only): aggregate counts for the
+     * stats endpoint. `nowMs` is the (injected) current time.
+     * - playerCount: rows in git_saves.
+     * - linkedAccounts: rows linked to a Better Auth account.
+     * - savesLastHour / savesLastDay: rows whose last accepted save is
+     *   within the window (players who saved recently — an activity
+     *   proxy, not a count of save events).
+     * Date objects are passed for the window bounds (portable across
+     * the real pg driver and pg-mem).
+     */
+    async getAdminStats(nowMs) {
+      const res = await pool.query(
+        `SELECT
+           COUNT(*)::int AS "playerCount",
+           COALESCE(SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS "linkedAccounts",
+           COALESCE(SUM(CASE WHEN saved_at >= $1 THEN 1 ELSE 0 END), 0)::int AS "savesLastHour",
+           COALESCE(SUM(CASE WHEN saved_at >= $2 THEN 1 ELSE 0 END), 0)::int AS "savesLastDay"
+         FROM git_saves`,
+        [new Date(nowMs - 60 * 60 * 1000), new Date(nowMs - 24 * 60 * 60 * 1000)]
+      );
+      const row = res.rows[0];
+      return {
+        playerCount: Number(row.playerCount),
+        linkedAccounts: Number(row.linkedAccounts),
+        savesLastHour: Number(row.savesLastHour),
+        savesLastDay: Number(row.savesLastDay),
+      };
+    },
+
+    /**
      * Leaderboard (issue #29): the top `limit` ACCOUNTS only (guests
      * never appear), ranked by `sort` (lifetime | current | cash;
      * unknown values fall back to lifetime). Scores are derived live

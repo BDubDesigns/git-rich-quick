@@ -32,6 +32,35 @@ balance number (imported by both the client and this server).
   any other player is `403 not-test-player`. Without `ADMIN_TOKEN`
   configured the endpoint answers `501 admin-not-configured`. Every
   call is audit-logged. No real player's save can be seeded.
+- `GET /api/admin/player/:playerId` — admin read-only (issue #45): one
+  player's current save state (`{ playerId, state, savedAt, createdAt }`).
+  Requires `Authorization: Bearer <ADMIN_TOKEN>`. Read-only: it returns
+  the snapshot and never modifies anything. Unlike the seed endpoint,
+  this one MAY read a real player's save — that is its purpose
+  (debugging a specific player's issue, by explicit playerId). There is
+  no bulk/list-all-players endpoint. `400` for a malformed id, `404`
+  for an unknown player, `501` when `ADMIN_TOKEN` is unset.
+- `GET /api/admin/rejected-saves` — admin read-only (issue #45): recent
+  rejected saves, most recent first, each `{ playerId, rule, detail,
+  rejectedAt }`. Requires `Authorization: Bearer <ADMIN_TOKEN>`.
+  `?limit=` caps the list (default 50, max 100). Sourced from an
+  in-memory ring buffer (last 100 rejections, lost on restart) fed by
+  the same rejection event the server logs to the console (PR #44) —
+  the list and the log can never disagree. Read-only.
+- `GET /api/admin/stats` — admin read-only (issue #45): aggregate
+  counts only, never individual player data. Requires `Authorization:
+  Bearer <ADMIN_TOKEN>`. Returns `playerCount`, `linkedAccounts`,
+  `savesLastHour` / `savesLastDay` (players whose last accepted save is
+  inside the last 1h / 24h — an activity proxy, not a save-event
+  count), `rejectionsLastHour` / `rejectionsLastDay` (rejection events
+  in the ring buffer inside the same windows), and `rejectionsStored`
+  (ring buffer size). Read-only.
+
+Admin guardrail, in one place: the seed endpoint is test-player-only;
+the read-only endpoints are per-player debugging by explicit playerId
+(read a real player's state to investigate their issue, never modify,
+never bulk-list). All `/api/admin/*` calls are audit-logged (who/when,
+never the token).
 
 ## Validation (nine rules)
 
