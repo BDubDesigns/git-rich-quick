@@ -92,7 +92,7 @@ export function Shop() {
           // Sprint/Meeting multiplier: a Project Manager's card shows
           // its Sprint scaling the boost (+1% -> +5% at 5x), and a
           // Commit Specialist's card shows its Sprint scaling the
-          // click bonus (+0.1 -> +0.5 at 5x). A Frenzy buff does not
+          // click bonus (+0.2 -> +1.0 at 5x). A Frenzy buff does not
           // change a manager's boost or a specialist's click bonus,
           // so it does not tint those cards.
           const effectMultiplier =

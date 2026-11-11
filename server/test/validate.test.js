@@ -102,10 +102,16 @@ test("shared math matches the client formulas", () => {
   });
   // Freelance projects (issue #19): the To Do List App starts
   // unlocked; the Hobby Website and Blockchain Project are gated.
+  // The four big projects are gated too (AI Dashboard on 25
+  // Blockchain Projects, then the chain up to Quantum).
   assert.deepEqual(fresh.unlockedFreelanceProjects, {
     toDoListApp: true,
     hobbyWebsite: false,
     paradigmShiftingBlockchainProject: false,
+    aiPoweredDashboard: false,
+    nftMarketplace: false,
+    metaverseRealEstate: false,
+    quantumToDoList: false,
   });
   // Levels 4-5 (issue #33 slice): OverReact keeps doubling the click
   // bonus (8, 16), Blocker keeps adding 0.5 passive (2, 2.5).
@@ -1360,6 +1366,10 @@ test("a save from before project unlocks (no freelance latch) still validates", 
     toDoListApp: true,
     hobbyWebsite: true,
     paradigmShiftingBlockchainProject: false,
+    aiPoweredDashboard: false,
+    nftMarketplace: false,
+    metaverseRealEstate: false,
+    quantumToDoList: false,
   });
 });
 
