@@ -17,11 +17,16 @@ import { BiCoffeeTogo } from "react-icons/bi";
 
 // import icons for navigation tabs
 import { FaPeopleGroup } from "react-icons/fa6";
-import { MdEmail } from "react-icons/md";
 import { FaGithub } from "react-icons/fa";
 import { IoSettings } from "react-icons/io5";
 import { MdRocketLaunch } from "react-icons/md";
 import { FaTrophy } from "react-icons/fa";
+
+// GITMail logo for the Email tab (cropped envelope, no text — the
+// "GITMail" text read weird on a button). The PNGs have a black
+// background, so the nav button renders it on black, not in a blue
+// circle. See NavButton.
+import gitmailIcon from "../img/gitmail-icon.png";
 
 // import icons for projects
 import { BsClipboard2CheckFill } from "react-icons/bs"; // to-do list app
@@ -73,9 +78,11 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
   STARTING_LOC: shared.BALANCE.mechanics.startingLoc, // Starting lines of code
 });
 
-// Immutable navigation tab configuration
+// Immutable navigation tab configuration. Most tabs use a react-icon
+// (`Icon`); the Email tab uses the GITMail logo image instead
+// (`imageSrc`) — see NavButton for how the two render.
 export const NAV_TABS = Object.freeze([
-  { id: "email", label: "Email", Icon: MdEmail },
+  { id: "email", label: "Email", imageSrc: gitmailIcon },
   { id: "shop", label: "Shop", Icon: FaPeopleGroup },
   { id: "projects", label: "Projects", Icon: MdRocketLaunch },
   { id: "openSource", label: "Open Source", Icon: FaGithub },

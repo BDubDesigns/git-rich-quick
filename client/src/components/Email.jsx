@@ -1,5 +1,6 @@
 import { useGameContext } from "../context/useGameContext.js";
 import { highlightAmounts } from "../email/email.js";
+import gitmailBanner from "../img/gitmail-banner.png";
 import { Button } from "./Button.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 
@@ -102,6 +103,14 @@ export function Email() {
 
   return (
     <SectionLayout sectionId="email">
+      {/* GITMail banner: the in-world mail brand, at the top of the
+          inbox list. The "Inbox" title and description above it keep
+          the tab reading as the game's inbox. */}
+      <img
+        src={gitmailBanner}
+        alt="GITMail"
+        className="w-full h-auto rounded-xl"
+      />
       {emails.length === 0 && (
         <p className="primary-text">
           No mail yet. Hire someone, unlock something, or click a golden
