@@ -14,7 +14,7 @@
 import { GiPlasticDuck } from "react-icons/gi";
 import { BsBackpack } from "react-icons/bs";
 import { BiCoffeeTogo } from "react-icons/bi";
-import { FaClipboardList, FaKeyboard } from "react-icons/fa";
+import { FaClipboardList, FaKeyboard, FaShip, FaRocket } from "react-icons/fa";
 
 // import icons for navigation tabs
 import { FaPeopleGroup } from "react-icons/fa6";
@@ -190,6 +190,15 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     description:
       "Writes commit messages so clean the git log weeps. Each one adds a tenth of a line to every click — it adds up, eventually, if you hire enough of them.",
   },
+  releaseManager: {
+    // Balance numbers (cost, multiplier, unlocks) come from shared.
+    ...shared.BALANCE.employees.releaseManager,
+    name: shared.EMPLOYEE_DISPLAY_NAMES.releaseManager,
+    Icon: FaShip,
+    color: "red",
+    description:
+      "Reads the release notes, nods solemnly, and ships it on a Friday anyway. Has never read a single line of the code. Assign one to a project and it ships one on a timer, as long as there's LOC to burn.",
+  },
 });
 
 // Immutable cosmetic configuration (issue #11) — the visual data
@@ -229,6 +238,11 @@ export const COSMETICS_CONFIG = Object.freeze({
     name: "Diamond Keyboard",
     Icon: FaKeyboard,
     color: "#B9F2FF",
+  },
+  "releaseManager-icon-ruby": {
+    name: "Ruby Rocket",
+    Icon: FaRocket,
+    color: "#E0115F",
   },
 });
 

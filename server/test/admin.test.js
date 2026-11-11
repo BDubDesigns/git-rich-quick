@@ -90,7 +90,7 @@ function seededState() {
   state.linesOfCode = 2000;
   state.totalLinesOfCode = 2000;
   state.money = 50000;
-  state.employees = { intern: 2, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 };
+  state.employees = { intern: 2, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0, releaseManager: 0 };
   state.openSourceProjects = {
     overReactFramework: 1,
     blocker: 0,

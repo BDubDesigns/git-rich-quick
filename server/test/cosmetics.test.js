@@ -96,6 +96,7 @@ test("cosmetic registry: one slot per employee type, one unlock each at 25 hires
     "employeeIcon_senior",
     "employeeIcon_projectManager",
     "employeeIcon_commitSpecialist",
+    "employeeIcon_releaseManager",
   ]);
   assert.deepEqual(findCosmetic("intern-icon-bronze"), {
     cosmeticId: "intern-icon-bronze",

@@ -596,6 +596,17 @@ export class SaveSync {
           saveState.freelanceProjectsCompleted,
           FREELANCE_PROJECT_KEYS
         ),
+        // Release Manager auto-ships this window, per project. Derived
+        // from the cumulative auto-ship counter (new - baseline), the
+        // same way projectsCompleted is derived above — so the server
+        // can rate-cap them against the assigned managers and the ship
+        // interval. A reducer-rejected ship is never counted, because
+        // the counter only moves when the reducer actually ships.
+        autoShips: diffCounts(
+          this.baseline.autoShipsCompleted,
+          saveState.autoShipsCompleted,
+          FREELANCE_PROJECT_KEYS
+        ),
         openSourceLevelsBought: diffCounts(
           this.baseline.openSourceProjects,
           saveState.openSourceProjects,

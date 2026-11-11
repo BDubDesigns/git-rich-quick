@@ -15,6 +15,7 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
+import { ReleaseManagerAssignments } from "./ReleaseManagerAssignments.jsx";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -95,29 +96,44 @@ export function Shop() {
           // click bonus (+0.2 -> +1.0 at 5x). A Frenzy buff does not
           // change a manager's boost or a specialist's click bonus,
           // so it does not tint those cards.
+          //
+          // The Release Manager's ship timer is not changed by any
+          // star buff (no Sprint/Meeting/Frenzy scaling — the timer
+          // is fixed), so its card never tints: a green tint would
+          // promise a faster ship that never comes.
           const effectMultiplier =
-            employeeType === "projectManager" ||
-            employeeType === "commitSpecialist"
-              ? (activeStarBuff(state, "employee", employeeType)
-                  ?.multiplier ?? 1)
-              : effectiveEmployeeMultiplier(
-                  state.activeStarEffects,
-                  employeeType,
-                  Date.now(),
-                  flatEmployeeCounts(state)
-                );
+            employeeType === "releaseManager"
+              ? 1
+              : employeeType === "projectManager" ||
+                  employeeType === "commitSpecialist"
+                ? (activeStarBuff(state, "employee", employeeType)
+                    ?.multiplier ?? 1)
+                : effectiveEmployeeMultiplier(
+                    state.activeStarEffects,
+                    employeeType,
+                    Date.now(),
+                    flatEmployeeCounts(state)
+                  );
 
           return (
-            <EmployeeCard
-              key={employeeType}
-              config={cardConfig}
-              currentCost={currentCost}
-              ownedCount={ownedCount}
-              canAfford={canAfford}
-              onPurchase={() => handleBuyEmployee(employeeType)}
-              quantity={quantity}
-              effectMultiplier={effectMultiplier}
-            />
+            <div key={employeeType}>
+              <EmployeeCard
+                config={cardConfig}
+                currentCost={currentCost}
+                ownedCount={ownedCount}
+                canAfford={canAfford}
+                onPurchase={() => handleBuyEmployee(employeeType)}
+                quantity={quantity}
+                effectMultiplier={effectMultiplier}
+              />
+              {/* Release Manager assignments: which project each
+                  manager auto-ships. Only under the Release Manager
+                  card, only while managers are owned (the component
+                  hides itself at zero). */}
+              {employeeType === "releaseManager" && (
+                <ReleaseManagerAssignments />
+              )}
+            </div>
           );
         }
 

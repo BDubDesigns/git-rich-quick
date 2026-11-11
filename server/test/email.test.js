@@ -329,12 +329,13 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
       constellation: true,
     },
   });
-  // Five juniors also make the two new employee types visible (5/25 =
-  // 20% of the Project Manager's employee-count condition, 5/20 = 25%
-  // of the Commit Specialist's — both past the 10% visibility
-  // threshold), so their teasers fire alongside the Blocker unlock.
+  // Five juniors also make the three newer employee types visible
+  // (5/25 = 20% of the Project Manager's employee-count condition,
+  // 5/20 = 25% of the Commit Specialist's, 5/30 = 17% of the Release
+  // Manager's — all past the 10% visibility threshold), so their
+  // teasers fire alongside the Blocker unlock.
   const { emails } = collectTriggerEmails(visible, unlocked);
-  assert.equal(emails.length, 5);
+  assert.equal(emails.length, 6);
   assert.deepEqual(
     emails.map((entry) => entry.triggerKey),
     [
@@ -342,6 +343,7 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
       "opensource-visible:blocker",
       "employee-visible:projectManager",
       "employee-visible:commitSpecialist",
+      "employee-visible:releaseManager",
       "opensource-unlocked:blocker",
     ]
   );

@@ -71,6 +71,14 @@ export function stateToSaveState(clientState) {
     employees: flatCounts(clientState.employees),
     aiAssistants: { noPilot: clientState.aiAssistants.noPilot.count },
     freelanceProjectsCompleted: { ...clientState.freelanceProjectsCompleted },
+    // Release Manager assignments (which project each manager ships)
+    // and the cumulative auto-ship counts. Copied per key; the save
+    // engine derives actions.autoShips from the auto-ship delta, so
+    // the server can rate-cap auto-ships.
+    releaseManagerAssignments: {
+      ...(clientState.releaseManagerAssignments ?? {}),
+    },
+    autoShipsCompleted: { ...(clientState.autoShipsCompleted ?? {}) },
     openSourceProjects: flatLevels(clientState.openSourceProjects),
     unlockedEmployees: { ...clientState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...clientState.unlockedOpenSourceProjects },
@@ -109,6 +117,18 @@ export function saveStateToGameFields(saveState) {
     employees: inflateCounts(saveState.employees),
     aiAssistants: { noPilot: { count: saveState.aiAssistants.noPilot } },
     freelanceProjectsCompleted: { ...saveState.freelanceProjectsCompleted },
+    // Release Manager assignments and cumulative auto-ship counts. A
+    // save from before the Release Manager shipped has neither — default
+    // them to all-zero here, the same way the server's
+    // normalizeSaveState does on save. No manager assigned, none shipped.
+    releaseManagerAssignments: FREELANCE_PROJECT_KEYS.reduce((acc, key) => {
+      acc[key] = saveState.releaseManagerAssignments?.[key] ?? 0;
+      return acc;
+    }, {}),
+    autoShipsCompleted: FREELANCE_PROJECT_KEYS.reduce((acc, key) => {
+      acc[key] = saveState.autoShipsCompleted?.[key] ?? 0;
+      return acc;
+    }, {}),
     openSourceProjects: inflateLevels(saveState.openSourceProjects),
     // A save from before Project Manager / Commit Specialist shipped
     // has no latch for those types — the load path returns the raw
@@ -207,6 +227,15 @@ export function emptyActions() {
       acc[key] = 0;
       return acc;
     }, {}),
+    // Release Manager auto-ships since the last accepted save, per
+    // project. The engine derives this from the autoShipsCompleted
+    // state delta (new - baseline), like projectsCompleted above —
+    // the server rate-caps it against the assigned managers and the
+    // ship interval.
+    autoShips: FREELANCE_PROJECT_KEYS.reduce((acc, key) => {
+      acc[key] = 0;
+      return acc;
+    }, {}),
     openSourceLevelsBought: OPEN_SOURCE_IDS.reduce((acc, key) => {
       acc[key] = 0;
       return acc;
@@ -276,6 +305,15 @@ export function bigActionFields(saveState) {
       (saveState.farm?.stalls ?? []).map((stall) => stall.lighting ?? "warm")
     ),
     farmUnlockedTypes: (saveState.farm?.unlockedTypes ?? []).length,
+    // Release Manager assignments: changing an assignment is a
+    // deliberate player choice (like an equip), so it saves promptly.
+    // Compared as a string because any change (one project's count)
+    // is a big action. The auto-ship COUNTS are deliberately NOT
+    // here: auto-ships are ships, and Ship is not a big action
+    // (rapid-fire) — the counts still persist via the heartbeat.
+    releaseManagerAssignments: JSON.stringify(
+      saveState.releaseManagerAssignments ?? {}
+    ),
   };
 }
 
@@ -307,6 +345,10 @@ export function isInitialSaveState(saveState) {
       initial.unlockedFreelanceProjects[key]
     )
       return false;
+    // Release Manager: a fresh save has no managers assigned and
+    // none auto-shipped.
+    if ((saveState.releaseManagerAssignments?.[key] ?? 0) !== 0) return false;
+    if ((saveState.autoShipsCompleted?.[key] ?? 0) !== 0) return false;
   }
   for (const key of OPEN_SOURCE_IDS) {
     if (saveState.openSourceProjects[key] !== initial.openSourceProjects[key])
@@ -360,5 +402,12 @@ export function bigActionIncreased(prev, next) {
   if ((next.farmUnlockedTypes ?? 0) > (prev.farmUnlockedTypes ?? 0))
     return true;
   if ((next.farmLighting ?? "") !== (prev.farmLighting ?? "")) return true;
+  // Release Manager assignments: any change (one project's count) is
+  // a big action, like an equip.
+  if (
+    (next.releaseManagerAssignments ?? "") !==
+    (prev.releaseManagerAssignments ?? "")
+  )
+    return true;
   return false;
 }
