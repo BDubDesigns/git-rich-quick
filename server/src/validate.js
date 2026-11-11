@@ -73,6 +73,7 @@ import {
   baseLocPerSecond,
   employeePurchaseCosts,
   employeeUnlockConditionsMet,
+  freelanceProjectUnlockConditionsMet,
   locPerClick,
   locPerSecond,
   normalizeSaveState,
@@ -148,6 +149,7 @@ function checkStateShape(state) {
       "openSourceProjects",
       "unlockedEmployees",
       "unlockedOpenSourceProjects",
+      "unlockedFreelanceProjects",
       "activeStarEffects",
       "emails",
     ])
@@ -234,6 +236,14 @@ function checkStateShape(state) {
     )
   ) {
     return "unlockedOpenSourceProjects must be booleans";
+  }
+  if (
+    !hasExactKeys(state.unlockedFreelanceProjects, FREELANCE_PROJECT_KEYS) ||
+    !FREELANCE_PROJECT_KEYS.every(
+      (key) => typeof state.unlockedFreelanceProjects[key] === "boolean"
+    )
+  ) {
+    return "unlockedFreelanceProjects must be booleans";
   }
   return null;
 }
@@ -758,6 +768,17 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
       );
     }
   }
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    if (
+      prevState.unlockedFreelanceProjects[key] &&
+      !newState.unlockedFreelanceProjects[key]
+    ) {
+      return fail(
+        "MONOTONIC",
+        `freelance unlock latch flipped back: ${key}`
+      );
+    }
+  }
   if (newState.totalLinesOfCode < prevState.totalLinesOfCode) {
     return fail("MONOTONIC", "totalLinesOfCode decreased");
   }
@@ -782,6 +803,17 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
       return fail(
         "UNLOCK",
         `open-source unlock claimed without meeting conditions: ${projectId}`
+      );
+    }
+  }
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    if (
+      newState.unlockedFreelanceProjects[key] &&
+      !freelanceProjectUnlockConditionsMet(key, newState)
+    ) {
+      return fail(
+        "UNLOCK",
+        `freelance unlock claimed without meeting conditions: ${key}`
       );
     }
   }

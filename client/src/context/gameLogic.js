@@ -19,6 +19,7 @@ export {
   getTotalEmployeeCount,
   getUnlockProgress,
   getUnlockProgressForOpenSource,
+  getUnlockProgressForFreelanceProject,
   hasCrossedUnlockThreshold,
 } from "../utils/unlockProgress.js";
 
@@ -253,6 +254,20 @@ export function isEmployeeUnlocked(employeeType, state) {
  */
 export function isOpenSourceProjectUnlocked(projectId, state) {
   return state.unlockedOpenSourceProjects[projectId];
+}
+
+/**
+ * Determines if a freelance project is permanently unlocked.
+ *
+ * Reads the permanent unlock record. Once unlocked, always unlocked.
+ * The To Do List App has no unlock conditions, so it starts unlocked.
+ *
+ * @param {string} projectKey - The project key
+ * @param {Object} state - The game state
+ * @returns {boolean} True if project has been unlocked
+ */
+export function isFreelanceProjectUnlocked(projectKey, state) {
+  return state.unlockedFreelanceProjects[projectKey];
 }
 
 // Calculate current LOC per second from all employees

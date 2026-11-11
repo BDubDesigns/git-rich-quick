@@ -20,6 +20,7 @@ import {
   initialSaveState,
   locPerClick,
   locPerSecond,
+  normalizeSaveState,
   openSourceLevelCosts,
 } from "../../shared/game-balance.js";
 
@@ -91,6 +92,13 @@ test("shared math matches the client formulas", () => {
     overReactFramework: true,
     blocker: false,
     constellation: true,
+  });
+  // Freelance projects (issue #19): the To Do List App starts
+  // unlocked; the Hobby Website and Blockchain Project are gated.
+  assert.deepEqual(fresh.unlockedFreelanceProjects, {
+    toDoListApp: true,
+    hobbyWebsite: false,
+    paradigmShiftingBlockchainProject: false,
   });
   // Levels 4-5 (issue #33 slice): OverReact keeps doubling the click
   // bonus (8, 16), Blocker keeps adding 0.5 passive (2, 2.5).
@@ -268,6 +276,83 @@ test("claimed unlock without meeting the conditions is rejected", () => {
   );
   assert.equal(r.ok, false);
   assert.equal(r.rule, "UNLOCK");
+});
+
+test("freelance unlock claimed without meeting the conditions is rejected", () => {
+  // Hobby Website needs 50 To Do List Apps shipped; 10 is not enough.
+  const before = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 10 },
+  });
+  const cheater = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 10 },
+    unlockedFreelanceProjects: { hobbyWebsite: true },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(cheater, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "UNLOCK");
+});
+
+test("blockchain unlock needs BOTH the total and the hobby count", () => {
+  // 200 total projects shipped, but only 10 of them Hobby Websites:
+  // the SPECIFIC_PROJECT_COUNT condition is not met.
+  const before = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 190, hobbyWebsite: 10 },
+  });
+  const cheater = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 190, hobbyWebsite: 10 },
+    unlockedFreelanceProjects: {
+      hobbyWebsite: true,
+      paradigmShiftingBlockchainProject: true,
+    },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(cheater, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "UNLOCK");
+
+  // 150 To Do List Apps + 50 Hobby Websites = 200 total, 50 hobby:
+  // both conditions met, so the latch flip is accepted.
+  const met = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 150, hobbyWebsite: 50 },
+  });
+  const legit = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 150, hobbyWebsite: 50 },
+    unlockedFreelanceProjects: {
+      hobbyWebsite: true,
+      paradigmShiftingBlockchainProject: true,
+    },
+  });
+  const ok = validateSave(
+    prev(met, T0),
+    body(legit, zeroActions()),
+    T0 + 60_000
+  );
+  assert.deepEqual(ok, { ok: true });
+});
+
+test("freelance unlock latch flipping back is rejected", () => {
+  const before = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 50 },
+    unlockedFreelanceProjects: { hobbyWebsite: true },
+  });
+  const flipped = stateWith({
+    freelanceProjectsCompleted: { toDoListApp: 50 },
+    unlockedFreelanceProjects: { hobbyWebsite: false },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(flipped, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "MONOTONIC");
 });
 
 test("shape violations: NoPilot, level 6, unknown keys, bad types", () => {
@@ -1073,6 +1158,40 @@ test("a save from before Constellation (no star fields) still validates", () => 
   };
   const r = validateSave(prev(before, T0), body(after, actions), T0 + 60_000);
   assert.deepEqual(r, { ok: true });
+});
+
+test("a save from before project unlocks (no freelance latch) still validates", () => {
+  // An old stored save has no unlockedFreelanceProjects at all.
+  // Normalization derives the latch from the save's own shipped
+  // counts instead of failing the shape check.
+  const before = initialSaveState();
+  delete before.unlockedFreelanceProjects;
+  const after = {
+    ...initialSaveState(),
+    linesOfCode: 50,
+    totalLinesOfCode: 50,
+  };
+  delete after.unlockedFreelanceProjects;
+  const r = validateSave(
+    prev(before, T0),
+    body(after, { ...zeroActions(), clicks: 50 }),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+
+  // The derived latch honors what the save already earned: a player
+  // who shipped 50 To Do List Apps before the unlocks shipped gets
+  // the Hobby Website unlocked on load, not locked behind a goal
+  // they already cleared.
+  const veteran = initialSaveState();
+  veteran.freelanceProjectsCompleted.toDoListApp = 50;
+  delete veteran.unlockedFreelanceProjects;
+  const normalized = normalizeSaveState(veteran);
+  assert.deepEqual(normalized.unlockedFreelanceProjects, {
+    toDoListApp: true,
+    hobbyWebsite: true,
+    paradigmShiftingBlockchainProject: false,
+  });
 });
 
 function validEmailEntry(overrides = {}) {

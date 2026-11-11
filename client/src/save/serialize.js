@@ -7,7 +7,7 @@
  * `{ id: level }`). These are thin adapters — the numbers come from the
  * reducer, never invented here.
  *
- * The 11 game fields are saved, including the timed golden-star buffs
+ * The 12 game fields are saved, including the timed golden-star buffs
  * (activeStarEffects) and the in-game inbox (emails, issue #31). UI state (activeTab, selectedPanes,
  * clickHistory, currentCPS, uiState) is NOT saved and is reset to the
  * initial values on restore.
@@ -17,6 +17,7 @@ import {
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
+  freelanceProjectUnlockConditionsMet,
   initialSaveState,
 } from "../../../shared/game-balance.js";
 
@@ -51,7 +52,7 @@ function inflateLevels(flat) {
   }, {});
 }
 
-/** Client reducer state -> the flat 11-field save shape the server stores. */
+/** Client reducer state -> the flat 12-field save shape the server stores. */
 export function stateToSaveState(clientState) {
   return {
     linesOfCode: clientState.linesOfCode,
@@ -63,6 +64,7 @@ export function stateToSaveState(clientState) {
     openSourceProjects: flatLevels(clientState.openSourceProjects),
     unlockedEmployees: { ...clientState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...clientState.unlockedOpenSourceProjects },
+    unlockedFreelanceProjects: { ...clientState.unlockedFreelanceProjects },
     // Timed golden-star buffs. A shallow copy of the array (the entries
     // are plain data); expired entries are dropped by the game tick.
     activeStarEffects: [...(clientState.activeStarEffects ?? [])],
@@ -73,7 +75,7 @@ export function stateToSaveState(clientState) {
   };
 }
 
-/** Server flat save shape -> the 11 game fields in client reducer shape. */
+/** Server flat save shape -> the 12 game fields in client reducer shape. */
 export function saveStateToGameFields(saveState) {
   return {
     linesOfCode: saveState.linesOfCode,
@@ -85,6 +87,16 @@ export function saveStateToGameFields(saveState) {
     openSourceProjects: inflateLevels(saveState.openSourceProjects),
     unlockedEmployees: { ...saveState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...saveState.unlockedOpenSourceProjects },
+    // A save from before project unlocks shipped (issue #19) has no
+    // freelance latch — the load path returns the raw stored state,
+    // so derive it from the save's own shipped counts here, the same
+    // way the server's normalizeSaveState does on save.
+    unlockedFreelanceProjects: FREELANCE_PROJECT_KEYS.reduce((acc, key) => {
+      acc[key] =
+        saveState.unlockedFreelanceProjects?.[key] ??
+        freelanceProjectUnlockConditionsMet(key, saveState);
+      return acc;
+    }, {}),
     activeStarEffects: [...(saveState.activeStarEffects ?? [])],
     emails: [...(saveState.emails ?? [])].map((entry) => ({ ...entry })),
   };
@@ -166,6 +178,11 @@ export function isInitialSaveState(saveState) {
     if (
       saveState.freelanceProjectsCompleted[key] !==
       initial.freelanceProjectsCompleted[key]
+    )
+      return false;
+    if (
+      saveState.unlockedFreelanceProjects[key] !==
+      initial.unlockedFreelanceProjects[key]
     )
       return false;
   }

@@ -18,6 +18,10 @@ import {
   collectTriggerEmails,
 } from "../../client/src/email/email.js";
 import {
+  getUnlockProgressForFreelanceProject,
+  hasCrossedUnlockThreshold,
+} from "../../client/src/utils/unlockProgress.js";
+import {
   bigActionFields,
   bigActionIncreased,
   isInitialSaveState,
@@ -69,6 +73,11 @@ function gameState(overrides = {}) {
       overReactFramework: true,
       blocker: false,
       constellation: true,
+    },
+    unlockedFreelanceProjects: {
+      toDoListApp: true,
+      hobbyWebsite: false,
+      paradigmShiftingBlockchainProject: false,
     },
     activeStarEffects: [],
     emails: [],
@@ -243,6 +252,188 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
   const { emails } = collectTriggerEmails(visible, unlocked);
   assert.equal(emails.length, 3);
   assert.equal(emails[2].triggerKey, "opensource-unlocked:blocker");
+});
+
+test("freelance teaser fires once when the project becomes visible", () => {
+  // Hobby Website unlocks at 50 To Do List Apps; visibility is 10%
+  // progress (5 shipped).
+  const prev = gameState();
+  const next = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 5,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+  });
+  const { emails, newEmailId } = collectTriggerEmails(prev, next);
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].triggerKey, "freelance-visible:hobbyWebsite");
+  assert.equal(emails[0].sender, "Freelance Board");
+  assert.match(emails[0].subject, /Hobby Website/);
+  assert.match(emails[0].body, /50 To Do List Apps/);
+  assert.equal(newEmailId, emails[0].id);
+  // Same transition again: no second teaser (dedup by trigger key).
+  const again = collectTriggerEmails(prev, { ...next, emails });
+  assert.equal(again.emails.length, 1);
+  assert.equal(again.newEmailId, null);
+});
+
+test("freelance unlock email fires on the latch flip, not the teaser", () => {
+  // Teaser already sent at 5 shipped; now the latch flips at 50.
+  // The jump 5 -> 50 also crosses the Blockchain's 10% visibility
+  // threshold (20 total projects), so its teaser fires in the same
+  // transition — the never-both rule is per project.
+  const teaser = collectTriggerEmails(
+    gameState(),
+    gameState({
+      freelanceProjectsCompleted: {
+        toDoListApp: 5,
+        hobbyWebsite: 0,
+        paradigmShiftingBlockchainProject: 0,
+      },
+    })
+  ).emails;
+  const prev = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 5,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+    emails: teaser,
+  });
+  const next = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 50,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+    emails: teaser,
+    unlockedFreelanceProjects: {
+      toDoListApp: true,
+      hobbyWebsite: true,
+      paradigmShiftingBlockchainProject: false,
+    },
+  });
+  const { emails } = collectTriggerEmails(prev, next);
+  assert.deepEqual(
+    emails.map((entry) => entry.triggerKey),
+    [
+      "freelance-visible:hobbyWebsite",
+      "freelance-unlocked:hobbyWebsite",
+      "freelance-visible:paradigmShiftingBlockchainProject",
+    ]
+  );
+  assert.match(emails[1].subject, /available to ship/);
+});
+
+test("blockchain teaser fires on ANY condition at 10% (total projects)", () => {
+  // Blockchain unlocks at 200 total projects AND 50 Hobby Websites.
+  // Visibility is ANY condition at 10%: 20 total projects shipped is
+  // 10% of the total condition, so the Blockchain teaser fires even
+  // with 0 Hobby Websites — and the Hobby Website teaser fires too,
+  // since 20/50 is past its 10% threshold as well.
+  const prev = gameState();
+  const next = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 20,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+  });
+  const { emails } = collectTriggerEmails(prev, next);
+  assert.deepEqual(
+    emails.map((entry) => entry.triggerKey),
+    [
+      "freelance-visible:hobbyWebsite",
+      "freelance-visible:paradigmShiftingBlockchainProject",
+    ]
+  );
+  assert.match(emails[1].body, /200 projects in total/);
+});
+
+test("no freelance teaser when visibility and unlock coincide in one jump", () => {
+  // 0 -> 50 To Do List Apps in one transition: the Hobby Website
+  // unlocks outright, so it sends only the unlocked email — no teaser
+  // for that project. The Blockchain still sends its teaser, though:
+  // 50/200 total projects is past its 10% visibility threshold, and
+  // the never-both rule is per project, not global.
+  const prev = gameState();
+  const next = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 50,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+    unlockedFreelanceProjects: {
+      toDoListApp: true,
+      hobbyWebsite: true,
+      paradigmShiftingBlockchainProject: false,
+    },
+  });
+  const { emails } = collectTriggerEmails(prev, next);
+  assert.deepEqual(
+    emails.map((entry) => entry.triggerKey),
+    [
+      "freelance-unlocked:hobbyWebsite",
+      "freelance-visible:paradigmShiftingBlockchainProject",
+    ]
+  );
+});
+
+test("freelance unlock progress and the 10% visibility threshold", () => {
+  const state = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 4,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+  });
+  const progress = getUnlockProgressForFreelanceProject("hobbyWebsite", state);
+  assert.deepEqual(progress, [
+    {
+      type: "SPECIFIC_PROJECT_COUNT",
+      current: 4,
+      target: 50,
+      remaining: 46,
+      projectKey: "toDoListApp",
+      projectName: "To Do List App",
+    },
+  ]);
+  // 4/50 is below 10%: not visible yet.
+  assert.equal(
+    hasCrossedUnlockThreshold("freelanceProject", "hobbyWebsite", state),
+    false
+  );
+  // 5/50 is exactly 10%: visible.
+  const visible = gameState({
+    freelanceProjectsCompleted: {
+      toDoListApp: 5,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+  });
+  assert.equal(
+    hasCrossedUnlockThreshold("freelanceProject", "hobbyWebsite", visible),
+    true
+  );
+  // Blockchain progress has both conditions, in config order.
+  const blockchain = getUnlockProgressForFreelanceProject(
+    "paradigmShiftingBlockchainProject",
+    gameState({
+      freelanceProjectsCompleted: {
+        toDoListApp: 150,
+        hobbyWebsite: 49,
+        paradigmShiftingBlockchainProject: 0,
+      },
+    })
+  );
+  assert.deepEqual(
+    blockchain.map((entry) => [entry.type, entry.current, entry.target]),
+    [
+      ["TOTAL_PROJECTS_COUNT", 199, 200],
+      ["SPECIFIC_PROJECT_COUNT", 49, 50],
+    ]
+  );
 });
 
 test("star reward email fires once per claim, keyed by claimId", () => {

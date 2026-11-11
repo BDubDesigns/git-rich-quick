@@ -12,14 +12,15 @@
  * server-side unlock checks.
  *
  * Behavior is identical to the gameLogic versions: same progress shape
- * ({ type, current, target, remaining, employeeType?, employeeName? }),
- * same visibility rule (ANY condition at UNLOCK_VISIBILITY_THRESHOLD),
- * same defensive empty-progress-means-visible rule.
+ * ({ type, current, target, remaining, employeeType?, employeeName?,
+ * projectKey?, projectName? }), same visibility rule (ANY condition at
+ * UNLOCK_VISIBILITY_THRESHOLD), same defensive empty-progress-means-visible rule.
  */
 
 import {
   BALANCE,
   EMPLOYEE_DISPLAY_NAMES,
+  FREELANCE_PROJECT_DISPLAY_NAMES,
   UNLOCK_VISIBILITY_THRESHOLD,
 } from "../../../shared/game-balance.js";
 
@@ -79,6 +80,20 @@ export function getUnlockProgressForOpenSource(projectId, state) {
   return progressForConditions(config.unlockConditions, state);
 }
 
+/**
+ * Progress toward unlocking a freelance project. Same shape as
+ * getUnlockProgress; conditions come from BALANCE.freelanceProjects.
+ */
+export function getUnlockProgressForFreelanceProject(projectKey, state) {
+  const config = BALANCE.freelanceProjects[projectKey];
+
+  if (!config || !config.unlockConditions || config.unlockConditions.length === 0) {
+    return []; // No unlock conditions
+  }
+
+  return progressForConditions(config.unlockConditions, state);
+}
+
 /** Shared condition -> progress mapping for both unlock types. */
 function progressForConditions(unlockConditions, state) {
   return unlockConditions.map((condition) => {
@@ -101,6 +116,27 @@ function progressForConditions(unlockConditions, state) {
           current = 0;
         }
         break;
+      case "SPECIFIC_PROJECT_COUNT":
+        if (
+          condition.projectKey &&
+          state.freelanceProjectsCompleted &&
+          typeof state.freelanceProjectsCompleted[condition.projectKey] ===
+            "number"
+        ) {
+          current = state.freelanceProjectsCompleted[condition.projectKey];
+        } else {
+          console.warn(
+            `Invalid projectKey in unlock condition: ${condition.projectKey}`
+          );
+          current = 0;
+        }
+        break;
+      case "TOTAL_PROJECTS_COUNT":
+        current = Object.values(state.freelanceProjectsCompleted ?? {}).reduce(
+          (sum, count) => sum + count,
+          0
+        );
+        break;
       default:
         current = 0;
     }
@@ -116,6 +152,10 @@ function progressForConditions(unlockConditions, state) {
       ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
         employeeType: condition.employeeType,
         employeeName: EMPLOYEE_DISPLAY_NAMES[condition.employeeType],
+      }),
+      ...(condition.type === "SPECIFIC_PROJECT_COUNT" && {
+        projectKey: condition.projectKey,
+        projectName: FREELANCE_PROJECT_DISPLAY_NAMES[condition.projectKey],
       }),
     };
   });
@@ -134,6 +174,11 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
   // Handle openSource unlock type
   if (unlockType === "openSource") {
     const progress = getUnlockProgressForOpenSource(unlockUnit, state);
+    return checkProgressAgainstThreshold(progress, UNLOCK_VISIBILITY_THRESHOLD);
+  }
+  // Handle freelanceProject unlock type
+  if (unlockType === "freelanceProject") {
+    const progress = getUnlockProgressForFreelanceProject(unlockUnit, state);
     return checkProgressAgainstThreshold(progress, UNLOCK_VISIBILITY_THRESHOLD);
   }
 
