@@ -103,37 +103,37 @@ export function Email() {
 
   return (
     <SectionLayout sectionId="email">
-      {/* GITMail banner: the in-world mail brand, at the top of the
-          inbox list. Kept small and centered, with a completely
-          transparent container — no panel, no background, no border,
-          no rounded card — just the banner image on the page
-          background. The "Inbox" title and description above it keep
-          the tab reading as the game's inbox. */}
-      <div className="flex justify-center bg-transparent">
-        <img
-          src={gitmailBanner}
-          alt="GITMail"
-          className="h-12 w-auto max-w-full object-contain"
-        />
-      </div>
-      {emails.length === 0 && (
-        <p className="primary-text">
-          No mail yet. Hire someone, unlock something, or click a golden
-          star — the game world will write.
-        </p>
-      )}
-      {emails.length > 0 && (
-        <div className="panel flex flex-col gap-1">
+      {/* Inbox header bar: the GITMail logo and the Mark all as read
+          button share one title bar. The logo sits on the left at
+          button height (h-8) so it fits the bar without stretching
+          it taller; the button stays on the right and only shows
+          while mail is unread. The bar uses the same px-3 py-2
+          padding as the list rows so nothing is cramped against
+          the edges. */}
+      <div className="panel flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <img
+            src={gitmailBanner}
+            alt="GITMail"
+            className="h-8 w-auto max-w-full shrink-0 object-contain"
+          />
           {unreadEmailCount(state.emails) > 0 && (
-            <div className="flex justify-end px-1 pb-1">
-              <Button
-                onClick={() => dispatch({ type: "MARK_ALL_EMAILS_READ" })}
-              >
-                Mark all as read
-              </Button>
-            </div>
+            <Button
+              onClick={() => dispatch({ type: "MARK_ALL_EMAILS_READ" })}
+              className="shrink-0"
+            >
+              Mark all as read
+            </Button>
           )}
-          {emails.map((email) => (
+        </div>
+        {emails.length === 0 && (
+          <p className="primary-text px-3 pb-3">
+            No mail yet. Hire someone, unlock something, or click a golden
+            star — the game world will write.
+          </p>
+        )}
+        {emails.length > 0 &&
+          emails.map((email) => (
             <button
               key={email.id}
               type="button"
@@ -178,8 +178,7 @@ export function Email() {
               </span>
             </button>
           ))}
-        </div>
-      )}
+      </div>
     </SectionLayout>
   );
 }
