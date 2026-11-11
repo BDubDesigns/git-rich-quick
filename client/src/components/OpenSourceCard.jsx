@@ -6,6 +6,7 @@ import {
   starSpawnIntervalSeconds,
   unlockedStarEffects,
 } from "../../../shared/game-balance.js";
+import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 
 /**
  * Star info for a Constellation level: the spawn interval and the
@@ -71,95 +72,60 @@ export function OpenSourceCard({
       <div className="flex items-center gap-4">
         {/* Left: Content */}
         <div className="flex-1">
-          {/* JSDoc block with title, description, current bonus, next bonus, cost */}
-          <div className="flex-1">
-            {/* Row: Rewards and Cost */}
-            <div className="text-xs font-mono">
-              {/* Top: Project Name */}
-              <span className="comment-text">{`/** `}</span>
-              <br />
-              <span className="text-sm font-bold">
-                {project.name} v.{currentLevel}.0
-              </span>
-              <br />
-              <span>{project.description}</span>
-              <br />
-              <span className="text-blue-400">@param</span>
-              <span className="text-cyan-300"> {`{LOC}`}</span>
-              <span className="text-gray-400">
-                {" "}
-                {formatNumber(locCost)} LOC needed for v.{currentLevel + 1}.0
-              </span>
-              <br />
+          <JsDocBlock
+            title={`${project.name} v.${currentLevel}.0`}
+            description={project.description}
+          >
+            <JsDocLine
+              tag="@param"
+              type="LOC"
+              value={`${formatNumber(locCost)} LOC needed for v.${currentLevel + 1}.0`}
+            />
 
-              {/* current bonus, if any — for Constellation, the star info */}
-              {isConstellation ? (
-                <>
-                  <span className="text-blue-400"> @returns</span>
-                  <span className="text-cyan-300"> {`{STAR}`}</span>
-                  <span className="text-green-400">
-                    {" "}
-                    {currentLevel > 0
-                      ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
-                      : "No stars yet — chart the first one"}
-                  </span>
-                  <br />
-                </>
+            {/* current bonus, if any — for Constellation, the star info */}
+            {isConstellation ? (
+              <JsDocLine
+                tag="@returns"
+                type="STAR"
+                value={
+                  currentLevel > 0
+                    ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
+                    : "No stars yet — chart the first one"
+                }
+                valueClassName="text-green-400"
+              />
+            ) : (
+              currentBonus && (
+                <JsDocLine
+                  tag="@returns"
+                  type={currentBonus.type}
+                  value={`Earning ${formatNumber(currentBonus.value)} boost to ${currentBonus.type} now`}
+                  valueClassName="text-green-400"
+                />
+              )
+            )}
+
+            {/* next bonus or maxed out */}
+            {!isMaxed ? (
+              isConstellation ? (
+                <JsDocLine
+                  tag="@returns"
+                  type="Bonus"
+                  value={`${starNext.newEffectName ? `Unlocks ${starNext.newEffectName}` : ""}${starNext.newEffectName && starNext.fasterSpawns ? " · " : ""}${starNext.fasterSpawns ? `Stars spawn faster (${starNext.nextInterval.min}–${starNext.nextInterval.max}s)` : ""}`}
+                  valueClassName="text-green-400"
+                />
               ) : (
-                currentBonus && (
-                  <>
-                    <span className="text-blue-400"> @returns</span>
-                    <span className="text-cyan-300">
-                      {" "}
-                      {`{` + currentBonus.type + `}`}
-                    </span>
-                    <span className="text-green-400">
-                      {" "}
-                      Earning {formatNumber(currentBonus.value)} boost to{" "}
-                      {currentBonus.type} now
-                    </span>
-                    <br />
-                  </>
-                )
-              )}
-
-              {/* next bonus or maxed out */}
-              {!isMaxed ? (
-                isConstellation ? (
-                  <div>
-                    <span className="text-blue-400">@returns</span>
-                    <span className="text-cyan-300">{`{Bonus}`}</span>
-                    <span className="text-green-400">
-                      {" "}
-                      {starNext.newEffectName
-                        ? `Unlocks ${starNext.newEffectName}`
-                        : ""}
-                      {starNext.newEffectName && starNext.fasterSpawns
-                        ? " · "
-                        : ""}
-                      {starNext.fasterSpawns
-                        ? `Stars spawn faster (${starNext.nextInterval.min}–${starNext.nextInterval.max}s)`
-                        : ""}
-                    </span>
-                  </div>
-                ) : (
-                  <div>
-                    <span className="text-blue-400">@returns</span>
-                    <span className="text-cyan-300">{`{Bonus}`}</span>
-                    <span className="text-green-400">
-                      {" "}
-                      +{formatNumber(nextBonus.value)} {nextBonus.type}
-                    </span>
-                  </div>
-                )
-              ) : (
-                <div className="comment-text">// MAXED OUT</div>
-              )}
-
-              {/* ending comment tag */}
-              <span className="comment-text">{`*/`}</span>
-            </div>
-          </div>
+                <JsDocLine
+                  tag="@returns"
+                  type="Bonus"
+                  value={`+${formatNumber(nextBonus.value)} ${nextBonus.type}`}
+                  valueClassName="text-green-400"
+                />
+              )
+            ) : (
+              <div className="comment-text">// MAXED OUT</div>
+            )}
+          </JsDocBlock>
         </div>
 
         {/* Right: Icon + Level, Contribute Button */}

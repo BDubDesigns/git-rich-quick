@@ -16,41 +16,36 @@ import {
   formatMoney,
   formatNumber,
 } from "../../../shared/formatNumber.js";
-import { ProgressBar } from "./ProgressBar.jsx";
-import { formatCondition } from "../utils/formatCondition.js";
 import { Button } from "./Button.jsx";
+import {
+  JsDocBlock,
+  JsDocLine,
+  JsDocUnlockRequirements,
+} from "./JsDocBlock.jsx";
 
 export function LockedEmployeeCard({ config, progress }) {
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
-      {/* Top: Employee Name */}
-      <div>
-        <span className="text-sm font-bold">{config.name}</span>{" "}
-        <span className="text-xs comment-text">
-          {`// `}
-          {formatNumber(config.locPerSecond)} LOC per Sec
-        </span>
-      </div>
-
-      {/* Row: Icon + Name + Count, Description, Button */}
       <div className="flex items-center gap-4">
-        {/* Left: Icon + Name + Count */}
-        {/* <div className="flex flex-col items-start gap-1 shrink-0">
-          <config.Icon size={36} color="grey" />
-        </div> */}
-        {/* Unlock conditions section */}
-        <div className="flex-1 space-y-2">
-          <p className="text-xs font-semibold">Unlock requirements:</p>
-          {progress.map((prog, idx) => {
-            return (
-              <ProgressBar
-                key={idx}
-                current={prog.current}
-                target={prog.target}
-                label={formatCondition(prog)}
-              />
-            );
-          })}
+        {/* Left: JSDoc block — name, description, cost multiplier, LOC/s,
+            then the unlock requirements. The description is new here (the
+            old locked card did not show it); the other locked cards show
+            theirs, so this one does too. */}
+        <div className="flex-1">
+          <JsDocBlock title={config.name} description={config.description}>
+            <JsDocLine
+              tag="@param"
+              type="Cost"
+              value={`x${formatNumber(config.costMultiplier)} per hire`}
+            />
+            <JsDocLine
+              tag="@returns"
+              type="LOC"
+              value={`${formatNumber(config.locPerSecond)} LOC per Sec`}
+              valueClassName="text-green-400"
+            />
+            <JsDocUnlockRequirements progress={progress} />
+          </JsDocBlock>
         </div>
 
         {/* Right: Button with Price — always disabled; the shared
