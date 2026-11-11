@@ -413,8 +413,15 @@ export const STAR_CONFIG = Object.freeze({
     good: Object.freeze({ min: 0.01, max: 0.75 }),
     bad: Object.freeze({ min: 0.01, max: 0.05 }),
   }),
-  /** Frenzy: all production (LOC/sec) x7 for 60s; bad = x0.5 for 30s. */
-  frenzyMultiplier: Object.freeze({ good: 7, bad: 0.5 }),
+  /** Frenzy: all production (LOC/sec) x2-5 for 60s; bad = x0.5 for 30s.
+   * The range is deliberately LOWER than Employee's 3-15x: Frenzy
+   * buffs everything, so its multiplier is smaller than the
+   * single-type buff (Brandon, Nov 10). Rolled as an integer, like
+   * the Click multiplier, so the display reads a clean "4x". */
+  frenzyMultiplier: Object.freeze({
+    good: Object.freeze({ min: 2, max: 5 }),
+    bad: 0.5,
+  }),
   frenzyDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
   /** Click: click value x2-5 for 20s; bad = x0.5 for 10s. */
   clickMultiplier: Object.freeze({
@@ -422,8 +429,17 @@ export const STAR_CONFIG = Object.freeze({
     bad: 0.5,
   }),
   clickDurationSeconds: Object.freeze({ good: 20, bad: 10 }),
-  /** Employee: one random employee type produces 2x for 60s; bad = 0.5x for 30s. */
-  employeeMultiplier: Object.freeze({ good: 2, bad: 0.5 }),
+  /** Employee: one random employee type produces 3x-15x for 60s;
+   * bad = 0.5x for 30s. The range is deliberately HIGHER than
+   * Frenzy's 2-5x: it buffs a single type, so its multiplier is
+   * bigger than the buff-everything one (Brandon, Nov 10). The type
+   * stays random — never the highest-producing one. Rolled as an
+   * integer, like the Click multiplier, so the display reads a clean
+   * "12x". */
+  employeeMultiplier: Object.freeze({
+    good: Object.freeze({ min: 3, max: 15 }),
+    bad: 0.5,
+  }),
   employeeDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
   /** Shooting Stars: one click grants a burst worth this many Lucky rolls. */
   shootingStarsCount: 5,
@@ -565,9 +581,20 @@ export function resolveStarClaim({
     }
     case "frenzy": {
       const key = good ? "good" : "bad";
+      // Good Frenzy multiplier is an integer 2-5 (the config range);
+      // bad is a fixed 0.5x.
+      const multiplier = good
+        ? Math.floor(
+            STAR_CONFIG.frenzyMultiplier.good.min +
+              rng() *
+                (STAR_CONFIG.frenzyMultiplier.good.max -
+                  STAR_CONFIG.frenzyMultiplier.good.min +
+                  1)
+          )
+        : STAR_CONFIG.frenzyMultiplier.bad;
       return {
         ...base,
-        multiplier: STAR_CONFIG.frenzyMultiplier[key],
+        multiplier,
         durationSeconds: STAR_CONFIG.frenzyDurationSeconds[key],
       };
     }
@@ -592,15 +619,27 @@ export function resolveStarClaim({
     case "employee": {
       const key = good ? "good" : "bad";
       // Boost a type the player actually owns, so the buff is never a
-      // dud; if they own no employees yet, any type is a no-op.
+      // dud; if they own no employees yet, any type is a no-op. The
+      // type stays random (Brandon, Nov 10) — never the
+      // highest-producing one. Good multiplier is an integer 3-15
+      // (the config range); bad is a fixed 0.5x.
       const owned = EMPLOYEE_TYPES.filter(
         (type) => (employeeCounts[type] ?? 0) > 0
       );
       const pool = owned.length > 0 ? owned : EMPLOYEE_TYPES;
       const employeeType = pool[Math.floor(rng() * pool.length)];
+      const multiplier = good
+        ? Math.floor(
+            STAR_CONFIG.employeeMultiplier.good.min +
+              rng() *
+                (STAR_CONFIG.employeeMultiplier.good.max -
+                  STAR_CONFIG.employeeMultiplier.good.min +
+                  1)
+          )
+        : STAR_CONFIG.employeeMultiplier.bad;
       return {
         ...base,
-        multiplier: STAR_CONFIG.employeeMultiplier[key],
+        multiplier,
         durationSeconds: STAR_CONFIG.employeeDurationSeconds[key],
         employeeType,
       };

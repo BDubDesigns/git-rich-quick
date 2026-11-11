@@ -372,9 +372,11 @@ export function validateSeedState(state) {
 
 /**
  * A timed buff is only valid with the multiplier/duration its effect and
- * good/bad roll produce. Frenzy good is x7/60s, bad x0.5/30s; Click
- * good is an integer x2-5/20s, bad x0.5/10s; Employee good is x2/60s,
- * bad x0.5/30s. Any other multiplier is a tampered claim.
+ * good/bad roll produce. Frenzy good is an integer x2-5/60s, bad x0.5/30s;
+ * Click good is an integer x2-5/20s, bad x0.5/10s; Employee good is an
+ * integer x3-15/60s, bad x0.5/30s. Any other multiplier is a tampered claim.
+ * (Frenzy's range is lower than Employee's because it buffs everything;
+ * Employee's is higher because it buffs a single type — Brandon, Nov 10.)
  */
 function starBuffMultiplierValid(effect, multiplier) {
   if (typeof multiplier !== "number" || !Number.isFinite(multiplier)) {
@@ -382,14 +384,20 @@ function starBuffMultiplierValid(effect, multiplier) {
   }
   switch (effect) {
     case "frenzy":
-      return multiplier === 7 || multiplier === 0.5;
+      return (
+        multiplier === 0.5 ||
+        (Number.isInteger(multiplier) && multiplier >= 2 && multiplier <= 5)
+      );
     case "click":
       return (
         multiplier === 0.5 ||
         (Number.isInteger(multiplier) && multiplier >= 2 && multiplier <= 5)
       );
     case "employee":
-      return multiplier === 2 || multiplier === 0.5;
+      return (
+        multiplier === 0.5 ||
+        (Number.isInteger(multiplier) && multiplier >= 3 && multiplier <= 15)
+      );
     default:
       return false;
   }

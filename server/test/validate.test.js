@@ -848,8 +848,8 @@ test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", (
 });
 
 test("legit star play: frenzy buff boosts passive for its duration", () => {
-  // 10 interns (10 LOC/s), Constellation L3, 50s window. A Frenzy x7
-  // for 60s claimed at the window start: 10 * 7 * 50 = 3500 LOC.
+  // 10 interns (10 LOC/s), Constellation L3, 50s window. A Frenzy x4
+  // for 60s claimed at the window start: 10 * 4 * 50 = 2000 LOC.
   // The buff is still active at the save (expires T0+60s).
   const before = constellationState(3, {
     linesOfCode: 0,
@@ -857,13 +857,13 @@ test("legit star play: frenzy buff boosts passive for its duration", () => {
     employees: { intern: 10 },
   });
   const after = constellationState(3, {
-    linesOfCode: 3500,
-    totalLinesOfCode: 3500,
+    linesOfCode: 2000,
+    totalLinesOfCode: 2000,
     employees: { intern: 10 },
     activeStarEffects: [
       {
         effect: "frenzy",
-        multiplier: 7,
+        multiplier: 4,
         expiresAtMs: T0 + 60_000,
         employeeType: null,
       },
@@ -872,7 +872,7 @@ test("legit star play: frenzy buff boosts passive for its duration", () => {
   const claim = starClaim({
     effect: "frenzy",
     good: true,
-    multiplier: 7,
+    multiplier: 4,
     durationSeconds: 60,
   });
   const r = validateSave(
@@ -926,10 +926,10 @@ test("legit star play: frenzy and employee buffs multiply (interaction)", () => 
   // Regression: Frenzy and Employee buffs MULTIPLY on the client
   // ((base + employee extra) x frenzy), so the server must credit
   // their interaction, not just add them independently. 10 interns +
-  // 1 junior (15 LOC/s base), Constellation L4, 50s window. Frenzy x7
-  // and a junior Sprint (2x) both live the whole window:
-  // (15 + 5) * 7 * 50 = 7000 LOC. Without the interaction term the
-  // server would allow only 5500 and false-reject.
+  // 1 junior (15 LOC/s base), Constellation L4, 50s window. Frenzy x4
+  // and a junior Sprint (5x) both live the whole window:
+  // (15 + 20) * 4 * 50 = 7000 LOC. Without the interaction term the
+  // server would allow only 4000 and false-reject.
   const before = constellationState(4, {
     linesOfCode: 1000,
     totalLinesOfCode: 1000,
@@ -944,13 +944,13 @@ test("legit star play: frenzy and employee buffs multiply (interaction)", () => 
     activeStarEffects: [
       {
         effect: "frenzy",
-        multiplier: 7,
+        multiplier: 4,
         expiresAtMs: T0 + 60_000,
         employeeType: null,
       },
       {
         effect: "employee",
-        multiplier: 2,
+        multiplier: 5,
         expiresAtMs: T0 + 60_000,
         employeeType: "junior",
       },
@@ -959,13 +959,13 @@ test("legit star play: frenzy and employee buffs multiply (interaction)", () => 
   const frenzyClaim = starClaim({
     effect: "frenzy",
     good: true,
-    multiplier: 7,
+    multiplier: 4,
     durationSeconds: 60,
   });
   const employeeClaim = starClaim({
     effect: "employee",
     good: true,
-    multiplier: 2,
+    multiplier: 5,
     durationSeconds: 60,
     employeeType: "junior",
   });
@@ -1187,7 +1187,7 @@ test("star claims for locked effects, at level 0, or beyond the issued outcomes 
       starClaims: [
         starClaim({
           effect: "frenzy",
-          multiplier: 7,
+          multiplier: 4,
           durationSeconds: 60,
         }),
       ],
@@ -1260,12 +1260,12 @@ test("a tampered star claim (same claimId, different content) is rejected", () =
       issued: starClaim({ locDelta: 10 }),
       tamper: (c) => ({ ...c, moneyDelta: 100 }),
     },
-    // Frenzy is x7 good / x0.5 bad — the issued claim was x7, the
+    // Frenzy good is an integer x2-5 — the issued claim was x4, the
     // saved claim says x3.
     {
       issued: starClaim({
         effect: "frenzy",
-        multiplier: 7,
+        multiplier: 4,
         durationSeconds: 60,
       }),
       tamper: (c) => ({ ...c, multiplier: 3 }),

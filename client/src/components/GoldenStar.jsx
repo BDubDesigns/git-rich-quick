@@ -64,9 +64,10 @@ function formatCountdown(seconds) {
  * (remaining / total duration). The total is derived from the config
  * — the stored buff only carries expiresAtMs, not its duration — and
  * good is a multiplier above 1x (the config only ever issues good
- * 2-7x, bad 0.5x). The multiplier comes from the live buff data (the
- * same value the email reports), never hardcoded per effect. Green
- * fill for a buff, red for a debuff.
+ * 2-15x — Frenzy 2-5x, Click 2-5x, Employee 3-15x — bad 0.5x). The
+ * multiplier comes from the live buff data (the same value the email
+ * reports), never hardcoded per effect. Green fill for a buff, red
+ * for a debuff.
  */
 function StarEffectBar({ buff, nowMs }) {
   const good = buff.multiplier > 1;
