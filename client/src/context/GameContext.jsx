@@ -101,6 +101,12 @@ const initialState = {
     {}
   ),
 
+  // Timed golden-star buffs (issue #33). Each entry is
+  // { effect, multiplier, expiresAtMs, employeeType }. Saved with the
+  // game state, so a buff live at save time is still live on load.
+  // Expired entries are dropped by the GAME_TICK.
+  activeStarEffects: [],
+
   uiState: {
     sections: {
       shop: { isDescriptionVisible: true },
@@ -239,6 +245,12 @@ function gameReducer(state, action) {
       const cleanedHistory = state.clickHistory.filter(
         (ts) => ts > Date.now() - 10000
       );
+      // Drop golden-star buffs that have expired (their expiry is also
+      // checked by activeStarBuff, so a buff never applies past its end).
+      const now = Date.now();
+      const activeStarEffects = (state.activeStarEffects ?? []).filter(
+        (buff) => buff.expiresAtMs > now
+      );
 
       // Build newState with all changes from this action
       const newState = {
@@ -247,6 +259,7 @@ function gameReducer(state, action) {
         totalLinesOfCode: state.totalLinesOfCode + totalPassiveLOC,
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
+        activeStarEffects,
       };
 
       // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)
@@ -297,6 +310,58 @@ function gameReducer(state, action) {
             level: projectState.level + 1,
           },
         },
+      };
+    }
+
+    // Apply a golden-star claim (issue #33). The payload is the claim
+    // `resolveStarClaim` returns in shared/game-balance.js: instant
+    // LOC/money deltas for Lucky / Shooting Stars, or a timed buff for
+    // Frenzy / Click / Employee. The caller also records the claim with
+    // the save engine (recordStarClaim) in the same handler, so the
+    // claim and the state change can never disagree.
+    // A Lucky loss lowers linesOfCode but not totalLinesOfCode (the
+    // cumulative total never decreases). A timed buff replaces any live
+    // buff of the same (effect, employeeType) — buffs never stack.
+    case "APPLY_STAR_REWARD": {
+      const { claim } = action.payload;
+      if (!claim) return state;
+      const newLinesOfCode = Math.max(0, state.linesOfCode + claim.locDelta);
+      const newTotalLinesOfCode =
+        claim.locDelta > 0
+          ? state.totalLinesOfCode + claim.locDelta
+          : state.totalLinesOfCode;
+      const newMoney = Math.max(0, state.money + claim.moneyDelta);
+      let activeStarEffects = state.activeStarEffects ?? [];
+      if (claim.multiplier !== null && claim.durationSeconds) {
+        const buff = {
+          effect: claim.effect,
+          multiplier: claim.multiplier,
+          expiresAtMs: Date.now() + claim.durationSeconds * 1000,
+          employeeType: claim.employeeType,
+        };
+        activeStarEffects = [
+          ...activeStarEffects.filter(
+            (entry) =>
+              !(
+                entry.effect === buff.effect &&
+                entry.employeeType === buff.employeeType
+              )
+          ),
+          buff,
+        ];
+      }
+      const newState = {
+        ...state,
+        linesOfCode: newLinesOfCode,
+        totalLinesOfCode: newTotalLinesOfCode,
+        money: newMoney,
+        activeStarEffects,
+      };
+      // A star reward can push total LOC past an unlock threshold.
+      return {
+        ...newState,
+        unlockedEmployees: updateUnlockLatch(newState),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
     }
 
@@ -541,6 +606,14 @@ export function GameProvider({ children }) {
     saveSyncRef.current.requestSave("manual");
   }, []);
 
+  // Record one golden-star claim with the save engine (issue #33). The
+  // star UI calls this in the same handler that dispatches
+  // APPLY_STAR_REWARD, with the exact claim applied, so the claim and
+  // the state change can never disagree.
+  const recordStarClaim = useCallback((claim) => {
+    saveSyncRef.current.recordStarClaim(claim);
+  }, []);
+
   // Wrap dispatch so clicks are counted exactly. WRITE_CODE always applies
   // (it unconditionally adds LOC), so counting it here is exact; hires,
   // projects, and open-source levels are derived from state deltas by the
@@ -584,6 +657,7 @@ export function GameProvider({ children }) {
         lastSavedAt,
         retryInSeconds,
         saveNow,
+        recordStarClaim,
       }}
     >
       {children}

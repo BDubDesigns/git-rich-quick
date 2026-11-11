@@ -10,6 +10,7 @@ import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
 import { Settings } from "./components/Settings";
 import { GameLayout } from "./components/GameLayout";
+import { GoldenStar } from "./components/GoldenStar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 
 function App() {
@@ -50,6 +51,9 @@ function App() {
 
   return (
     <GameLayout>
+      {/* Golden star (GitNub Constellation): fixed-positioned, spawns on
+          its own timer when the player has a Constellation level. */}
+      <GoldenStar />
       {isDesktop ? (
         // Desktop: 3-pane grid layout
         <div className="grid grid-cols-3 gap-4 h-full">

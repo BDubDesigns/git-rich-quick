@@ -1,6 +1,43 @@
 import { ActionButton } from "./ActionButton.jsx";
+import {
+  STAR_CONFIG,
+  starSpawnIntervalSeconds,
+  unlockedStarEffects,
+} from "../../../shared/game-balance.js";
+
+/**
+ * Star info for a Constellation level: the spawn interval and the
+ * unlocked effects (by their good-outcome pun names). Constellation has
+ * no numeric bonus — its bonus IS the stars — so the card shows this
+ * instead of "+0 STAR".
+ */
+function constellationInfo(level) {
+  const interval = starSpawnIntervalSeconds(level);
+  const effectNames = unlockedStarEffects(level).map(
+    (id) => STAR_CONFIG.effects[id].names.good
+  );
+  return { interval, effectNames };
+}
+
+/** What the next Constellation level adds: a new effect and/or faster spawns. */
+function constellationNextInfo(level) {
+  const nextLevel = level + 1;
+  const nextInterval = starSpawnIntervalSeconds(nextLevel);
+  const currentInterval = starSpawnIntervalSeconds(level);
+  const newEffect = Object.keys(STAR_CONFIG.effects).find(
+    (id) => STAR_CONFIG.effects[id].unlockLevel === nextLevel
+  );
+  const newEffectName = newEffect
+    ? STAR_CONFIG.effects[newEffect].names.good
+    : null;
+  const fasterSpawns =
+    nextInterval &&
+    (!currentInterval || nextInterval.min < currentInterval.min);
+  return { nextInterval, newEffectName, fasterSpawns };
+}
 
 export function OpenSourceCard({
+  projectId,
   project,
   currentLevel,
   currentBonus,
@@ -10,6 +47,22 @@ export function OpenSourceCard({
   canContribute,
   onContribute,
 }) {
+  const isConstellation = projectId === "constellation";
+  const starInfo = isConstellation ? constellationInfo(currentLevel) : null;
+  const starNext =
+    isConstellation && !isMaxed ? constellationNextInfo(currentLevel) : null;
+  // The floating text on Contribute: for Constellation it names the
+  // unlock, not a numeric bonus (there is none).
+  const floatText = isMaxed
+    ? ""
+    : isConstellation
+      ? starNext.newEffectName
+        ? `${starNext.newEffectName}!`
+        : starNext.fasterSpawns
+          ? "Faster stars!"
+          : ""
+      : `+${nextBonus.value} ${nextBonus.type}`;
+
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Two-column layout */}
@@ -37,33 +90,66 @@ export function OpenSourceCard({
               </span>
               <br />
 
-              {/* current bonus, if any */}
-              {currentBonus && (
+              {/* current bonus, if any — for Constellation, the star info */}
+              {isConstellation ? (
                 <>
                   <span className="text-blue-400"> @returns</span>
-                  <span className="text-cyan-300">
-                    {" "}
-                    {`{` + currentBonus.type + `}`}
-                  </span>
+                  <span className="text-cyan-300"> {`{STAR}`}</span>
                   <span className="text-green-400">
                     {" "}
-                    Earning {currentBonus.value} boost to {currentBonus.type}{" "}
-                    now
+                    {currentLevel > 0
+                      ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
+                      : "No stars yet — chart the first one"}
                   </span>
                   <br />
                 </>
+              ) : (
+                currentBonus && (
+                  <>
+                    <span className="text-blue-400"> @returns</span>
+                    <span className="text-cyan-300">
+                      {" "}
+                      {`{` + currentBonus.type + `}`}
+                    </span>
+                    <span className="text-green-400">
+                      {" "}
+                      Earning {currentBonus.value} boost to {currentBonus.type}{" "}
+                      now
+                    </span>
+                    <br />
+                  </>
+                )
               )}
 
               {/* next bonus or maxed out */}
               {!isMaxed ? (
-                <div>
-                  <span className="text-blue-400">@returns</span>
-                  <span className="text-cyan-300">{`{Bonus}`}</span>
-                  <span className="text-green-400">
-                    {" "}
-                    +{nextBonus.value} {nextBonus.type}
-                  </span>
-                </div>
+                isConstellation ? (
+                  <div>
+                    <span className="text-blue-400">@returns</span>
+                    <span className="text-cyan-300">{`{Bonus}`}</span>
+                    <span className="text-green-400">
+                      {" "}
+                      {starNext.newEffectName
+                        ? `Unlocks ${starNext.newEffectName}`
+                        : ""}
+                      {starNext.newEffectName && starNext.fasterSpawns
+                        ? " · "
+                        : ""}
+                      {starNext.fasterSpawns
+                        ? `Stars spawn faster (${starNext.nextInterval.min}–${starNext.nextInterval.max}s)`
+                        : ""}
+                    </span>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-blue-400">@returns</span>
+                    <span className="text-cyan-300">{`{Bonus}`}</span>
+                    <span className="text-green-400">
+                      {" "}
+                      +{nextBonus.value} {nextBonus.type}
+                    </span>
+                  </div>
+                )
               ) : (
                 <div className="comment-text">// MAXED OUT</div>
               )}
@@ -84,7 +170,7 @@ export function OpenSourceCard({
           <ActionButton
             onClick={onContribute}
             disabled={!canContribute || isMaxed}
-            floatText={!isMaxed ? `+${nextBonus.value} ${nextBonus.type}` : ""}
+            floatText={floatText}
             icon={<project.icon size={20} />}
             fullWidth={false}
           >

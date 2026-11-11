@@ -20,6 +20,7 @@ import {
   initialSaveState,
   locPerClick,
   locPerSecond,
+  openSourceLevelCosts,
 } from "../../shared/game-balance.js";
 
 const T0 = 1_700_000_000_000;
@@ -33,12 +34,16 @@ function zeroCounts() {
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
     },
-    openSourceLevelsBought: { overReactFramework: 0, blocker: 0 },
+    openSourceLevelsBought: {
+      overReactFramework: 0,
+      blocker: 0,
+      constellation: 0,
+    },
   };
 }
 
 function zeroActions() {
-  return { clicks: 0, ...zeroCounts() };
+  return { clicks: 0, ...zeroCounts(), starClaims: [] };
 }
 
 function prev(state, savedAtMs) {
@@ -85,7 +90,30 @@ test("shared math matches the client formulas", () => {
   assert.deepEqual(fresh.unlockedOpenSourceProjects, {
     overReactFramework: true,
     blocker: false,
+    constellation: true,
   });
+  // Levels 4-5 (issue #33 slice): OverReact keeps doubling the click
+  // bonus (8, 16), Blocker keeps adding 0.5 passive (2, 2.5).
+  assert.equal(locPerClick({ overReactFramework: 5, blocker: 0 }), 32);
+  assert.equal(
+    locPerSecond(
+      { intern: 3, junior: 1, senior: 0 },
+      { overReactFramework: 0, blocker: 5 }
+    ),
+    68
+  );
+  assert.equal(
+    openSourceLevelCosts("overReactFramework", 0, 5),
+    100 + 500 + 3000 + 15000 + 75000
+  );
+  assert.equal(
+    openSourceLevelCosts("blocker", 0, 5),
+    2000 + 10000 + 75000 + 300000 + 1500000
+  );
+  assert.equal(
+    openSourceLevelCosts("constellation", 0, 5),
+    1000 + 5000 + 20000 + 75000 + 250000
+  );
 });
 
 test("legit play: clicks, then a project, then a hire, then passive", () => {
@@ -242,7 +270,7 @@ test("claimed unlock without meeting the conditions is rejected", () => {
   assert.equal(r.rule, "UNLOCK");
 });
 
-test("shape violations: NoPilot, level 4, unknown keys, bad types", () => {
+test("shape violations: NoPilot, level 6, unknown keys, bad types", () => {
   const before = stateWith({
     linesOfCode: 60,
     totalLinesOfCode: 110,
@@ -265,7 +293,7 @@ test("shape violations: NoPilot, level 4, unknown keys, bad types", () => {
       money: 500,
       employees: { intern: 1 },
       freelanceProjectsCompleted: { toDoListApp: 1 },
-      openSourceProjects: { overReactFramework: 4 },
+      openSourceProjects: { overReactFramework: 6 },
     }),
     stateWith({
       linesOfCode: 60,
@@ -400,7 +428,12 @@ test("buying an OverReact level mid-window does not false-reject", () => {
     body(after, {
       clicks: 100,
       ...zeroCounts(),
-      openSourceLevelsBought: { overReactFramework: 1, blocker: 0 },
+      openSourceLevelsBought: {
+        overReactFramework: 1,
+        blocker: 0,
+        constellation: 0,
+      },
+      starClaims: [],
     }),
     T0 + 60_000
   );
@@ -509,5 +542,490 @@ test("heavy shipping that drains LOC does not false-reject (tick quantization)",
     }),
     T0 + 49_900
   );
+  assert.deepEqual(r, { ok: true });
+});
+
+/** A star claim with the fields the client sends; overrides win. */
+function starClaim(overrides) {
+  return {
+    effect: "lucky",
+    good: true,
+    locDelta: 0,
+    moneyDelta: 0,
+    multiplier: null,
+    durationSeconds: null,
+    employeeType: null,
+    ...overrides,
+  };
+}
+
+/** A state with a Constellation level (and optional employees). */
+function constellationState(level, overrides = {}) {
+  return stateWith({
+    openSourceProjects: { constellation: level },
+    ...overrides,
+  });
+}
+
+test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", () => {
+  // (a) Lucky good, LOC: 1 intern (1 LOC/s), 60s, +35 LOC (20-50x rate).
+  const beforeA = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const afterA = constellationState(1, {
+    linesOfCode: 95, // 60 passive + 35 lucky
+    totalLinesOfCode: 95,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  assert.deepEqual(
+    validateSave(
+      prev(beforeA, T0),
+      body(afterA, {
+        ...zeroActions(),
+        starClaims: [starClaim({ locDelta: 35 })],
+      }),
+      T0 + 60_000
+    ),
+    { ok: true }
+  );
+
+  // (b) Lucky good, money: 100000c on hand, +5000c (5%, within 1-10%).
+  const beforeB = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 100000,
+    employees: { intern: 1 },
+  });
+  const afterB = constellationState(1, {
+    linesOfCode: 60,
+    totalLinesOfCode: 60,
+    money: 105000,
+    employees: { intern: 1 },
+  });
+  assert.deepEqual(
+    validateSave(
+      prev(beforeB, T0),
+      body(afterB, {
+        ...zeroActions(),
+        starClaims: [starClaim({ moneyDelta: 5000 })],
+      }),
+      T0 + 60_000
+    ),
+    { ok: true }
+  );
+
+  // (c) Lucky bad, LOC loss: 500 LOC on hand, -15 LOC (10-25x rate).
+  // The loss lowers linesOfCode but not totalLinesOfCode (cumulative).
+  const beforeC = constellationState(1, {
+    linesOfCode: 500,
+    totalLinesOfCode: 500,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const afterC = constellationState(1, {
+    linesOfCode: 545, // 500 + 60 passive - 15 loss
+    totalLinesOfCode: 560, // 500 + 60 passive
+    money: 0,
+    employees: { intern: 1 },
+  });
+  assert.deepEqual(
+    validateSave(
+      prev(beforeC, T0),
+      body(afterC, {
+        ...zeroActions(),
+        starClaims: [starClaim({ good: false, locDelta: -15 })],
+      }),
+      T0 + 60_000
+    ),
+    { ok: true }
+  );
+});
+
+test("legit star play: frenzy buff boosts passive for its duration", () => {
+  // 10 interns (10 LOC/s), Constellation L3, 50s window. A Frenzy x7
+  // for 60s claimed at the window start: 10 * 7 * 50 = 3500 LOC.
+  // The buff is still active at the save (expires T0+60s).
+  const before = constellationState(3, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    employees: { intern: 10 },
+  });
+  const after = constellationState(3, {
+    linesOfCode: 3500,
+    totalLinesOfCode: 3500,
+    employees: { intern: 10 },
+    activeStarEffects: [
+      {
+        effect: "frenzy",
+        multiplier: 7,
+        expiresAtMs: T0 + 60_000,
+        employeeType: null,
+      },
+    ],
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      starClaims: [
+        starClaim({
+          effect: "frenzy",
+          good: true,
+          multiplier: 7,
+          durationSeconds: 60,
+        }),
+      ],
+    }),
+    T0 + 50_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("legit star play: click buff boosts clicks made while it is live", () => {
+  // OverReact L1 (2 LOC/click), Constellation L2, 60s window. A Click
+  // x3 for 20s, 40 clicks (all inside the buff): 40 * 2 * 3 = 240 LOC.
+  // The buff expired before the save, so activeStarEffects is empty —
+  // the claim alone carries the allowance.
+  const before = constellationState(2, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    openSourceProjects: { overReactFramework: 1, constellation: 2 },
+  });
+  const after = constellationState(2, {
+    linesOfCode: 240,
+    totalLinesOfCode: 240,
+    openSourceProjects: { overReactFramework: 1, constellation: 2 },
+    activeStarEffects: [],
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      clicks: 40,
+      starClaims: [
+        starClaim({
+          effect: "click",
+          good: true,
+          multiplier: 3,
+          durationSeconds: 20,
+        }),
+      ],
+    }),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("legit star play: frenzy and employee buffs multiply (interaction)", () => {
+  // Regression: Frenzy and Employee buffs MULTIPLY on the client
+  // ((base + employee extra) x frenzy), so the server must credit
+  // their interaction, not just add them independently. 10 interns +
+  // 1 junior (15 LOC/s base), Constellation L4, 50s window. Frenzy x7
+  // and a junior Sprint (2x) both live the whole window:
+  // (15 + 5) * 7 * 50 = 7000 LOC. Without the interaction term the
+  // server would allow only 5500 and false-reject.
+  const before = constellationState(4, {
+    linesOfCode: 1000,
+    totalLinesOfCode: 1000,
+    employees: { intern: 10, junior: 1 },
+    unlockedEmployees: { intern: true, junior: true },
+  });
+  const after = constellationState(4, {
+    linesOfCode: 8000,
+    totalLinesOfCode: 8000,
+    employees: { intern: 10, junior: 1 },
+    unlockedEmployees: { intern: true, junior: true },
+    activeStarEffects: [
+      {
+        effect: "frenzy",
+        multiplier: 7,
+        expiresAtMs: T0 + 60_000,
+        employeeType: null,
+      },
+      {
+        effect: "employee",
+        multiplier: 2,
+        expiresAtMs: T0 + 60_000,
+        employeeType: "junior",
+      },
+    ],
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      starClaims: [
+        starClaim({
+          effect: "frenzy",
+          good: true,
+          multiplier: 7,
+          durationSeconds: 60,
+        }),
+        starClaim({
+          effect: "employee",
+          good: true,
+          multiplier: 2,
+          durationSeconds: 60,
+          employeeType: "junior",
+        }),
+      ],
+    }),
+    T0 + 50_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("legit star play: shooting stars burst", () => {
+  // 1 intern (1 LOC/s), 100000c, Constellation L5, 60s window. A
+  // Shooting Stars burst worth 5 good Lucky rolls: +100 LOC (max 250)
+  // and +8000c (max 50000c).
+  const before = constellationState(5, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 100000,
+    employees: { intern: 1 },
+  });
+  const after = constellationState(5, {
+    linesOfCode: 160, // 60 passive + 100 burst
+    totalLinesOfCode: 160,
+    money: 108000,
+    employees: { intern: 1 },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      starClaims: [
+        starClaim({
+          effect: "shootingStars",
+          good: true,
+          locDelta: 100,
+          moneyDelta: 8000,
+        }),
+      ],
+    }),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("buying Constellation levels 4-5 and OverReact level 4 passes validation", () => {
+  // Constellation L3 -> L5 costs 75000 + 250000 LOC.
+  const beforeC = constellationState(3, {
+    linesOfCode: 400000,
+    totalLinesOfCode: 400000,
+  });
+  const afterC = constellationState(5, {
+    linesOfCode: 75000,
+    totalLinesOfCode: 400000,
+  });
+  assert.deepEqual(
+    validateSave(
+      prev(beforeC, T0),
+      body(afterC, {
+        ...zeroActions(),
+        openSourceLevelsBought: {
+          overReactFramework: 0,
+          blocker: 0,
+          constellation: 2,
+        },
+      }),
+      T0 + 60_000
+    ),
+    { ok: true }
+  );
+
+  // OverReact L3 -> L4 costs 15000 LOC.
+  const beforeO = stateWith({
+    linesOfCode: 20000,
+    totalLinesOfCode: 20000,
+    openSourceProjects: { overReactFramework: 3 },
+  });
+  const afterO = stateWith({
+    linesOfCode: 5000,
+    totalLinesOfCode: 20000,
+    openSourceProjects: { overReactFramework: 4 },
+  });
+  assert.deepEqual(
+    validateSave(
+      prev(beforeO, T0),
+      body(afterO, {
+        ...zeroActions(),
+        openSourceLevelsBought: {
+          overReactFramework: 1,
+          blocker: 0,
+          constellation: 0,
+        },
+      }),
+      T0 + 60_000
+    ),
+    { ok: true }
+  );
+});
+
+test("inflated star claims are rejected", () => {
+  const before = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 100000,
+    employees: { intern: 1 },
+  });
+  const cases = [
+    // Lucky LOC gain far above the 50x rate max (50 LOC at 1 LOC/s).
+    starClaim({ locDelta: 1000 }),
+    // Lucky money gain above the 10% max (10000c at 100000c).
+    starClaim({ moneyDelta: 50000 }),
+    // Shooting Stars LOC above the 5x Lucky max (250 LOC at 1 LOC/s).
+    starClaim({ effect: "shootingStars", locDelta: 1000 }),
+  ];
+  for (const claim of cases) {
+    const after = constellationState(1, {
+      linesOfCode: 1000,
+      totalLinesOfCode: 1000,
+      money: 100000,
+      employees: { intern: 1 },
+    });
+    const r = validateSave(
+      prev(before, T0),
+      body(after, { ...zeroActions(), starClaims: [claim] }),
+      T0 + 60_000
+    );
+    assert.equal(r.ok, false);
+    assert.equal(r.rule, "STAR");
+  }
+});
+
+test("star claims for locked effects, at level 0, or above the spawn cap are rejected", () => {
+  // Frenzy unlocks at L3; claiming it at L1 is not plausible.
+  const beforeL1 = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    employees: { intern: 1 },
+  });
+  const afterL1 = constellationState(1, {
+    linesOfCode: 60,
+    totalLinesOfCode: 60,
+    employees: { intern: 1 },
+  });
+  const locked = validateSave(
+    prev(beforeL1, T0),
+    body(afterL1, {
+      ...zeroActions(),
+      starClaims: [
+        starClaim({
+          effect: "frenzy",
+          multiplier: 7,
+          durationSeconds: 60,
+        }),
+      ],
+    }),
+    T0 + 60_000
+  );
+  assert.equal(locked.ok, false);
+  assert.equal(locked.rule, "STAR");
+
+  // Level 0 means no stars at all.
+  const beforeL0 = constellationState(0, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    employees: { intern: 1 },
+  });
+  const afterL0 = constellationState(0, {
+    linesOfCode: 60,
+    totalLinesOfCode: 60,
+    employees: { intern: 1 },
+  });
+  const levelZero = validateSave(
+    prev(beforeL0, T0),
+    body(afterL0, {
+      ...zeroActions(),
+      starClaims: [starClaim({ locDelta: 10 })],
+    }),
+    T0 + 60_000
+  );
+  assert.equal(levelZero.ok, false);
+  assert.equal(levelZero.rule, "STAR");
+
+  // Spawn cap at L1 (90-180s): at most ceil(60/90) + 1 = 2 claims in 60s.
+  const tooMany = validateSave(
+    prev(beforeL1, T0),
+    body(afterL1, {
+      ...zeroActions(),
+      starClaims: [
+        starClaim({ locDelta: 10 }),
+        starClaim({ locDelta: 10 }),
+        starClaim({ locDelta: 10 }),
+      ],
+    }),
+    T0 + 60_000
+  );
+  assert.equal(tooMany.ok, false);
+  assert.equal(tooMany.rule, "STAR");
+});
+
+test("a lucky claim giving both LOC and money, or a buff with a wrong multiplier, is rejected", () => {
+  const before = constellationState(3, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 100000,
+    employees: { intern: 1 },
+  });
+  const after = constellationState(3, {
+    linesOfCode: 60,
+    totalLinesOfCode: 60,
+    money: 100000,
+    employees: { intern: 1 },
+  });
+  const cases = [
+    // A Lucky roll gives LOC or cash, never both.
+    starClaim({ locDelta: 10, moneyDelta: 100 }),
+    // Frenzy is x7 good / x0.5 bad — x3 is not a real roll.
+    starClaim({ effect: "frenzy", multiplier: 3, durationSeconds: 60 }),
+    // Click good is an integer x2-5 — x6 is not a real roll.
+    starClaim({ effect: "click", multiplier: 6, durationSeconds: 20 }),
+  ];
+  for (const claim of cases) {
+    const r = validateSave(
+      prev(before, T0),
+      body(after, { ...zeroActions(), starClaims: [claim] }),
+      T0 + 60_000
+    );
+    assert.equal(r.ok, false);
+    assert.equal(r.rule, "STAR");
+  }
+});
+
+test("a save from before Constellation (no star fields) still validates", () => {
+  // An old client / old stored save has no constellation key, no
+  // activeStarEffects, and no starClaims. Normalization defaults them
+  // (constellation 0 / unlocked, no buffs, no claims) instead of
+  // failing the shape check.
+  const before = initialSaveState();
+  delete before.openSourceProjects.constellation;
+  delete before.unlockedOpenSourceProjects.constellation;
+  delete before.activeStarEffects;
+  const after = {
+    ...initialSaveState(),
+    linesOfCode: 50,
+    totalLinesOfCode: 50,
+  };
+  delete after.openSourceProjects.constellation;
+  delete after.unlockedOpenSourceProjects.constellation;
+  delete after.activeStarEffects;
+  const actions = {
+    clicks: 50,
+    employeesBought: { intern: 0, junior: 0, senior: 0 },
+    projectsCompleted: {
+      toDoListApp: 0,
+      hobbyWebsite: 0,
+      paradigmShiftingBlockchainProject: 0,
+    },
+    openSourceLevelsBought: { overReactFramework: 0, blocker: 0 },
+  };
+  const r = validateSave(prev(before, T0), body(after, actions), T0 + 60_000);
   assert.deepEqual(r, { ok: true });
 });

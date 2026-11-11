@@ -23,7 +23,12 @@ function zeroActions() {
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
     },
-    openSourceLevelsBought: { overReactFramework: 0, blocker: 0 },
+    openSourceLevelsBought: {
+      overReactFramework: 0,
+      blocker: 0,
+      constellation: 0,
+    },
+    starClaims: [],
   };
 }
 
@@ -104,7 +109,12 @@ test("player mint, save/load round trip, tampered save rejected with last good s
           hobbyWebsite: 0,
           paradigmShiftingBlockchainProject: 0,
         },
-        openSourceLevelsBought: { overReactFramework: 0, blocker: 0 },
+        openSourceLevelsBought: {
+          overReactFramework: 0,
+          blocker: 0,
+          constellation: 0,
+        },
+        starClaims: [],
       },
     });
     assert.equal(saved.status, 200);

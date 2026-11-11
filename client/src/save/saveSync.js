@@ -24,6 +24,11 @@
  * counted from dispatches, so a reducer-rejected action (e.g. buying
  * with too little money) can never be counted. Clicks are the one
  * exception: WRITE_CODE always applies, so they are counted directly.
+ * Star claims are the other exception: a claim carries its effect,
+ * good/bad roll, and amounts, which no state delta can reconstruct, so
+ * the star UI records them explicitly via recordStarClaim. Like clicks,
+ * they reset on an accepted save (200) or a revert (409) and are kept
+ * on a rate limit (429) so the retry sends them with the longer window.
  *
  * Framework-free (plain JS, no React) so it can be tested in Node
  * against a local save server. The React adapter lives in GameContext,
@@ -133,6 +138,10 @@ export class SaveSync {
     // Clicks since the baseline. Only WRITE_CODE increments this, and it
     // always applies, so the count is exact.
     this.clicks = 0;
+    // Golden-star claims since the baseline. Only the star UI records
+    // these (recordStarClaim), with the effect and amounts the server
+    // validates. Reset on an accepted save or a revert, kept on a 429.
+    this.starClaims = [];
     this.initialized = false;
     // True when init could not reach the server: play locally from the
     // initial state and retry the load before the first save.
@@ -289,6 +298,18 @@ export class SaveSync {
   }
 
   /**
+   * Record one golden-star claim (a clicked star's resolved outcome).
+   * The claim is the shape `resolveStarClaim` returns in
+   * shared/game-balance.js; the server validates it and credits it in
+   * the LOC/money rules. Call it in the same handler that dispatches
+   * the reward, with the exact deltas applied, so the claim and the
+   * state change can never disagree.
+   */
+  recordStarClaim(claim) {
+    this.starClaims.push({ ...claim });
+  }
+
+  /**
    * Called on every state change (from the React provider). Triggers a
    * save when a big action actually happened (a hire, an open-source
    * level) — not on ticks, failed actions, or project completions.
@@ -393,6 +414,7 @@ export class SaveSync {
               this.restore(data.state);
               this._lastSeenBig = bigActionFields(data.state);
               this.clicks = 0;
+              this.starClaims = [];
               this.needsLoad = false;
               // Same as init's load: report when the server last saved.
               const savedAtMs = Date.parse(data.savedAt);
@@ -425,6 +447,7 @@ export class SaveSync {
       const current = this.getState();
       const saveState = stateToSaveState(current);
       const sentClicks = this.clicks;
+      const sentStarClaimCount = this.starClaims.length;
       const actions = {
         clicks: sentClicks,
         employeesBought: diffCounts(
@@ -442,6 +465,9 @@ export class SaveSync {
           saveState.openSourceProjects,
           OPEN_SOURCE_IDS
         ),
+        // A copy: claims recorded while this save is in flight stay
+        // queued for the next save (same as clicks, below).
+        starClaims: [...this.starClaims],
       };
 
       let result;
@@ -462,9 +488,11 @@ export class SaveSync {
       if (result.status === 200) {
         // Accepted: the sent state is the new baseline. Only subtract the
         // clicks that were sent — clicks made while the save was in flight
-        // stay counted for the next save.
+        // stay counted for the next save. Same for star claims: drop the
+        // sent ones, keep any claimed while the save was in flight.
         this.baseline = saveState;
         this.clicks = Math.max(0, this.clicks - sentClicks);
+        this.starClaims.splice(0, sentStarClaimCount);
         this._clearRetryTimer();
         this.onRetry(null);
         this.onSavedAt(Date.now());
@@ -503,6 +531,7 @@ export class SaveSync {
           this._lastSeenBig = bigActionFields(lastGood.state);
         }
         this.clicks = 0;
+        this.starClaims = [];
         this._clearRetryTimer();
         this.onRetry(null);
         this.setStatus("error");
@@ -557,6 +586,7 @@ export class SaveSync {
     this.restore(minted.state);
     this._lastSeenBig = bigActionFields(minted.state);
     this.clicks = 0;
+    this.starClaims = [];
     this.needsLoad = false;
   }
 }
