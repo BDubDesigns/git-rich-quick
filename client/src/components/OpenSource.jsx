@@ -44,6 +44,7 @@ export function OpenSource() {
           return (
             <LockedOpenSourceCard
               key={id}
+              projectId={id}
               project={config}
               progress={progress}
               nextBonus={config.levels[0]?.bonus}

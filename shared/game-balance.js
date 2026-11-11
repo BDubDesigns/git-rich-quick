@@ -80,6 +80,27 @@ export function starBrokerBuyCost(locPerSecondValue) {
   );
 }
 
+/**
+ * "8m" / "30s" for a cooldown in seconds. Exact minutes drop the
+ * "0s" ("8m", not "8m 0s"); anything under a minute is just seconds.
+ */
+export function formatCooldownSeconds(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+/**
+ * Floating text for buying a StarBroker level: the new cooldown, not a
+ * numeric bonus. StarBroker has no numeric bonus (its levels are
+ * { type: "STAR", value: 0 }), so the generic "+N TYPE" label would
+ * read "+0 STAR". The shorter cooldown IS the benefit.
+ */
+export function starBrokerLevelUpFloatText(newLevel) {
+  return `Cooldown ${formatCooldownSeconds(starBrokerCooldownSeconds(newLevel))}!`;
+}
+
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
     tickIntervalMs: 1000,
