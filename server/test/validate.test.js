@@ -1017,14 +1017,48 @@ test("legit star play: shooting stars burst", () => {
   assert.deepEqual(r, { ok: true });
 });
 
-test("an issued star outcome older than 30s is rejected, even if it matches exactly", () => {
-  // Star fix slice: an issued outcome expires 30s after issue (plus
-  // 5s grace). The claim below matches the issued outcome exactly and
-  // is unconsumed, but it was issued 60s before the save, so the save
+test("an issued star outcome older than 300s is rejected, even if it matches exactly", () => {
+  // Star-claim-expiry fix: an issued outcome stays valid 300s after
+  // issue (plus 5s grace), decoupled from the star's 30s on-screen
+  // lifetime. The claim below matches the issued outcome exactly and
+  // is unconsumed, but it was issued 360s before the save, so the save
   // is a STAR rejection — a stale outcome cannot be claimed late by a
   // tampered client. The store attaches issuedAtMs to the issued
   // outcome (from star_issues.issued_at); the save's claim does not
   // carry it, and sameStarClaim ignores it.
+  const before = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const after = constellationState(1, {
+    linesOfCode: 395, // 360 passive + 35 lucky
+    totalLinesOfCode: 395,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const claim = starClaim({ locDelta: 35 });
+  const issued = { ...claim, issuedAtMs: T0 };
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      starClaims: [claim],
+    }),
+    T0 + 360_000,
+    [issued]
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "STAR");
+});
+
+test("an issued star outcome inside its 300s window still saves", () => {
+  // Same claim as above, but issued at the window start and saved at
+  // the window end — 60s after issue, inside the 300s + 5s grace —
+  // so it passes. This is the legitimate-play side of the expiry: the
+  // client saves a claim promptly (star-claim save), or delayed 60s
+  // by a deploy restart or network failure, well inside it.
   const before = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1039,38 +1073,6 @@ test("an issued star outcome older than 30s is rejected, even if it matches exac
   });
   const claim = starClaim({ locDelta: 35 });
   const issued = { ...claim, issuedAtMs: T0 };
-  const r = validateSave(
-    prev(before, T0),
-    body(after, {
-      ...zeroActions(),
-      starClaims: [claim],
-    }),
-    T0 + 60_000,
-    [issued]
-  );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "STAR");
-});
-
-test("an issued star outcome inside its 30s window still saves", () => {
-  // Same claim as above, but issued 30s into the 60s window and saved
-  // at the window end — 30s after issue, inside the 30s + 5s grace —
-  // so it passes. This is the legitimate-play side of the expiry: the
-  // client saves a claim promptly (star-claim save), well inside it.
-  const before = constellationState(1, {
-    linesOfCode: 0,
-    totalLinesOfCode: 0,
-    money: 0,
-    employees: { intern: 1 },
-  });
-  const after = constellationState(1, {
-    linesOfCode: 95, // 60 passive + 35 lucky
-    totalLinesOfCode: 95,
-    money: 0,
-    employees: { intern: 1 },
-  });
-  const claim = starClaim({ locDelta: 35 });
-  const issued = { ...claim, issuedAtMs: T0 + 30_000 };
   const r = validateSave(
     prev(before, T0),
     body(after, {

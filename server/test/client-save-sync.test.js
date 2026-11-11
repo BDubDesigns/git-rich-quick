@@ -384,11 +384,11 @@ test("completing a project (Ship) does not trigger a save", async () => {
 });
 
 test("a recorded star claim triggers one prompt save via noteState", async () => {
-  // Star fix slice: the issued outcome expires 30s after issue, and a
-  // claim only reaches the server in a save — so recording a claim
-  // requests a prompt save (not the 60s heartbeat), and only once per
-  // claim (the flag prevents a save attempt on every tick while the
-  // claim is pending, e.g. while offline or rate-limited).
+  // Star-claim-expiry fix: the issued outcome stays valid 300s after
+  // issue, and a claim only reaches the server in a save — so recording
+  // a claim requests a prompt save (not the 60s heartbeat), and only
+  // once per claim (the flag prevents a save attempt on every tick
+  // while the claim is pending, e.g. while offline or rate-limited).
   const srv = await startTestServer();
   const storage = memoryStorage();
   let clientState = makeClientState();

@@ -308,8 +308,9 @@ export class SaveSync {
    * the LOC/money rules. Call it in the same handler that dispatches
    * the reward, with the exact deltas applied, so the claim and the
    * state change can never disagree. Marks a prompt save as pending —
-   * noteState requests it once the state change propagates (star fix
-   * slice: the issued outcome expires 30s after issue).
+   * noteState requests it once the state change propagates
+   * (star-claim-expiry fix: the issued outcome stays valid 300s after
+   * issue).
    */
   recordStarClaim(claim) {
     this.starClaims.push({ ...claim });
@@ -331,15 +332,15 @@ export class SaveSync {
       return;
     }
     // A golden-star claim must reach the server promptly: the issued
-    // outcome expires 30s after issue (star fix slice), and the claim
-    // only reaches the server in a save. The big-action email trigger
-    // does not cover it — when the inbox is full (25 emails), a new
-    // email deletes the oldest, the count stays 25, and no big-action
-    // save fires, so the claim would wait for the 60s heartbeat and
-    // expire. Request one prompt save per claim (recordStarClaim sets
-    // the flag); the save splices the claims out on success, so it
-    // fires once. No save is started while one is in flight (the flag
-    // stays set, so the next state change retries it) or while a
+    // outcome stays valid 300s after issue (star-claim-expiry fix),
+    // and the claim only reaches the server in a save. The big-action
+    // email trigger does not cover it — when the inbox is full (25
+    // emails), a new email deletes the oldest, the count stays 25, and
+    // no big-action save fires, so the claim would wait for the 60s
+    // heartbeat. Request one prompt save per claim (recordStarClaim
+    // sets the flag); the save splices the claims out on success, so
+    // it fires once. No save is started while one is in flight (the
+    // flag stays set, so the next state change retries it) or while a
     // rate-limit retry is already scheduled, so a rate-limited or
     // offline claim does not spam a save on every tick.
     if (

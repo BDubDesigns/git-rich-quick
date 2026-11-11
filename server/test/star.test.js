@@ -289,10 +289,11 @@ test("claiming a star after its 30s window has burned out is rejected", async ()
   }
 });
 
-test("an issued outcome older than 30s is rejected on save, even if it matches", async () => {
-  // Star fix slice: an issued outcome expires 30s after issue (plus
-  // 5s grace). The claim below matches the issued outcome exactly and
-  // is unconsumed, but the save arrives 60s after the claim, so the
+test("an issued outcome older than 300s is rejected on save, even if it matches", async () => {
+  // Star-claim-expiry fix: an issued outcome stays valid 300s after
+  // issue (plus 5s grace), decoupled from the star's 30s on-screen
+  // lifetime. The claim below matches the issued outcome exactly and
+  // is unconsumed, but the save arrives 360s after the claim, so the
   // save is a STAR rejection — a stale outcome cannot be claimed late.
   const srv = await startTestServer();
   try {
@@ -314,8 +315,8 @@ test("an issued outcome older than 30s is rejected on save, even if it matches",
     assert.equal(claimed.status, 200);
     const claim = (await claimed.json()).claim;
 
-    // The save arrives 60s after the claim — past the 30s + 5s expiry.
-    srv.advance(60_000);
+    // The save arrives 360s after the claim — past the 300s + 5s expiry.
+    srv.advance(360_000);
     const saveNowMs = srv.now();
     const elapsedSeconds = (saveNowMs - T0) / 1000;
     const passive = Math.floor(

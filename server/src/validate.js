@@ -571,14 +571,17 @@ function sameStarClaim(a, b) {
  * enforced at issuance (the server only issues a star when one is
  * due), not here.
  *
- * An issued outcome EXPIRES 30s after it was issued (the star's
- * lifetime, star fix slice): a claim for an outcome older than that is
- * rejected even if it matches exactly and is unconsumed, so a stale
- * outcome cannot be claimed late by a tampered client. The store
- * attaches `issuedAtMs` to each issued entry (from
- * star_issues.issued_at); entries without one — synthetic test data
- * that does not model issue time — skip the expiry check. `nowMs` is
- * the save time; when it is null the expiry check is skipped too.
+ * An issued outcome EXPIRES issuedOutcomeValidSeconds after it was
+ * issued (star-claim-expiry fix — decoupled from the star's 30s
+ * on-screen lifetime, so a prompt save delayed by a deploy restart,
+ * a network failure, or rate-limit retries still lands inside the
+ * window): a claim for an outcome older than that is rejected even
+ * if it matches exactly and is unconsumed, so a stale outcome cannot
+ * be claimed late by a tampered client. The store attaches
+ * `issuedAtMs` to each issued entry (from star_issues.issued_at);
+ * entries without one — synthetic test data that does not model issue
+ * time — skip the expiry check. `nowMs` is the save time; when it is
+ * null the expiry check is skipped too.
  */
 export function matchIssuedStarClaims(claims, issued, nowMs = null) {
   const unused = [...issued];
@@ -601,12 +604,12 @@ export function matchIssuedStarClaims(claims, issued, nowMs = null) {
       typeof issuedClaim.issuedAtMs === "number" &&
       nowMs >
         issuedClaim.issuedAtMs +
-          STAR_CONFIG.starLifetimeSeconds * 1000 +
+          STAR_CONFIG.issuedOutcomeValidSeconds * 1000 +
           STAR_CLOCK_SKEW_GRACE_MS
     ) {
       return {
         ok: false,
-        detail: `star claim ${claim.claimId} expired: an issued outcome is only valid for ${STAR_CONFIG.starLifetimeSeconds}s after issue`,
+        detail: `star claim ${claim.claimId} expired: an issued outcome is only valid for ${STAR_CONFIG.issuedOutcomeValidSeconds}s after issue`,
       };
     }
     claimIds.push(unused[index].claimId);
