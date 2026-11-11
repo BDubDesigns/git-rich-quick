@@ -219,6 +219,22 @@ export function getConstellationLevel(state) {
   return state.openSourceProjects.constellation?.level ?? 0;
 }
 
+/** The player's StarBroker level (0 = cannot buy stars). */
+export function getStarBrokerLevel(state) {
+  return state.openSourceProjects.starBroker?.level ?? 0;
+}
+
+/**
+ * The player's BASE passive LOC/s (employees + Blocker bonus, no
+ * star buffs). The StarBroker buy cost is 30x this rate — the same
+ * shared locPerSecond the server prices a buy from — so the cost the
+ * Buy Star button shows and the cost the server charges can never
+ * disagree (unlike calculateLOCPerSecond, which includes live buffs).
+ */
+export function getBaseLocPerSecond(state) {
+  return shared.locPerSecond(flatEmployeeCounts(state), flatOpenSourceLevels(state));
+}
+
 /**
  * The icon (component + color) an employee type renders with right
  * now (issue #11). When a cosmetic is equipped for the type's slot,

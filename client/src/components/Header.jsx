@@ -34,6 +34,14 @@ export function Header() {
           per live timed buff here, below the countdown bar, so both
           bars sit under the stats bar. Empty when no effect is live. */}
       <div id="star-effect-slot" className="px-2" />
+
+      {/* Buy-star slot: GoldenStar portals the Buy Star button and its
+          cooldown timer here, below the effect bars, so the whole star
+          area (countdown, effects, buy) sits under the stats bar. Empty
+          when the player owns no StarBroker. The star area is
+          collapsible — GoldenStar owns the toggle (tap the countdown
+          bar to hide all the bars, tap the collapsed strip to show them). */}
+      <div id="star-buy-slot" className="px-2" />
     </header>
   );
 }

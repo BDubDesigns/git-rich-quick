@@ -15,7 +15,7 @@
  * `save-schema-validation-spec.md`):
  *   employees: flat counts { intern, junior, senior }
  *   openSourceProjects: levels as plain numbers
- *     { overReactFramework, blocker, constellation }
+ *     { overReactFramework, blocker, constellation, starBroker }
  *   aiAssistants: flat counts { noPilot }
  *   activeStarEffects: timed golden-star buffs
  *     [{ effect, multiplier, expiresAtMs, employeeType }]
@@ -35,6 +35,50 @@ import { formatMoney, formatNumber } from "./formatNumber.js";
  * L1 costs 1000 LOC, so their lifetime LOC is necessarily at/above it.
  */
 export const CONSTELLATION_UNLOCK_TOTAL_LOC = 500;
+
+/**
+ * StarBroker unlock threshold: buying stars is a later-game power than
+ * finding them, so StarBroker unlocks at 5000 lifetime LOC (TOTAL_LOC)
+ * — visible at 10% progress (500 LOC). A tuning value; one line to
+ * change. It sits after Constellation (500), so a player has had
+ * natural stars for a while before they can buy one.
+ */
+export const STARBROKER_UNLOCK_TOTAL_LOC = 5000;
+
+/**
+ * StarBroker (buy a golden star): the bought-star economy.
+ *
+ * - `costLocPerSecondMultiplier`: a bought star costs this many seconds
+ *   of the player's passive LOC/s (30x), FLAT at every level — Brandon
+ *   explicitly decided NOT to cut the price per level (30 seconds of
+ *   passive gain for a star is already cheap, especially for a 2-star
+ *   combo). The cost is computed from the player's CURRENT passive
+ *   LOC/s at the moment of purchase.
+ * - `cooldownSeconds`: the cooldown before another star can be bought,
+ *   per StarBroker level (index level-1). Each level halves it: 8 min,
+ *   4 min, 2 min, 1 min, 30 s.
+ */
+export const STARBROKER_CONFIG = Object.freeze({
+  costLocPerSecondMultiplier: 30,
+  cooldownSeconds: Object.freeze([480, 240, 120, 60, 30]),
+});
+
+/** Cooldown (seconds) before another star can be bought, at a StarBroker level; null at level 0. */
+export function starBrokerCooldownSeconds(starBrokerLevel) {
+  if (starBrokerLevel < 1) return null;
+  const index = Math.min(
+    starBrokerLevel,
+    STARBROKER_CONFIG.cooldownSeconds.length
+  ) - 1;
+  return STARBROKER_CONFIG.cooldownSeconds[index];
+}
+
+/** LOC cost of buying one star, from the player's passive LOC/s. Flat at every level. */
+export function starBrokerBuyCost(locPerSecondValue) {
+  return Math.floor(
+    STARBROKER_CONFIG.costLocPerSecondMultiplier * locPerSecondValue
+  );
+}
 
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
@@ -231,6 +275,48 @@ export const BALANCE = Object.freeze({
         }),
       ]),
     }),
+    // StarBroker: buy a golden star on demand. Each level halves the
+    // cooldown before another star can be bought (STARBROKER_CONFIG);
+    // the cost stays flat at 30x passive LOC/s at every level
+    // (Brandon's call — 30 seconds of passive gain is already cheap
+    // for a star, especially stacked with a natural one). It has no
+    // numeric bonus (type STAR, value 0): no LOC formula reads it —
+    // the bought-star mechanic lives in STARBROKER_CONFIG and the
+    // /api/star/buy endpoint. A bought star never touches the natural
+    // star timer: the whole point is stacking a bought star with a
+    // natural one. Unlock: TOTAL_LOC >= STARBROKER_UNLOCK_TOTAL_LOC
+    // (5000) — a later-game power than Constellation (500). Level
+    // costs mirror Constellation's scale; tuning values.
+    starBroker: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "TOTAL_LOC",
+          target: STARBROKER_UNLOCK_TOTAL_LOC,
+        }),
+      ]),
+      levels: Object.freeze([
+        Object.freeze({
+          locCost: 5000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 20000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 75000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 250000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 1000000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+      ]),
+    }),
   }),
 });
 
@@ -244,6 +330,7 @@ export const OPEN_SOURCE_IDS = Object.freeze([
   "overReactFramework",
   "blocker",
   "constellation",
+  "starBroker",
 ]);
 
 /**
@@ -866,6 +953,19 @@ export function normalizeSaveState(state) {
     };
   }
   if (
+    next.openSourceProjects &&
+    typeof next.openSourceProjects === "object" &&
+    !Array.isArray(next.openSourceProjects) &&
+    next.openSourceProjects.starBroker === undefined
+  ) {
+    // StarBroker shipped after Constellation: a save from before it
+    // has no starBroker key. Default it to 0, same as constellation.
+    next.openSourceProjects = {
+      ...next.openSourceProjects,
+      starBroker: 0,
+    };
+  }
+  if (
     next.unlockedOpenSourceProjects &&
     typeof next.unlockedOpenSourceProjects === "object" &&
     !Array.isArray(next.unlockedOpenSourceProjects)
@@ -881,9 +981,16 @@ export function normalizeSaveState(state) {
     // so their lifetime LOC is necessarily at/above the threshold.
     // Both the stored and the incoming state are normalized the same
     // way, so this never flips a latch back for the MONOTONIC rule.
+    // StarBroker is re-derived the same way: it shipped WITH its
+    // TOTAL_LOC >= 5000 condition, so no save can carry a stale
+    // latch=true for it — but re-deriving keeps the two projects
+    // consistent, and a save that predates StarBroker gets its latch
+    // from its own lifetime LOC instead of defaulting to locked
+    // behind a goal it already cleared.
     next.unlockedOpenSourceProjects = {
       ...next.unlockedOpenSourceProjects,
       constellation: openSourceUnlockConditionsMet("constellation", next),
+      starBroker: openSourceUnlockConditionsMet("starBroker", next),
     };
   }
   if (!Array.isArray(next.activeStarEffects)) {
@@ -955,6 +1062,19 @@ export function normalizeStarActions(actions) {
       constellation: 0,
     };
   }
+  if (
+    next.openSourceLevelsBought &&
+    typeof next.openSourceLevelsBought === "object" &&
+    !Array.isArray(next.openSourceLevelsBought) &&
+    next.openSourceLevelsBought.starBroker === undefined
+  ) {
+    // Same migration as constellation: a client from before StarBroker
+    // shipped has no starBroker key in its level deltas.
+    next.openSourceLevelsBought = {
+      ...next.openSourceLevelsBought,
+      starBroker: 0,
+    };
+  }
   return next;
 }
 
@@ -986,6 +1106,7 @@ export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
   overReactFramework: "OverReact Framework",
   blocker: "Blocker Containerization Platform",
   constellation: "GitNub Constellation",
+  starBroker: "StarBroker",
 });
 
 export const FREELANCE_PROJECT_DISPLAY_NAMES = Object.freeze({

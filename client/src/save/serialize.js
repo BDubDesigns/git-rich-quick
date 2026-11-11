@@ -101,12 +101,16 @@ export function saveStateToGameFields(saveState) {
     // veteran at/above 500 LOC keeps the unlock, a veteran below it
     // gets it locked (with progress shown). The other two latches
     // were always condition-gated, so only Constellation needs this.
+    // StarBroker is re-derived the same way: a save that predates it
+    // gets its latch from its own lifetime LOC (TOTAL_LOC >= 5000)
+    // instead of defaulting to locked behind a goal it already cleared.
     unlockedOpenSourceProjects: {
       ...saveState.unlockedOpenSourceProjects,
       constellation: openSourceUnlockConditionsMet(
         "constellation",
         saveState
       ),
+      starBroker: openSourceUnlockConditionsMet("starBroker", saveState),
     },
     // A save from before project unlocks shipped (issue #19) has no
     // freelance latch — the load path returns the raw stored state,

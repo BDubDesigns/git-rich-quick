@@ -296,8 +296,14 @@ test("Constellation teaser + unlock emails fire at 50 / 500 lifetime LOC", () =>
     },
   });
   const { emails } = collectTriggerEmails(visible, unlocked);
-  assert.equal(emails.length, 1);
+  // Two emails: the Constellation unlock, and the StarBroker teaser —
+  // StarBroker becomes visible at 500 LOC (10% of its 5000 unlock),
+  // so the same transition that unlocks Constellation reveals
+  // StarBroker. The adapters are generic over OPEN_SOURCE_IDS, so the
+  // new project flows through them.
+  assert.equal(emails.length, 2);
   assert.equal(emails[0].triggerKey, "opensource-unlocked:constellation");
+  assert.equal(emails[1].triggerKey, "opensource-visible:starBroker");
 });
 
 test("freelance teaser fires once when the project becomes visible", () => {

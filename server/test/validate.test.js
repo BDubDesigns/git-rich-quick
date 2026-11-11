@@ -94,6 +94,9 @@ test("shared math matches the client formulas", () => {
     // Constellation now requires TOTAL_LOC >= 500 (star fix slice), so
     // a fresh player starts locked; it becomes visible at 50 LOC.
     constellation: false,
+    // StarBroker requires TOTAL_LOC >= 5000, so a fresh player starts
+    // locked; it becomes visible at 500 LOC.
+    starBroker: false,
   });
   // Freelance projects (issue #19): the To Do List App starts
   // unlocked; the Hobby Website and Blockchain Project are gated.
