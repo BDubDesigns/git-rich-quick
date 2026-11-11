@@ -921,6 +921,15 @@ export function GameProvider({ children }) {
     saveSyncRef.current.requestSave("manual");
   }, []);
 
+  // Wipe all progress back to 0 (Settings Danger Zone): the server
+  // overwrites the player's own save row with the fresh initial state
+  // and the engine restores that state locally. The player keeps the
+  // same playerId and account link. Returns `{ ok }` — the caller
+  // shows the result.
+  const resetProgress = useCallback(async () => {
+    return saveSyncRef.current.resetProgress();
+  }, []);
+
   // Record one golden-star claim with the save engine (issue #33). The
   // star UI calls this in the same handler that dispatches
   // APPLY_STAR_REWARD, with the exact claim applied, so the claim and
@@ -972,6 +981,7 @@ export function GameProvider({ children }) {
         lastSavedAt,
         retryInSeconds,
         saveNow,
+        resetProgress,
         recordStarClaim,
       }}
     >

@@ -37,6 +37,19 @@
   background-color: rgb(30, 64, 175);
 }
 
+/* Destructive action (e.g. the Danger Zone reset). Red, clearly
+   separated from the canonical blue — a destructive button should
+   never look like a normal one. Defined before --disabled so the
+   grey disabled state still wins when both apply. */
+.game-button--danger {
+  background-color: rgb(185, 28, 28);
+  border-color: rgb(127, 29, 29);
+}
+
+.game-button--danger:hover:not(:disabled) {
+  background-color: rgb(220, 38, 38);
+}
+
 /* Disabled = grey, matching the unaffordable Hire / LOCKED look.
    Defined last so it wins over --inactive when both apply. */
 .game-button--disabled {

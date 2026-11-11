@@ -41,6 +41,7 @@ import {
   mintPlayer,
   loadSave,
   saveGame,
+  resetSave,
 } from "./api.js";
 import {
   stateToSaveState,
@@ -152,6 +153,9 @@ export class SaveSync {
     this.needsLoad = false;
 
     this._inFlight = false;
+    // True while resetProgress() runs: requestSave is a no-op then, so
+    // no stale save can land after the reset and resurrect old progress.
+    this._resetting = false;
     this._pendingSave = false;
     this._currentSave = null;
     this._retryTimer = null;
@@ -358,12 +362,81 @@ export class SaveSync {
   }
 
   /**
+   * Reset all progress (Danger Zone): wipe the player's save back to
+   * the fresh initial state, on the server AND locally. The player
+   * keeps the same playerId (and the same account link); only the
+   * progress goes to 0. A normal save can never do this — the server
+   * rejects going backwards — so this calls the dedicated reset
+   * endpoint, which overwrites the row server-side. While the reset
+   * runs, no other save may start (the `_resetting` flag makes
+   * requestSave a no-op), and an in-flight save is awaited first, so
+   * a stale save cannot land after the reset and resurrect the old
+   * progress. On success the local state is restored to the initial
+   * state (same RESTORE_SAVE path as a load), the baseline is reset,
+   * and the status reads "saved". On failure the local state is
+   * untouched. Returns `{ ok: true }` or `{ ok: false, error }`.
+   */
+  async resetProgress() {
+    if (!this.initialized || !this.playerId) {
+      return { ok: false, error: "not-initialized" };
+    }
+    this._resetting = true;
+    try {
+      // Wait for an in-flight save so it cannot land after the reset.
+      // Its finally flushes any save queued behind it, so by the time
+      // this await resolves nothing is pending.
+      if (this._inFlight && this._currentSave) {
+        try {
+          await this._currentSave;
+        } catch {
+          // A failed in-flight save must not block the reset.
+        }
+      }
+      this._pendingSave = false;
+      this._clearRetryTimer();
+      this.onRetry(null);
+      let result;
+      try {
+        result = await resetSave(this.apiBaseUrl, this.playerId);
+      } catch (err) {
+        console.warn("[save] reset failed (network):", err);
+        this.setStatus("error");
+        return { ok: false, error: "network" };
+      }
+      if (result.status !== 200) {
+        console.warn(`[save] reset failed (HTTP ${result.status})`);
+        this.setStatus("error");
+        return { ok: false, error: `http-${result.status}` };
+      }
+      const initial = initialSaveState();
+      this.baseline = initial;
+      this.clicks = 0;
+      this.starClaims = [];
+      this._starClaimSavePending = false;
+      this._lastSeenBig = bigActionFields(initial);
+      this.needsLoad = false;
+      this.restore(initial);
+      this.onSavedAt(Date.now());
+      this.setStatus("saved");
+      return { ok: true };
+    } finally {
+      this._resetting = false;
+    }
+  }
+
+  /**
    * Request a save. Serializes: if one is in flight, queues one after it.
    * Returns a promise that resolves when the save (and any queued flush)
    * completes, so callers can await it. Fire-and-forget callers (heartbeat,
    * retry timer) just ignore the return.
    */
   requestSave(reason, { keepalive } = {}) {
+    if (this._resetting) {
+      // A reset is running: no save may start (or queue) while it
+      // runs, or a stale save could land after the reset and bring
+      // the old progress back.
+      return Promise.resolve(false);
+    }
     if (!this.initialized || !this.playerId) {
       // Mint failed (offline at init): retry init on the next heartbeat.
       if (this.initialized && !this.playerId) {

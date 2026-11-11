@@ -21,6 +21,7 @@ import {
   unlinkSaveFromAccount,
   currentGuestPlayerId,
 } from "../authClient.js";
+import { useGameContext } from "../context/useGameContext.js";
 import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
@@ -42,6 +43,7 @@ function shortId(id) {
 export function Settings() {
   const { data: session, isPending } = useSession();
   const user = session?.user ?? null;
+  const { resetProgress, savePlayerId } = useGameContext();
 
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
   const [email, setEmail] = useState("");
@@ -53,6 +55,42 @@ export function Settings() {
   const [guestPlayerId, setGuestPlayerId] = useState(() =>
     currentGuestPlayerId()
   );
+
+  // Danger Zone reset: two-step confirm (a single tap must never wipe
+  // progress). `confirmingReset` shows the warning + confirm/cancel;
+  // `resetBusy` is separate from the auth `busy` above.
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function handleResetConfirm() {
+    setResetBusy(true);
+    setMessage(null);
+    try {
+      const result = await resetProgress();
+      if (result.ok) {
+        setConfirmingReset(false);
+        setMessage({
+          kind: "ok",
+          text: "Progress reset — you're back to 0. Your player id and account link are unchanged.",
+        });
+      } else {
+        setMessage({
+          kind: "error",
+          text:
+            result.error === "not-initialized"
+              ? "No save loaded yet — play a little first, then reset."
+              : `Reset failed (${result.error}). Your progress is untouched — try again.`,
+        });
+      }
+    } catch (err) {
+      setMessage({
+        kind: "error",
+        text: `Reset failed (${String(err?.message ?? err)}). Your progress is untouched — try again.`,
+      });
+    } finally {
+      setResetBusy(false);
+    }
+  }
 
   // Sound volume (issue #32): a device preference, persisted in
   // localStorage by the sound module — never in the server save.
@@ -381,6 +419,66 @@ export function Settings() {
           bottom of Shop so the Shop list stays focused on hiring, and
           the skins live with the other display preferences. */}
       <CosmeticsPanel />
+
+      {/* Danger Zone: reset ALL progress back to 0. Separate from the
+          planned prestige system — there is no bonus for resetting,
+          it literally sets you back to 0. Two-step confirm: a single
+          tap only shows the warning; the wipe only happens after the
+          explicit confirm. The player keeps the same player id (and
+          account link); only the progress goes to 0. */}
+      <section
+        className="panel flex flex-col gap-2 p-3"
+        style={{ borderColor: "#7f1d1d" }}
+      >
+        <h3 className="m-0 text-sm text-[#f48771]">Danger Zone</h3>
+        {!confirmingReset ? (
+          <>
+            <p className="m-0 text-xs">
+              Reset your entire progress back to 0. This is not prestige
+              — there is no bonus for resetting.
+            </p>
+            <div>
+              <Button
+                type="button"
+                disabled={resetBusy || !savePlayerId}
+                onClick={() => setConfirmingReset(true)}
+                className="game-button--danger"
+              >
+                Reset Progress
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="m-0 text-xs text-[#f48771]">
+              This wipes ALL progress — LOC, money, employees, projects,
+              open-source levels, cosmetics, emails, and stars — and
+              cannot be undone. Your player id and account link stay
+              the same; only the progress goes to 0.
+            </p>
+            <p className="m-0 text-xs">
+              Are you sure you want to reset your progress?
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={resetBusy}
+                onClick={handleResetConfirm}
+                className="game-button--danger"
+              >
+                {resetBusy ? "Resetting…" : "Yes, wipe everything"}
+              </Button>
+              <Button
+                type="button"
+                disabled={resetBusy}
+                onClick={() => setConfirmingReset(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </>
+        )}
+      </section>
     </SectionLayout>
   );
 }
