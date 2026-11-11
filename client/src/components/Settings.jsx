@@ -8,8 +8,9 @@
  * only the password-reset safety net. An account links to ONE guest
  * playerId (v1 has no cross-platform save beyond that link).
  *
- * Volume controls live here too, but they are issue #32, not this slice
- * — the Sound section below is a placeholder until then.
+ * Volume controls live here too (issue #32): a slider + mute toggle that
+ * scale all game sounds. Volume is a device preference — it lives in
+ * localStorage, not in the server save.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -23,6 +24,12 @@ import {
 import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
+import {
+  getSoundVolume,
+  setSoundVolume,
+  isSoundMuted,
+  setSoundMuted,
+} from "../utils/sound.js";
 
 const { useSession, signUp, signIn, signOut } = authClient;
 
@@ -45,6 +52,30 @@ export function Settings() {
   const [guestPlayerId, setGuestPlayerId] = useState(() =>
     currentGuestPlayerId()
   );
+
+  // Sound volume (issue #32): a device preference, persisted in
+  // localStorage by the sound module — never in the server save.
+  const [volumePct, setVolumePct] = useState(() =>
+    Math.round(getSoundVolume() * 100)
+  );
+  const [soundMuted, setSoundMutedState] = useState(() => isSoundMuted());
+
+  function handleVolumeChange(event) {
+    const pct = Number(event.target.value);
+    setVolumePct(pct);
+    setSoundVolume(pct / 100);
+    // Dragging the slider up always produces sound again.
+    if (pct > 0 && soundMuted) {
+      setSoundMuted(false);
+      setSoundMutedState(false);
+    }
+  }
+
+  function handleMuteToggle() {
+    const next = !soundMuted;
+    setSoundMuted(next);
+    setSoundMutedState(next);
+  }
 
   const refreshLink = useCallback(async () => {
     if (!user) {
@@ -318,12 +349,31 @@ export function Settings() {
         )}
       </section>
 
-      {/* Sound — volume controls are issue #32, not this slice. */}
+      {/* Sound — volume is a device preference, localStorage only. */}
       <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Sound</h3>
         <p className="m-0 text-xs">
-          Volume controls are coming (issue #32).
+          Volume governs game sound, including the golden star chime. It
+          is stored on this device only.
         </p>
+        <label className="m-0 flex items-center gap-2 text-xs">
+          Volume
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={volumePct}
+            onChange={handleVolumeChange}
+            aria-label="Volume"
+            className="w-full accent-[#0078d4]"
+          />
+          <span className="shrink-0 text-[#cccccc]">{volumePct}%</span>
+        </label>
+        <div>
+          <Button type="button" onClick={handleMuteToggle}>
+            {soundMuted ? "Unmute" : "Mute"}
+          </Button>
+        </div>
       </section>
     </SectionLayout>
   );
