@@ -54,12 +54,14 @@ function formatCountdown(seconds) {
 
 /**
  * One active star-effect duration bar: the effect name (plus the
- * employee type for Sprint/Meeting) and the seconds left, over a fill
- * that depletes as the effect runs out (remaining / total duration).
- * The total is derived from the config — the stored buff only carries
- * expiresAtMs, not its duration — and good is a multiplier above 1x
- * (the config only ever issues good 2-7x, bad 0.5x). Green fill for a
- * buff, red for a debuff.
+ * employee type for Sprint/Meeting), its production multiplier, and
+ * the seconds left, over a fill that depletes as the effect runs out
+ * (remaining / total duration). The total is derived from the config
+ * — the stored buff only carries expiresAtMs, not its duration — and
+ * good is a multiplier above 1x (the config only ever issues good
+ * 2-7x, bad 0.5x). The multiplier comes from the live buff data (the
+ * same value the email reports), never hardcoded per effect. Green
+ * fill for a buff, red for a debuff.
  */
 function StarEffectBar({ buff, nowMs }) {
   const good = buff.multiplier > 1;
@@ -78,6 +80,7 @@ function StarEffectBar({ buff, nowMs }) {
       ? EMPLOYEE_CONFIGS[buff.employeeType]?.name
       : null;
   const label = employeeTypeName ? `${name} (${employeeTypeName})` : name;
+  const text = `${label} · ${buff.multiplier}x · ${formatCountdown(remainingSeconds)}`;
   return (
     <div
       className="star-effect-bar"
@@ -85,7 +88,7 @@ function StarEffectBar({ buff, nowMs }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(fillPct)}
-      aria-label={`${label} — ${formatCountdown(remainingSeconds)} left`}
+      aria-label={`${label} ${buff.multiplier}x — ${formatCountdown(remainingSeconds)} left`}
     >
       <div
         className={`star-effect-bar-fill ${
@@ -93,9 +96,7 @@ function StarEffectBar({ buff, nowMs }) {
         }`}
         style={{ width: `${fillPct}%` }}
       />
-      <span className="star-effect-bar-text">
-        {label} · {formatCountdown(remainingSeconds)}
-      </span>
+      <span className="star-effect-bar-text">{text}</span>
     </div>
   );
 }
