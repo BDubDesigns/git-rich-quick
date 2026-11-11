@@ -1,8 +1,11 @@
-import { ProgressBar } from "./ProgressBar.jsx";
 // Number abbreviation (issue #42) — the shared formatter.
 import { formatNumber } from "../../../shared/formatNumber.js";
-import { formatCondition } from "../utils/formatCondition.js";
 import { Button } from "./Button.jsx";
+import {
+  JsDocBlock,
+  JsDocLine,
+  JsDocUnlockRequirements,
+} from "./JsDocBlock.jsx";
 
 export function LockedOpenSourceCard({
   project,
@@ -16,49 +19,23 @@ export function LockedOpenSourceCard({
       <div className="flex items-center gap-4">
         {/* Left: Content */}
         <div className="flex-1">
-          {/* JSDoc block with title, cost, and first-level bonus */}
-          <div className="flex-1">
-            {/* Row: Rewards and Cost */}
-            <div className="text-xs font-mono">
-              {/* JSDoc header */}
-              <span className="comment-text">{`/** `}</span>
-              <br />
-              <span className="text-sm font-bold">{project.name} v.0.0</span>
-              <br />
-              <span className="text-blue-400">@param</span>
-              <span className="text-cyan-300"> {`{LOC}`}</span>
-              <span className="text-gray-400">
-                {" "}
-                {formatNumber(locCost)} LOC needed for v.1.0
-              </span>
-              <br />
-              <span className="text-blue-400">@returns</span>
-              <span className="text-cyan-300">{`{Bonus}`}</span>
-              <span className="text-green-400">
-                {" "}
-                +{formatNumber(nextBonus.value)} {nextBonus.type}
-              </span>
-              <br />
-
-              {/* Unlock requirement progress bar */}
-              <div>
-                <p className="text-xs font-semibold mb-1">
-                  Unlock requirement:
-                </p>
-                {/* Map over unlockConditions to render progress bars */}
-                {progress.map((prog, index) => (
-                  <ProgressBar
-                    key={index}
-                    current={prog.current}
-                    target={prog.target}
-                    label={formatCondition(prog)}
-                  />
-                ))}
-              </div>
-            </div>
-            {/* ending comment tag */}
-            <span className="text-xs comment-text">{`*/`}</span>
-          </div>
+          <JsDocBlock
+            title={`${project.name} v.0.0`}
+            description={project.description}
+          >
+            <JsDocLine
+              tag="@param"
+              type="LOC"
+              value={`${formatNumber(locCost)} LOC needed for v.1.0`}
+            />
+            <JsDocLine
+              tag="@returns"
+              type="Bonus"
+              value={`+${formatNumber(nextBonus.value)} ${nextBonus.type}`}
+              valueClassName="text-green-400"
+            />
+            <JsDocUnlockRequirements progress={progress} />
+          </JsDocBlock>
         </div>
         {/* Right: Locked Button — always disabled; the shared Button's
             grey disabled state is the LOCKED look. */}

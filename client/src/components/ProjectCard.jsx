@@ -8,6 +8,7 @@ import {
 
 import { ActionButton } from "./ActionButton.jsx";
 import { HiOutlineBanknotes } from "react-icons/hi2";
+import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 
 export function ProjectCard({
   project,
@@ -20,31 +21,19 @@ export function ProjectCard({
       <div className="flex items-center gap-4">
         {/* Left: Content */}
         <div className="flex-1">
-          {/* Row: Rewards and Cost */}
-          <div className="text-xs font-mono">
-            {/* Top: Project Name */}
-            <span className="comment-text">{`/** `}</span>
-            <br />
-            <span className="text-sm font-bold">{project.name}</span>
-            <br />
-            <span>{project.description}</span>
-            <br />
-            <span className="text-blue-400">@param</span>
-            <span className="text-cyan-300"> {`{LOC}`}</span>
-            <span className="text-gray-400">
-              {" "}
-              {formatNumber(project.loc)}
-            </span>
-            <br />
-            <span className="text-blue-400"> @returns</span>
-            <span className="text-cyan-300"> {`{Currency}`}</span>
-            <span className="text-green-400">
-              {" "}
-              {formatMoney(project.reward)}
-            </span>
-            <br />
-            <span className="comment-text">{`*/`}</span>
-          </div>
+          <JsDocBlock title={project.name} description={project.description}>
+            <JsDocLine
+              tag="@param"
+              type="LOC"
+              value={formatNumber(project.loc)}
+            />
+            <JsDocLine
+              tag="@returns"
+              type="Currency"
+              value={formatMoney(project.reward)}
+              valueClassName="text-green-400"
+            />
+          </JsDocBlock>
         </div>
 
         {/* Right: Button with Price */}
