@@ -127,6 +127,12 @@ const initialState = {
   // In-game inbox (issue #31). Plain records, owned by the email
   // module (client/src/email/email.js). Saved with the game state.
   emails: [],
+  // Cosmetics (issue #11). unlockedCosmetics is the list of
+  // cosmeticIds the player has earned (hire-count triggers); it only
+  // grows. equippedCosmetics maps a cosmetic slot to the equipped
+  // cosmeticId. Saved with the game state.
+  unlockedCosmetics: [],
+  equippedCosmetics: {},
   // The email currently open in the Email tab (transient UI state, not saved).
   selectedEmailId: null,
   // The email the notification bar is showing (transient UI state, not saved).
@@ -228,6 +234,23 @@ function gameReducer(state, action) {
               count: employee.count + quantity,
             },
           },
+          // Cosmetics (issue #11): a hire can cross a cosmetic's
+          // hire-count trigger — threshold-crossing, so a bulk buy
+          // that jumps past a trigger still unlocks it. Only
+          // cosmetics the player does not already have are added.
+          unlockedCosmetics: [
+            ...(state.unlockedCosmetics ?? []),
+            ...shared
+              .newlyUnlockedCosmetics(
+                employeeType,
+                employee.count,
+                employee.count + quantity
+              )
+              .filter(
+                (cosmeticId) =>
+                  !(state.unlockedCosmetics ?? []).includes(cosmeticId)
+              ),
+          ],
         };
 
         // Check for unlocks instantly (buying changed employee count)
@@ -243,6 +266,36 @@ function gameReducer(state, action) {
       }
 
       return state;
+    }
+
+    // Equip (or unequip) a cosmetic in a slot (issue #11).
+    // Payload: { slot, cosmeticId } — cosmeticId null means unequip,
+    // back to the default icon. The equip is validated against the
+    // shared rule (shared.canEquipCosmetic): the cosmetic must exist,
+    // belong to that slot, and be unlocked. An invalid equip is
+    // ignored here (the server rejects it too, so a tampered save
+    // cannot equip what it has not earned). A valid equip is a
+    // big-action save trigger (see serialize.js), so it persists
+    // promptly.
+    case "EQUIP_COSMETIC": {
+      const { slot, cosmeticId } = action.payload ?? {};
+      if (
+        typeof slot !== "string" ||
+        !shared.canEquipCosmetic(
+          slot,
+          cosmeticId ?? null,
+          state.unlockedCosmetics ?? []
+        )
+      ) {
+        return state;
+      }
+      const equippedCosmetics = { ...(state.equippedCosmetics ?? {}) };
+      if (cosmeticId === null || cosmeticId === undefined) {
+        delete equippedCosmetics[slot];
+      } else {
+        equippedCosmetics[slot] = cosmeticId;
+      }
+      return { ...state, equippedCosmetics };
     }
 
     // Handle freelance project completion

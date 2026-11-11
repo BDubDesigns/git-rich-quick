@@ -154,6 +154,36 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
   },
 });
 
+// Immutable cosmetic configuration (issue #11) — the visual data
+// for each cosmetic id. The registry of which cosmetic belongs to
+// which slot and what triggers it lives in shared/game-balance.js
+// (the server validates against it); this file only adds the
+// display data (name, icon, color) on top, the same split as the
+// employee configs above.
+//
+// Shape is { name, Icon, color } — Icon + color, not a fixed React
+// element like the issue's sketch (`component: <GiPlasticDuck
+// color="bronze" />`), so callers can render the cosmetic at any
+// size. Colors are hex: "bronze" is not a CSS color name, so the
+// issue's literal color="bronze" would silently fall back.
+export const COSMETICS_CONFIG = Object.freeze({
+  "intern-icon-bronze": {
+    name: "Bronze Duck",
+    Icon: GiPlasticDuck,
+    color: "#CD7F32",
+  },
+  "junior-icon-silver": {
+    name: "Silver Backpack",
+    Icon: BsBackpack,
+    color: "#C0C0C0",
+  },
+  "senior-icon-gold": {
+    name: "Gold Coffee",
+    Icon: BiCoffeeTogo,
+    color: "#FFD700",
+  },
+});
+
 // Immutable AI assistant configuration
 // All costs are in CENTS to avoid floating-point errors in idle games
 export const AI_ASSISTANT_CONFIGS = Object.freeze({

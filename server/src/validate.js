@@ -48,6 +48,13 @@
  *    will 400 on a star claim until it reloads — the save itself is
  *    not lost, and the next heartbeat retries with fresh state).
  *
+ * 4. COSMETICS (issue #11) extend Rule 3 (unlocks are real): an
+ *    unlocked cosmetic's hire-count trigger must be met by the new
+ *    snapshot itself, and an equipped cosmetic must be unlocked and
+ *    belong to the slot it is equipped in. The unlocked list only
+ *    grows (Rule 2); the equipped map switches freely. Failures are
+ *    the COSMETIC rule (409).
+ *
  * Star-era fields are backward-compatible: a save (or client) from
  * before Constellation shipped lacks `constellation` in the
  * open-source maps, `activeStarEffects` on the state, and `starClaims`
@@ -55,7 +62,10 @@
  * no active buffs, no claims) by `normalizeSaveState` /
  * `normalizeStarActions` before any check runs, so old saves keep
  * validating. Only the new fields are defaulted — a missing old
- * field is still a shape error.
+ * field is still a shape error. The same applies to the later
+ * fields: `unlockedFreelanceProjects` (issue #19) is derived from
+ * the shipped counts, and `unlockedCosmetics` / `equippedCosmetics`
+ * (issue #11) are derived / defaulted the same way.
  *
  * Pure function: no I/O, no clock of its own. `prev` is the last accepted
  * snapshot `{ state, savedAtMs }`; for a brand-new player the store passes
@@ -65,14 +75,18 @@
 
 import {
   BALANCE,
+  COSMETIC_SLOTS,
   EMAIL_CONFIG,
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
   STAR_EFFECT_IDS,
   baseLocPerSecond,
+  canEquipCosmetic,
+  cosmeticTriggerMet,
   employeePurchaseCosts,
   employeeUnlockConditionsMet,
+  findCosmetic,
   freelanceProjectUnlockConditionsMet,
   locPerClick,
   locPerSecond,
@@ -152,6 +166,8 @@ function checkStateShape(state) {
       "unlockedFreelanceProjects",
       "activeStarEffects",
       "emails",
+      "unlockedCosmetics",
+      "equippedCosmetics",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -244,6 +260,40 @@ function checkStateShape(state) {
     )
   ) {
     return "unlockedFreelanceProjects must be booleans";
+  }
+  // Cosmetics (issue #11). The unlocked list holds known cosmetic
+  // ids only, no duplicates; the equipped map holds known slots
+  // (a subset is fine — only equipped slots are present) mapping to
+  // known cosmetic ids. Whether an unlocked cosmetic's trigger is
+  // met, and whether an equipped cosmetic is unlocked and in the
+  // right slot, is the COSMETIC rule in validateSave, not the shape.
+  if (!Array.isArray(state.unlockedCosmetics)) {
+    return "unlockedCosmetics must be an array";
+  }
+  const seenCosmetics = new Set();
+  for (const cosmeticId of state.unlockedCosmetics) {
+    if (typeof cosmeticId !== "string" || !findCosmetic(cosmeticId)) {
+      return `unlockedCosmetics has an unknown cosmetic id: ${cosmeticId}`;
+    }
+    if (seenCosmetics.has(cosmeticId)) {
+      return "unlockedCosmetics must not contain duplicates";
+    }
+    seenCosmetics.add(cosmeticId);
+  }
+  if (
+    state.equippedCosmetics === null ||
+    typeof state.equippedCosmetics !== "object" ||
+    Array.isArray(state.equippedCosmetics)
+  ) {
+    return "equippedCosmetics must be an object";
+  }
+  for (const [slot, cosmeticId] of Object.entries(state.equippedCosmetics)) {
+    if (!COSMETIC_SLOTS.includes(slot)) {
+      return `equippedCosmetics has an unknown slot: ${slot}`;
+    }
+    if (typeof cosmeticId !== "string" || !findCosmetic(cosmeticId)) {
+      return `equippedCosmetics has an unknown cosmetic id: ${cosmeticId}`;
+    }
   }
   return null;
 }
@@ -779,6 +829,14 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
       );
     }
   }
+  // Cosmetics (issue #11): the unlocked list only grows — an earned
+  // cosmetic is never lost. Equipped cosmetics switch freely, so
+  // there is no monotonic constraint on the equipped map.
+  for (const cosmeticId of prevState.unlockedCosmetics ?? []) {
+    if (!(newState.unlockedCosmetics ?? []).includes(cosmeticId)) {
+      return fail("MONOTONIC", `cosmetic unlock lost: ${cosmeticId}`);
+    }
+  }
   if (newState.totalLinesOfCode < prevState.totalLinesOfCode) {
     return fail("MONOTONIC", "totalLinesOfCode decreased");
   }
@@ -814,6 +872,33 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
       return fail(
         "UNLOCK",
         `freelance unlock claimed without meeting conditions: ${key}`
+      );
+    }
+  }
+
+  // Rule 3, cosmetics (issue #11) — unlocks and equips are real:
+  // every unlocked cosmetic's hire-count trigger must be met by the
+  // new snapshot itself, and every equipped cosmetic must be unlocked
+  // and belong to the slot it is equipped in. Recomputed from the new
+  // state, same as the other unlock rules. A failure here is a
+  // COSMETIC rejection (409 with the last good state).
+  for (const cosmeticId of newState.unlockedCosmetics ?? []) {
+    if (!cosmeticTriggerMet(cosmeticId, newState)) {
+      return fail(
+        "COSMETIC",
+        `cosmetic unlock claimed without meeting its trigger: ${cosmeticId}`
+      );
+    }
+  }
+  for (const [slot, cosmeticId] of Object.entries(
+    newState.equippedCosmetics ?? {}
+  )) {
+    if (
+      !canEquipCosmetic(slot, cosmeticId, newState.unlockedCosmetics ?? [])
+    ) {
+      return fail(
+        "COSMETIC",
+        `cosmetic ${cosmeticId} cannot be equipped in ${slot}`
       );
     }
   }

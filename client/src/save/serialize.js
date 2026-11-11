@@ -7,8 +7,9 @@
  * `{ id: level }`). These are thin adapters — the numbers come from the
  * reducer, never invented here.
  *
- * The 12 game fields are saved, including the timed golden-star buffs
- * (activeStarEffects) and the in-game inbox (emails, issue #31). UI state (activeTab, selectedPanes,
+ * The 14 game fields are saved, including the timed golden-star buffs
+ * (activeStarEffects), the in-game inbox (emails, issue #31), and the
+ * cosmetics (unlockedCosmetics / equippedCosmetics, issue #11). UI state (activeTab, selectedPanes,
  * clickHistory, currentCPS, uiState) is NOT saved and is reset to the
  * initial values on restore.
  */
@@ -17,6 +18,7 @@ import {
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
+  deriveUnlockedCosmetics,
   freelanceProjectUnlockConditionsMet,
   initialSaveState,
 } from "../../../shared/game-balance.js";
@@ -52,7 +54,7 @@ function inflateLevels(flat) {
   }, {});
 }
 
-/** Client reducer state -> the flat 12-field save shape the server stores. */
+/** Client reducer state -> the flat 14-field save shape the server stores. */
 export function stateToSaveState(clientState) {
   return {
     linesOfCode: clientState.linesOfCode,
@@ -72,10 +74,14 @@ export function stateToSaveState(clientState) {
     // entry; the inbox is capped at EMAIL_CONFIG.maxInboxEmails and the
     // oldest is dropped past it (see the email module).
     emails: (clientState.emails ?? []).map((entry) => ({ ...entry })),
+    // Cosmetics (issue #11). The unlocked list only grows; the
+    // equipped map is slot -> cosmeticId and changes freely.
+    unlockedCosmetics: [...(clientState.unlockedCosmetics ?? [])],
+    equippedCosmetics: { ...(clientState.equippedCosmetics ?? {}) },
   };
 }
 
-/** Server flat save shape -> the 12 game fields in client reducer shape. */
+/** Server flat save shape -> the 14 game fields in client reducer shape. */
 export function saveStateToGameFields(saveState) {
   return {
     linesOfCode: saveState.linesOfCode,
@@ -99,6 +105,14 @@ export function saveStateToGameFields(saveState) {
     }, {}),
     activeStarEffects: [...(saveState.activeStarEffects ?? [])],
     emails: [...(saveState.emails ?? [])].map((entry) => ({ ...entry })),
+    // A save from before cosmetics shipped (issue #11) has no
+    // cosmetic fields — derive the unlocked list from the save's own
+    // employee counts here, the same way the server's
+    // normalizeSaveState does on save.
+    unlockedCosmetics: saveState.unlockedCosmetics
+      ? [...saveState.unlockedCosmetics]
+      : deriveUnlockedCosmetics(saveState),
+    equippedCosmetics: { ...(saveState.equippedCosmetics ?? {}) },
   };
 }
 
@@ -141,19 +155,26 @@ export function diffCounts(baseline, current, keys) {
 
 /**
  * The fields that only change on a "big action" (hire, open-source
- * level, new email). Used to trigger a save on big actions. Project completions
+ * level, new email, cosmetic unlock/equip). Used to trigger a save on big actions. Project completions
  * (Ship) are deliberately NOT here: Ship is a rapid-fire action (the
  * player smashes it to sell LOC for cash as fast as possible), so
  * saving on every Ship would spam the 10s rate limit. Ship progress
  * is still saved by the 60s heartbeat and by the keepalive on tab
  * hide/unload. A new email IS here: mail arrives rarely (unlocks,
- * star rewards), and the inbox should persist promptly.
+ * star rewards), and the inbox should persist promptly. A cosmetic
+ * unlock/equip IS here too: the player chose it deliberately, and
+ * the equipped icon should survive a tab close.
  */
 export function bigActionFields(saveState) {
   return {
     employees: saveState.employees,
     openSourceProjects: saveState.openSourceProjects,
     emails: (saveState.emails ?? []).length,
+    // The unlocked list only grows; the equipped map is compared as
+    // a string because any change (equip, unequip, switch) is a
+    // big action.
+    unlockedCosmetics: (saveState.unlockedCosmetics ?? []).length,
+    equippedCosmetics: JSON.stringify(saveState.equippedCosmetics ?? {}),
   };
 }
 
@@ -197,6 +218,9 @@ export function isInitialSaveState(saveState) {
   }
   if ((saveState.activeStarEffects ?? []).length !== 0) return false;
   if ((saveState.emails ?? []).length !== 0) return false;
+  if ((saveState.unlockedCosmetics ?? []).length !== 0) return false;
+  if (Object.keys(saveState.equippedCosmetics ?? {}).length !== 0)
+    return false;
   return true;
 }
 
@@ -213,5 +237,11 @@ export function bigActionIncreased(prev, next) {
       return true;
   }
   if ((next.emails ?? 0) > (prev.emails ?? 0)) return true;
+  if ((next.unlockedCosmetics ?? 0) > (prev.unlockedCosmetics ?? 0))
+    return true;
+  // Equipping is not a count — any change (equip, unequip, switch)
+  // is a big action.
+  if ((next.equippedCosmetics ?? "") !== (prev.equippedCosmetics ?? ""))
+    return true;
   return false;
 }
