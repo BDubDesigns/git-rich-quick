@@ -120,25 +120,25 @@ export const SECTIONS_CONFIG = Object.freeze({
     id: "farm",
     displayName: "Llama Farm",
     description:
-      "Your staff have been dreaming of quitting to start an alpaca farm. You let them build it — but you never accepted their notice, so they're still employees. The llamas are unionizing. The barn has mood lighting. This is fine.",
+      "Your staff have been dreaming of quitting to start an alpaca farm. You let them build it, but you never accepted their notice, so they're still employees. The llamas are unionizing. The barn has mood lighting. This is fine.",
   },
   settings: {
     id: "settings",
     displayName: "Settings",
     description:
-      "Account and game settings — link a save to your account so it survives clearing browser data.",
+      "Account and game settings. Link a save to your account so it survives clearing browser data.",
   },
   email: {
     id: "email",
     displayName: "Inbox",
     description:
-      "Mail from the game world — hiring leads, unlock notices, star reports. It's not real email; nobody here knows your address, and HR definitely doesn't.",
+      "Mail from the game world: hiring leads, unlock notices, star reports. It's not real email; nobody here knows your address, and HR definitely doesn't.",
   },
   leaderboard: {
     id: "leaderboard",
     displayName: "Leaderboard",
     description:
-      "The top 10 accounts, ranked by lifetime LOC. Guests do not make the board — link a save to an account to claim a spot.",
+      "The top 10 accounts, ranked by lifetime LOC. Guests do not make the board. Link a save to an account to claim a spot.",
   },
 });
 
@@ -188,7 +188,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     Icon: FaKeyboard,
     color: "blue",
     description:
-      "Writes commit messages so clean the git log weeps. Each one adds a tenth of a line to every click — it adds up, eventually, if you hire enough of them.",
+      "Writes commit messages so clean the git log weeps. Each one adds a tenth of a line to every click. It adds up, eventually, if you hire enough of them.",
   },
   releaseManager: {
     // Balance numbers (cost, multiplier, unlocks) come from shared.
@@ -301,7 +301,7 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
     ...shared.BALANCE.freelanceProjects.nftMarketplace,
     name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.nftMarketplace,
     description:
-      "A marketplace for NFTs of to-do lists. Own a JPEG of someone else's unfinished chores — yours forever, on the blockchain, until the site goes down.",
+      "A marketplace for NFTs of to-do lists. Own a JPEG of someone else's unfinished chores. Yours forever, on the blockchain, until the site goes down.",
     icon: FaImage,
     color: "pink",
   },
@@ -351,7 +351,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     icon: FaStar,
     color: "gold",
     description:
-      "A constellation of golden stars, hung in the GitNub sky by a dev who clearly had too much time on their hands. Chart more of it and the stars start falling — click one before it burns out. Mostly good news. Mostly.",
+      "A constellation of golden stars, hung in the GitNub sky by a dev who clearly had too much time on their hands. Chart more of it and the stars start falling. Click one before it burns out. Mostly good news. Mostly.",
   },
   starBroker: {
     // Levels (and unlock conditions) come from shared.
@@ -360,6 +360,6 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     icon: FaStar,
     color: "gold",
     description:
-      "Why wait for the sky to provide when you can just buy a star? Sacrifice 30 seconds of passive LOC and a golden star falls on demand — stack it with a natural one for a two-star combo. Each level halves the wait before you can buy another. Fair warning: nobody trusts your commits for a bit after finding out you buy stars.",
+      "Why wait for the sky to provide when you can just buy a star? Sacrifice 30 seconds of passive LOC and a golden star falls on demand. Stack it with a natural one for a two-star combo. Each level halves the wait before you can buy another. Fair warning: nobody trusts your commits for a bit after finding out you buy stars.",
   },
 });

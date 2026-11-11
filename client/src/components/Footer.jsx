@@ -12,8 +12,8 @@ const SAVE_STATUS_LABELS = {
   loading: "Connecting to save server…",
   saving: "Saving…",
   saved: "Progress saved",
-  offline: "Offline — progress will sync when reconnected",
-  error: "Save error — progress reverted to the last good save",
+  offline: "Offline. Progress will sync when reconnected",
+  error: "Save error. Progress reverted to the last good save",
 };
 
 // "Saved just now" right after a save, then "Saved 5s ago", "Saved 2m ago".

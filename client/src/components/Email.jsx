@@ -129,7 +129,7 @@ export function Email() {
         {emails.length === 0 && (
           <p className="primary-text px-3 pb-3">
             No mail yet. Hire someone, unlock something, or click a golden
-            star — the game world will write.
+            star. The game world will write.
           </p>
         )}
         {emails.length > 0 &&

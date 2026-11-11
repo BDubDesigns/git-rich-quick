@@ -2229,7 +2229,7 @@ export function buildEmployeeVisibleEmail({ employeeName, requirementText }) {
     subject: `We found a ${employeeName}!`,
     body:
       `We found a ${employeeName}! They're interested, but not impressed ` +
-      `yet — they want to see a bigger operation first.\n\n` +
+      `yet. They want to see a bigger operation first.\n\n` +
       `To win them over: ${requirementText}.\n\n` +
       `Keep shipping. They'll be watching your commit history.`,
   };
@@ -2254,7 +2254,7 @@ export function buildFreelanceProjectVisibleEmail({ projectName, requirementText
     subject: `${projectName} is on the board!`,
     body:
       `A client posted a ${projectName} gig, but they're not taking ` +
-      `newcomers — they want to see a track record first.\n\n` +
+      `newcomers. They want to see a track record first.\n\n` +
       `To land it: ${requirementText}.\n\n` +
       `Ship more gigs and they'll come around. They always do.`,
   };
@@ -2308,7 +2308,7 @@ export function buildOpenSourceLevelEmail({ projectName, level }) {
       `Your contributions pushed ${projectName} to v${level}.0. The ` +
       `changelog just says "various bug fixes and performance ` +
       `improvements", but you know what you did.\n\n` +
-      `Keep contributing — the next version has your name on it. Figuratively.`,
+      `Keep contributing. The next version has your name on it. Figuratively.`,
   };
 }
 
@@ -2338,7 +2338,7 @@ export function buildFarmPurchasedEmail() {
       `So. The team has been threatening to quit and start an alpaca ` +
       `farm for months, and you finally let them build one. The barn ` +
       `is up, the mood lighting is installed, and it is completely ` +
-      `empty — no llamas come with it. You still have not accepted ` +
+      `empty. No llamas come with it. You still have not accepted ` +
       `their notice of quitting, so technically they are still ` +
       `employees. HR has questions. You do not have answers.\n\n` +
       `Buy some llamas, move them in, set the lights, and let them ` +
@@ -2355,7 +2355,7 @@ export function buildFarmNewTypeEmail({ typeName, typeDescription }) {
       `One of the llamas had a kid, and it is not like the others. ` +
       `Meet the ${typeName}.\n\n` +
       `${typeDescription}\n\n` +
-      `Keep breeding — there are more types out there, and the barn ` +
+      `Keep breeding. There are more types out there, and the barn ` +
       `only gets weirder from here.`,
   };
 }

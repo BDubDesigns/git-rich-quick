@@ -113,7 +113,7 @@ export function OpenSourceCard({
                 value={
                   currentLevel > 0
                     ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
-                    : "No stars yet — chart the first one"
+                    : "No stars yet. Chart the first one"
                 }
                 valueClassName="text-green-400"
               />

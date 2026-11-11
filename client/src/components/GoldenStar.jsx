@@ -94,7 +94,7 @@ function StarEffectBar({ buff, nowMs }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(fillPct)}
-      aria-label={`${label} ${buff.multiplier}x — ${formatCountdown(remainingSeconds)} left`}
+      aria-label={`${label} ${buff.multiplier}x, ${formatCountdown(remainingSeconds)} left`}
     >
       <div
         className={`star-effect-bar-fill ${
@@ -670,7 +670,7 @@ export function GoldenStar() {
       {star && (
         <button
           type="button"
-          aria-label="Golden star — click for a random reward"
+          aria-label="Golden star, click for a random reward"
           className={fading ? "golden-star fading" : "golden-star"}
           style={{ left: `${star.x}px`, top: `${star.y}px` }}
           onClick={handleStarClick}
@@ -685,7 +685,7 @@ export function GoldenStar() {
       {boughtStar && (
         <button
           type="button"
-          aria-label="Bought golden star — click for a random reward"
+          aria-label="Bought golden star, click for a random reward"
           className={boughtFading ? "golden-star fading" : "golden-star"}
           style={{ left: `${boughtStar.x}px`, top: `${boughtStar.y}px` }}
           onClick={handleBoughtStarClick}
@@ -719,7 +719,7 @@ export function GoldenStar() {
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(countdownFillPct)}
-            aria-label={`Next golden star in ${formatCountdown(secondsLeft)} — tap to hide the star bars`}
+            aria-label={`Next golden star in ${formatCountdown(secondsLeft)}. Tap to hide the star bars`}
             onClick={toggleStarBarsCollapsed}
           >
             <div
@@ -768,10 +768,10 @@ export function GoldenStar() {
               disabled={!buyReady}
               aria-label={
                 buyCooldownActive
-                  ? `Buy a golden star — available in ${formatCountdown(buyCooldownRemainingSeconds)}`
+                  ? `Buy a golden star, available in ${formatCountdown(buyCooldownRemainingSeconds)}`
                   : buyReady
                     ? `Buy a golden star for ${formatNumber(buyCost)} LOC`
-                    : `Buy a golden star — costs ${formatNumber(buyCost)} LOC`
+                    : `Buy a golden star, costs ${formatNumber(buyCost)} LOC`
               }
               onClick={(event) => {
                 event.stopPropagation();

@@ -71,21 +71,21 @@ export function Settings() {
         setConfirmingReset(false);
         setMessage({
           kind: "ok",
-          text: "Progress reset — you're back to 0. Your player id and account link are unchanged.",
+          text: "Progress reset. You're back to 0. Your player id and account link are unchanged.",
         });
       } else {
         setMessage({
           kind: "error",
           text:
             result.error === "not-initialized"
-              ? "No save loaded yet — play a little first, then reset."
-              : `Reset failed (${result.error}). Your progress is untouched — try again.`,
+              ? "No save loaded yet. Play a little first, then reset."
+              : `Reset failed (${result.error}). Your progress is untouched. Try again.`,
         });
       }
     } catch (err) {
       setMessage({
         kind: "error",
-        text: `Reset failed (${String(err?.message ?? err)}). Your progress is untouched — try again.`,
+        text: `Reset failed (${String(err?.message ?? err)}). Your progress is untouched. Try again.`,
       });
     } finally {
       setResetBusy(false);
@@ -152,7 +152,7 @@ export function Settings() {
           kind: "ok",
           text:
             mode === "signup"
-              ? "Account created — link your save below so it survives clearing browser data."
+              ? "Account created. Link your save below so it survives clearing browser data."
               : "Signed in.",
         });
         setPassword("");
@@ -168,7 +168,7 @@ export function Settings() {
     if (!guestPlayerId) {
       setMessage({
         kind: "error",
-        text: "No guest save on this device yet — play a little first, then link it.",
+        text: "No guest save on this device yet. Play a little first, then link it.",
       });
       return;
     }
@@ -180,7 +180,7 @@ export function Settings() {
         setLinkedPlayerId(guestPlayerId);
         setMessage({
           kind: "ok",
-          text: "Save linked to your account. Clearing browser data or switching devices will not lose it — sign in and load the linked save.",
+          text: "Save linked to your account. Clearing browser data or switching devices will not lose it. Sign in and load the linked save.",
         });
       } else if (status === 409 && data?.reason === "player-linked") {
         setMessage({
@@ -264,7 +264,7 @@ export function Settings() {
       <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
         <p className="m-0 text-xs">
-          Optional. Guests play fine without one — an account just keeps
+          Optional. Guests play fine without one. An account just keeps
           your save if you clear browser data or switch devices. No email
           verification needed to sign up.
         </p>
@@ -434,8 +434,8 @@ export function Settings() {
         {!confirmingReset ? (
           <>
             <p className="m-0 text-xs">
-              Reset your entire progress back to 0. This is not prestige
-              — there is no bonus for resetting.
+              Reset your entire progress back to 0. This is not prestige.
+              There is no bonus for resetting.
             </p>
             <div>
               <Button
@@ -451,8 +451,8 @@ export function Settings() {
         ) : (
           <>
             <p className="m-0 text-xs text-[#f48771]">
-              This wipes ALL progress — LOC, money, employees, projects,
-              open-source levels, cosmetics, emails, and stars — and
+              This wipes ALL progress (LOC, money, employees, projects,
+              open-source levels, cosmetics, emails, and stars) and
               cannot be undone. Your player id and account link stay
               the same; only the progress goes to 0.
             </p>

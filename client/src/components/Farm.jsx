@@ -87,23 +87,23 @@ export function Farm() {
         <div className="panel flex flex-col gap-2 p-3">
           <p className="m-0 text-sm">
             Your staff have been dreaming of quitting to start an alpaca
-            farm. You let them build it — but you never accepted their
+            farm. You let them build it, but you never accepted their
             notice, so they are still employees. The llamas are
             unionizing. The barn has mood lighting. This is fine.
           </p>
           <p className="m-0 text-sm">
-            Buy the barn and it arrives empty — no llamas come with it.
+            Buy the barn and it arrives empty. No llamas come with it.
             Buy base llamas, move them in, set the lights, and let them
             breed to discover new types. The farm generates no cash yet
             (that is the next slice); for now it generates llamas, which
             is arguably better.
           </p>
           <Button onClick={handleBuyFarm} disabled={!canAfford}>
-            Buy the Llama Farm — {formatMoney(FARM_CONFIG.purchaseCostCents)}
+            Buy the Llama Farm ({formatMoney(FARM_CONFIG.purchaseCostCents)})
           </Button>
           {!canAfford && (
             <p className="m-0 text-sm">
-              You need {formatMoney(FARM_CONFIG.purchaseCostCents)} — ship
+              You need {formatMoney(FARM_CONFIG.purchaseCostCents)}. Ship
               some projects first.
             </p>
           )}
@@ -125,9 +125,9 @@ export function Farm() {
       <p className="m-0 text-sm">
         {llamaCount} {llamaCount === 1 ? "llama" : "llamas"} in the barn.{" "}
         {llamaCount === 0
-          ? "The barn is empty — buy your first llamas below to start breeding."
+          ? "The barn is empty. Buy your first llamas below to start breeding."
           : eligible.length > 0
-            ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now — a kid appears about every few breeding ticks (one tick every ${FARM_CONFIG.breedingTickSeconds}s).`
+            ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now. A kid appears about every few breeding ticks (one tick every ${FARM_CONFIG.breedingTickSeconds}s).`
             : "No empty stall sits between two llamas right now, so nothing can breed."}{" "}
         Click a llama's stall to cycle its lighting (the mood); click an
         empty stall to buy a llama into it.
@@ -192,7 +192,7 @@ export function Farm() {
       {selectedStallEmpty && (
         <div className="panel flex flex-col gap-2 p-3">
           <p className="m-0 text-sm">
-            Buy a llama for stall {selectedStall + 1} —{" "}
+            Buy a llama for stall {selectedStall + 1}:{" "}
             {formatMoney(FARM_CONFIG.llamaPriceCents)} each. Only the base
             types are for sale; new types come only from breeding.
           </p>
@@ -203,14 +203,14 @@ export function Farm() {
                 onClick={() => handleBuyLlama(type)}
                 disabled={!canAffordLlama}
               >
-                Buy {LLAMA_TYPE_NAMES[type]} —{" "}
-                {formatMoney(FARM_CONFIG.llamaPriceCents)}
+                Buy {LLAMA_TYPE_NAMES[type]} ({" "}
+                {formatMoney(FARM_CONFIG.llamaPriceCents)})
               </Button>
             ))}
           </div>
           {!canAffordLlama && (
             <p className="m-0 text-sm">
-              You need {formatMoney(FARM_CONFIG.llamaPriceCents)} — ship
+              You need {formatMoney(FARM_CONFIG.llamaPriceCents)}. Ship
               some projects first.
             </p>
           )}
@@ -247,9 +247,9 @@ export function Farm() {
               {discovered ? "🦙 " : "· "}
               <strong>{LLAMA_TYPE_NAMES[type]}</strong>
               {discovered ? (
-                <> — {LLAMA_TYPE_DESCRIPTIONS[type]}</>
+                <>: {LLAMA_TYPE_DESCRIPTIONS[type]}</>
               ) : (
-                " — undiscovered. Breed for it."
+                ", undiscovered. Breed for it."
               )}
             </p>
           );
