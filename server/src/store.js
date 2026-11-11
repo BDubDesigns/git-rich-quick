@@ -286,5 +286,65 @@ export function createStore(pool) {
         client.release();
       }
     },
+
+    /**
+     * Admin seed (issue #46): overwrite a TEST player's saved state,
+     * bypassing save validation — it is setting up a test fixture, so
+     * progression, rate-limit, and LOC/money rules do not apply. `state`
+     * must already be shape-validated (see validateSeedState in
+     * validate.js); the store trusts it. saved_at is set to nowMs, so
+     * the next save's window starts at the seed time.
+     *
+     * GUARDRAIL: the row must be linked to an account whose email is
+     * exactly `testEmail` (the test account, see admin.js). A guest row
+     * (user_id NULL) or a row linked to any other account is refused —
+     * a real player's save can never be seeded through this method,
+     * even with a valid admin token. The check and the update run in
+     * one transaction against the locked row, so the link cannot change
+     * between them. Returns one of:
+     * - `{ status: "ok", state, savedAtMs }`
+     * - `{ status: "unknown-player" }` (no save row for that playerId)
+     * - `{ status: "not-test-player" }` (row exists but is not linked
+     *   to the test account)
+     */
+    async seedTestPlayer(playerId, state, nowMs, testEmail) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT gs.player_id, u.email
+           FROM git_saves gs LEFT JOIN "user" u ON u.id = gs.user_id
+           WHERE gs.player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        if (res.rows[0].email !== testEmail) {
+          await client.query("ROLLBACK");
+          return { status: "not-test-player" };
+        }
+        await client.query(
+          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          [
+            JSON.stringify(state),
+            new Date(nowMs).toISOString(),
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        return { status: "ok", state, savedAtMs: nowMs };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
   };
 }

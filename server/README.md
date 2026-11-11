@@ -25,6 +25,13 @@ balance number (imported by both the client and this server).
   of the last accepted save is `429` with `Retry-After` — the client
   keeps its actions and retries on the next heartbeat.
 - `GET /healthz` — liveness check for Coolify.
+- `POST /api/admin/seed-test-player` — admin seed (issue #46): overwrite
+  the ONE test player's saved state, bypassing save validation (it sets
+  up a test fixture). Requires `Authorization: Bearer <ADMIN_TOKEN>`.
+  The player must be linked to the test account (`jaybles@qcfailed.com`);
+  any other player is `403 not-test-player`. Without `ADMIN_TOKEN`
+  configured the endpoint answers `501 admin-not-configured`. Every
+  call is audit-logged. No real player's save can be seeded.
 
 ## Validation (nine rules)
 
@@ -64,5 +71,7 @@ GitHub Actions builds the image on every PR touching `server/`,
 `ghcr.io/bdubdesigns/git-rich-quick-save` on merge to master. Coolify on
 the Hetzner box runs it as a Docker Image resource with a separate
 Coolify-managed Postgres (own database, not RuneSpace's). Env vars in
-Coolify: `DATABASE_URL`, `PORT`. The client stays on Vercel; only its
-API base URL changes, in a later slice.
+Coolify: `DATABASE_URL`, `PORT`, `ADMIN_TOKEN` (bearer token for the
+`/api/admin/*` endpoints; also kept in jellybean's Secure Vault — never
+in the repo). The client stays on Vercel; only its API base URL changes,
+in a later slice.

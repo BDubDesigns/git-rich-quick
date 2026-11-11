@@ -11,6 +11,10 @@
  * - POST /api/account/link — link a guest playerId to the signed-in
  *   account (Slice 3). GET /api/account/link reads the link.
  *   POST /api/account/unlink removes it.
+ * - POST /api/admin/seed-test-player — admin seed (issue #46): overwrite
+ *   the ONE test player's saved state, bypassing save validation. Bearer
+ *   token (ADMIN_TOKEN) required, test-player-only — see admin.js.
+ *   Disabled (501) when ADMIN_TOKEN is unset.
  *
  * Status mapping: malformed bodies are 400, unknown players are 404,
  * validation failures are 409 with the last good state, and a save that
@@ -31,9 +35,11 @@
  *
  * Env: DATABASE_URL (required), PORT (default 3000), HOST (default 0.0.0.0),
  * BETTER_AUTH_SECRET (required in production), BETTER_AUTH_URL (public API
- * URL, default http://localhost:3000). `clock` is injectable for tests;
- * production uses Date.now. `auth` is injectable for tests; production
- * builds it from the pool (see main()).
+ * URL, default http://localhost:3000), ADMIN_TOKEN (bearer token for the
+ * /api/admin/* endpoints; when unset, admin endpoints answer 501).
+ * `clock` is injectable for tests; production uses Date.now. `auth` is
+ * injectable for tests; production builds it from the pool (see main()).
+ * `adminToken` is injectable for tests; production reads ADMIN_TOKEN.
  */
 
 import http from "node:http";
@@ -42,7 +48,8 @@ import { Pool } from "pg";
 import { toNodeHandler } from "better-auth/node";
 import { createAuth } from "./auth.js";
 import { createStore } from "./store.js";
-import { SAVE_RATE_LIMIT_SECONDS } from "./validate.js";
+import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
+import { TEST_ACCOUNT_EMAIL, isAdminAuthorized } from "./admin.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -124,8 +131,105 @@ async function readJsonBody(req) {
   return JSON.parse(text);
 }
 
-export function createServer(store, { clock = Date.now, auth } = {}) {
+export function createServer(store, { clock = Date.now, auth, adminToken } = {}) {
   const authHandler = auth ? toNodeHandler(auth) : null;
+
+  /** One structured audit line per admin call (issue #46). No token, no state. */
+  function auditAdmin(action, fields) {
+    console.warn(
+      "[admin]",
+      action,
+      JSON.stringify({ at: new Date(clock()).toISOString(), ...fields })
+    );
+  }
+
+  /**
+   * Admin seed (issue #46): POST /api/admin/seed-test-player, body
+   * `{ playerId, state }`. Bearer token required; the seed only ever
+   * touches the one test player (linked to the test account — see
+   * admin.js). The state is shape-validated but bypasses progression,
+   * rate-limit, and LOC/money rules, so a test fixture can be any valid
+   * state. 401 for a missing/wrong token, 501 when ADMIN_TOKEN is not
+   * configured, 403 when the player is not the test player, 404 for an
+   * unknown playerId, 400 for a malformed body or state.
+   */
+  async function handleAdminSeed(req, res) {
+    if (!adminToken) {
+      auditAdmin("seed-test-player", { status: "admin-not-configured" });
+      sendJson(res, 501, { error: "admin-not-configured" });
+      return;
+    }
+    if (!isAdminAuthorized(req, adminToken)) {
+      auditAdmin("seed-test-player", { status: "unauthorized" });
+      sendJson(res, 401, { error: "unauthorized" });
+      return;
+    }
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId) ||
+      body.state === null ||
+      typeof body.state !== "object" ||
+      Array.isArray(body.state)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-seed",
+        detail: "playerId must be a UUID string and state must be an object",
+      });
+      return;
+    }
+    const shape = validateSeedState(body.state);
+    if (!shape.ok) {
+      sendJson(res, 400, { error: "invalid-seed", detail: shape.detail });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.seedTestPlayer(
+      body.playerId,
+      shape.state,
+      nowMs,
+      TEST_ACCOUNT_EMAIL
+    );
+    if (result.status === "unknown-player") {
+      auditAdmin("seed-test-player", {
+        status: "unknown-player",
+        playerId: body.playerId,
+      });
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "not-test-player") {
+      auditAdmin("seed-test-player", {
+        status: "not-test-player",
+        playerId: body.playerId,
+      });
+      sendJson(res, 403, { error: "not-test-player" });
+      return;
+    }
+    auditAdmin("seed-test-player", {
+      status: "ok",
+      playerId: body.playerId,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      playerId: body.playerId,
+      savedAt: iso(result.savedAtMs),
+      state: result.state,
+    });
+  }
 
   /** The signed-in user for this request, or null (no/invalid session). */
   async function getSessionUser(req) {
@@ -343,6 +447,8 @@ export function createServer(store, { clock = Date.now, auth } = {}) {
         await handleGetLink(req, res);
       } else if (url.pathname === "/api/account/unlink" && req.method === "POST") {
         await handleUnlink(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/admin/seed-test-player") {
+        await handleAdminSeed(req, res);
       } else if (url.pathname.startsWith("/api/auth/") && authHandler) {
         // Better Auth owns everything under /api/auth/* (sign-up,
         // sign-in, sign-out, session...). It reads the raw body itself,
@@ -380,7 +486,13 @@ async function main() {
   const store = createStore(pool);
   await store.ensureSchema();
   const auth = createAuth(pool);
-  const server = createServer(store, { auth });
+  const adminToken = process.env.ADMIN_TOKEN;
+  if (!adminToken) {
+    console.warn(
+      "[admin] ADMIN_TOKEN is not set; /api/admin/* endpoints are disabled."
+    );
+  }
+  const server = createServer(store, { auth, adminToken });
   server.listen(port, host, () => {
     console.log(`git-save-service listening on ${host}:${port}`);
   });

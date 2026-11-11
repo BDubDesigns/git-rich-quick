@@ -129,14 +129,14 @@ function isCountMap(obj, keys) {
  * frozen at 0 (no buy action exists for it in v1). Star-era fields
  * (activeStarEffects, starClaims) are validated here too.
  */
-function checkShape(body) {
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return "body must be an object";
-  }
-  if (typeof body.playerId !== "string" || !UUID_RE.test(body.playerId)) {
-    return "playerId must be a UUID string";
-  }
-  const state = body.state;
+/**
+ * Shape-check a bare save state (no playerId, no actions). Extracted from
+ * checkShape so the admin seed endpoint (issue #46) can reuse it: a seed
+ * bypasses progression validation, but the state must still be a
+ * well-formed state or the next load/save breaks. Returns an error string,
+ * or null when the state is well-formed.
+ */
+function checkStateShape(state) {
   if (
     !hasExactKeys(state, [
       "linesOfCode",
@@ -212,7 +212,14 @@ function checkShape(body) {
   ) {
     return "unlockedOpenSourceProjects must be booleans";
   }
-  const actions = body.actionsSinceLastSave;
+  return null;
+}
+
+/**
+ * Shape-check an actions object. Extracted from checkShape (see
+ * checkStateShape).
+ */
+function checkActionsShape(actions) {
   if (
     !hasExactKeys(actions, [
       "clicks",
@@ -248,6 +255,33 @@ function checkShape(body) {
     if (claimError) return claimError;
   }
   return null;
+}
+
+function checkShape(body) {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return "body must be an object";
+  }
+  if (typeof body.playerId !== "string" || !UUID_RE.test(body.playerId)) {
+    return "playerId must be a UUID string";
+  }
+  const stateError = checkStateShape(body.state);
+  if (stateError) return stateError;
+  return checkActionsShape(body.actionsSinceLastSave);
+}
+
+/**
+ * Shape-check a bare save state for the admin seed endpoint (issue #46).
+ * The seed bypasses progression validation, but the state must still be
+ * well-formed. Star-era fields are defaulted the same way validateSave
+ * does, so a state from before Constellation still seeds. Returns
+ * `{ ok: true, state }` with the normalized state, or
+ * `{ ok: false, detail }`.
+ */
+export function validateSeedState(state) {
+  const normalized = normalizeSaveState(state);
+  const error = checkStateShape(normalized);
+  if (error) return { ok: false, detail: error };
+  return { ok: true, state: normalized };
 }
 
 // --- Golden star (issue #33) validation helpers ---
