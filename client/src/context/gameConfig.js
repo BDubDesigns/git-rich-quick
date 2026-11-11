@@ -169,27 +169,27 @@ export const AI_ASSISTANT_CONFIGS = Object.freeze({
 // Design: Smaller projects have higher $/LOC to reward clicking, larger projects have lower $/LOC to encourage bulk sales
 export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
   toDoListApp: {
-    // LOC cost and reward come from shared.
+    // LOC cost, reward, and unlock conditions come from shared.
     ...shared.BALANCE.freelanceProjects.toDoListApp,
-    name: "To Do List App",
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.toDoListApp,
     description:
       "A simple to-do list application. Cuz that's never been done before. Ever.",
     icon: BsClipboard2CheckFill,
     color: "brown",
   },
   hobbyWebsite: {
-    // LOC cost and reward come from shared.
+    // LOC cost, reward, and unlock conditions come from shared.
     ...shared.BALANCE.freelanceProjects.hobbyWebsite,
-    name: "Hobby Website",
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.hobbyWebsite,
     description:
       "A personal website for a client to showcase their hobbies. The world needs to know about Bob's passion for stamp collecting.",
     icon: GiPostStamp,
     color: "lightblue",
   },
   paradigmShiftingBlockchainProject: {
-    // LOC cost and reward come from shared.
+    // LOC cost, reward, and unlock conditions come from shared.
     ...shared.BALANCE.freelanceProjects.paradigmShiftingBlockchainProject,
-    name: "Paradigm-Shifting Blockchain Project",
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.paradigmShiftingBlockchainProject,
     description:
       "A very useful project that leverages the blockchain to convert hype, overpromises, and investor's money into your money.",
     icon: GiCoinsPile,

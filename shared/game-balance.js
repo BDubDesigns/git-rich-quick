@@ -71,11 +71,38 @@ export const BALANCE = Object.freeze({
   }),
 
   freelanceProjects: Object.freeze({
-    toDoListApp: Object.freeze({ loc: 50, reward: 3000 }), // cents
-    hobbyWebsite: Object.freeze({ loc: 750, reward: 36000 }),
+    // The To Do List App is the starter gig: no unlock conditions.
+    toDoListApp: Object.freeze({
+      loc: 50,
+      reward: 3000, // cents
+      unlockConditions: Object.freeze([]),
+    }),
+    // Hobby Website (issue #19): unlocks after shipping 50 To Do List
+    // Apps — discovered after 5, at the 10% visibility threshold.
+    hobbyWebsite: Object.freeze({
+      loc: 750,
+      reward: 36000,
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_PROJECT_COUNT",
+          projectKey: "toDoListApp",
+          target: 50,
+        }),
+      ]),
+    }),
+    // Blockchain Project (issue #19): 200 total projects shipped, of
+    // which 50 must be Hobby Websites.
     paradigmShiftingBlockchainProject: Object.freeze({
       loc: 2000,
       reward: 80000,
+      unlockConditions: Object.freeze([
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 200 }),
+        Object.freeze({
+          type: "SPECIFIC_PROJECT_COUNT",
+          projectKey: "hobbyWebsite",
+          target: 50,
+        }),
+      ]),
     }),
   }),
 
@@ -566,6 +593,10 @@ export function openSourceLevelCosts(projectId, fromLevel, toLevel) {
 /**
  * Whether one unlock condition is met by a save-shaped state.
  * Unknown condition types fail closed (locked), same as the client.
+ *
+ * New condition types (issue #19) read the freelance completion
+ * counts, which the save already tracks per project — no new
+ * persistent field was needed for them.
  */
 export function conditionMet(condition, state) {
   switch (condition.type) {
@@ -577,9 +608,27 @@ export function conditionMet(condition, state) {
       return (
         (state.employees[condition.employeeType] ?? 0) >= condition.target
       );
+    case "SPECIFIC_PROJECT_COUNT":
+      return (
+        (state.freelanceProjectsCompleted?.[condition.projectKey] ?? 0) >=
+        condition.target
+      );
+    case "TOTAL_PROJECTS_COUNT":
+      return (
+        totalProjectsShipped(state.freelanceProjectsCompleted) >=
+        condition.target
+      );
     default:
       return false;
   }
+}
+
+/** Total freelance projects shipped, from the flat completion counts. */
+export function totalProjectsShipped(freelanceProjectsCompleted) {
+  return FREELANCE_PROJECT_KEYS.reduce(
+    (sum, key) => sum + (freelanceProjectsCompleted?.[key] ?? 0),
+    0
+  );
 }
 
 /** Whether every unlock condition for an employee type is met. */
@@ -600,6 +649,15 @@ export function openSourceUnlockConditionsMet(projectId, state) {
   );
 }
 
+/** Whether every unlock condition for a freelance project is met. */
+export function freelanceProjectUnlockConditionsMet(projectKey, state) {
+  const config = BALANCE.freelanceProjects[projectKey];
+  if (!config) return false;
+  return config.unlockConditions.every((condition) =>
+    conditionMet(condition, state)
+  );
+}
+
 /** The save state a brand-new player starts from. Unlocks derive from the configs. */
 export function initialSaveState() {
   const unlockedEmployees = {};
@@ -613,6 +671,11 @@ export function initialSaveState() {
     openSourceProjects[projectId] = 0;
     unlockedOpenSourceProjects[projectId] =
       BALANCE.openSource[projectId].unlockConditions.length === 0;
+  }
+  const unlockedFreelanceProjects = {};
+  for (const projectKey of FREELANCE_PROJECT_KEYS) {
+    unlockedFreelanceProjects[projectKey] =
+      BALANCE.freelanceProjects[projectKey].unlockConditions.length === 0;
   }
   return {
     linesOfCode: BALANCE.mechanics.startingLoc,
@@ -628,6 +691,7 @@ export function initialSaveState() {
     openSourceProjects,
     unlockedEmployees,
     unlockedOpenSourceProjects,
+    unlockedFreelanceProjects,
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
     // (10-60s); expired entries are dropped by the client tick.
@@ -680,6 +744,25 @@ export function normalizeSaveState(state) {
   }
   if (!Array.isArray(next.emails)) {
     next.emails = [];
+  }
+  if (
+    next.unlockedFreelanceProjects === undefined ||
+    typeof next.unlockedFreelanceProjects !== "object" ||
+    Array.isArray(next.unlockedFreelanceProjects)
+  ) {
+    // A save from before project unlocks shipped (issue #19) has no
+    // freelance latch at all. Derive it from the save's own shipped
+    // counts, so a player who already shipped 50 To Do List Apps gets
+    // the Hobby Website unlocked on load instead of locked behind a
+    // goal they already cleared.
+    const unlocked = {};
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      unlocked[projectKey] = freelanceProjectUnlockConditionsMet(
+        projectKey,
+        next
+      );
+    }
+    next.unlockedFreelanceProjects = unlocked;
   }
   return next;
 }
@@ -740,6 +823,12 @@ export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
   overReactFramework: "OverReact Framework",
   blocker: "Blocker Containerization Platform",
   constellation: "GitNub Constellation",
+});
+
+export const FREELANCE_PROJECT_DISPLAY_NAMES = Object.freeze({
+  toDoListApp: "To Do List App",
+  hobbyWebsite: "Hobby Website",
+  paradigmShiftingBlockchainProject: "Paradigm-Shifting Blockchain Project",
 });
 
 /**
@@ -819,6 +908,32 @@ export function buildEmployeeUnlockedEmail({ employeeName }) {
       `Good news: the ${employeeName} looked at your commit history and ` +
       `decided you're worth working for.\n\n` +
       `They're on the market now. Hire them before some other startup does.`,
+  };
+}
+
+/** A freelance project became VISIBLE but is not unlocked yet — a teaser and a goal. */
+export function buildFreelanceProjectVisibleEmail({ projectName, requirementText }) {
+  return {
+    sender: "Freelance Board",
+    subject: `${projectName} is on the board!`,
+    body:
+      `A client posted a ${projectName} gig, but they're not taking ` +
+      `newcomers — they want to see a track record first.\n\n` +
+      `To land it: ${requirementText}.\n\n` +
+      `Ship more gigs and they'll come around. They always do.`,
+  };
+}
+
+/** A freelance project's unlock requirement is met — it can be shipped now. */
+export function buildFreelanceProjectUnlockedEmail({ projectName }) {
+  return {
+    sender: "Freelance Board",
+    subject: `${projectName} is available to ship!`,
+    body:
+      `Your track record convinced the client: the ${projectName} gig ` +
+      `is yours now.\n\n` +
+      `It's a bigger job with a bigger payout. Ship it before someone ` +
+      `else does.`,
   };
 }
 

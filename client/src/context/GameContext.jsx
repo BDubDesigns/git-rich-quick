@@ -32,6 +32,7 @@ import {
   calculateLOCPerSecond,
   isEmployeeUnlocked,
   isOpenSourceProjectUnlocked,
+  isFreelanceProjectUnlocked,
   flatEmployeeCounts,
 } from "./gameLogic.js";
 import {
@@ -104,6 +105,18 @@ const initialState = {
     },
     {}
   ),
+  // Freelance project unlock latch (issue #19). Same pattern as the
+  // other two latches: projects with no unlock conditions (the To Do
+  // List App) start unlocked, the rest start locked.
+  unlockedFreelanceProjects: Object.keys(FREELANCE_PROJECTS_CONFIG).reduce(
+    (acc, key) => {
+      const config = FREELANCE_PROJECTS_CONFIG[key];
+      acc[key] =
+        !config.unlockConditions || config.unlockConditions.length === 0;
+      return acc;
+    },
+    {}
+  ),
 
   // Timed golden-star buffs (issue #33). Each entry is
   // { effect, multiplier, expiresAtMs, employeeType }. Saved with the
@@ -169,6 +182,8 @@ function gameReducer(state, action) {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+        unlockedFreelanceProjects:
+          updateFreelanceProjectUnlockLatch(newState),
       };
       // Unlocks and new visibility send mail (issue #31).
       return withEmailTriggers(state, latched);
@@ -220,6 +235,8 @@ function gameReducer(state, action) {
           ...newState,
           unlockedEmployees: updateUnlockLatch(newState),
           unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+          unlockedFreelanceProjects:
+            updateFreelanceProjectUnlockLatch(newState),
         };
         // Unlocks and new visibility send mail (issue #31).
         return withEmailTriggers(state, latched);
@@ -240,9 +257,15 @@ function gameReducer(state, action) {
         return state;
       }
 
+      // Check if project is unlocked (issue #19)
+      if (!isFreelanceProjectUnlocked(projectKey, state)) {
+        console.warn(`Attempted to complete locked project: ${projectKey}`);
+        return state;
+      }
+
       // Check if player has enough LOC to complete the project if so, run completion
       if (state.linesOfCode >= project.loc) {
-        return {
+        const newState = {
           ...state,
           linesOfCode: state.linesOfCode - project.loc,
           money: state.money + project.reward,
@@ -251,6 +274,20 @@ function gameReducer(state, action) {
             [projectKey]: state.freelanceProjectsCompleted[projectKey] + 1,
           },
         };
+
+        // Shipping moves the counts the project unlocks are gated on,
+        // so check for unlocks instantly (same as WRITE_CODE and
+        // BUY_EMPLOYEE) — shipping the 50th To Do List App unlocks
+        // the Hobby Website right here.
+        const latched = {
+          ...newState,
+          unlockedEmployees: updateUnlockLatch(newState),
+          unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+          unlockedFreelanceProjects:
+            updateFreelanceProjectUnlockLatch(newState),
+        };
+        // Unlocks and new visibility send mail (issue #31).
+        return withEmailTriggers(state, latched);
       } else {
         // Not enough LOC
         return state;
@@ -286,6 +323,8 @@ function gameReducer(state, action) {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+        unlockedFreelanceProjects:
+          updateFreelanceProjectUnlockLatch(newState),
       };
       // Unlocks and new visibility send mail (issue #31).
       return withEmailTriggers(state, latched);
@@ -385,6 +424,8 @@ function gameReducer(state, action) {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+        unlockedFreelanceProjects:
+          updateFreelanceProjectUnlockLatch(newState),
       };
       return withEmailTriggers(state, latched, claim);
     }
@@ -485,9 +526,12 @@ function checkCondition(condition, state) {
   // Shared evaluation, same as the save server's. Unknown condition types
   // fail closed (locked) — a config typo surfaces as a stuck unlock in
   // testing, never as a silent unlock to the wrong conditions.
+  // The project-count conditions (issue #19) read the flat completion
+  // counts, which the client state already stores in that shape.
   return shared.conditionMet(condition, {
     totalLinesOfCode: state.totalLinesOfCode,
     employees: flatEmployeeCounts(state),
+    freelanceProjectsCompleted: state.freelanceProjectsCompleted,
   });
 }
 
@@ -624,6 +668,68 @@ function updateOpenSourceUnlockLatch(state) {
 
   // Return updated object if new unlocks occurred, otherwise return original
   return hasNewUnlock ? newUnlockedProjects : state.unlockedOpenSourceProjects;
+}
+
+/**
+ * Checks if all unlock conditions for a freelance project are currently satisfied.
+ *
+ * @param {string} projectKey - The project key
+ * @param {Object} state - The game state
+ * @returns {boolean} True if all conditions are met, false otherwise
+ *
+ * @private
+ */
+function areFreelanceProjectUnlockConditionsMet(projectKey, state) {
+  const config = FREELANCE_PROJECTS_CONFIG[projectKey];
+
+  if (!config) {
+    console.warn(`Unknown project key: ${projectKey}`);
+    return false;
+  }
+
+  // If no unlock conditions defined, project is always unlocked
+  if (!config.unlockConditions || config.unlockConditions.length === 0) {
+    return true;
+  }
+
+  // ALL conditions must be met (AND logic)
+  return config.unlockConditions.every((condition) =>
+    checkCondition(condition, state)
+  );
+}
+
+/**
+ * Updates the unlock latch for freelance projects, checking if any should be unlocked.
+ *
+ * Called from WRITE_CODE, BUY_EMPLOYEE, GAME_TICK, APPLY_STAR_REWARD —
+ * and COMPLETE_PROJECT, which is the one action that moves the
+ * shipped counts the project unlocks are gated on. Checks only LOCKED
+ * projects for new unlocks. Once unlocked, permanent.
+ *
+ * @param {Object} state - The NEW game state (after action changes)
+ * @returns {Object} Updated unlockedFreelanceProjects object (or original if no changes)
+ *
+ * @private
+ */
+function updateFreelanceProjectUnlockLatch(state) {
+  const newUnlockedProjects = { ...state.unlockedFreelanceProjects };
+  let hasNewUnlock = false;
+
+  // Only check LOCKED projects for new unlocks
+  const lockedProjects = Object.keys(FREELANCE_PROJECTS_CONFIG).filter(
+    (projectKey) => !state.unlockedFreelanceProjects[projectKey]
+  );
+
+  for (const projectKey of lockedProjects) {
+    // Conditions are now met, latch it
+    if (areFreelanceProjectUnlockConditionsMet(projectKey, state)) {
+      newUnlockedProjects[projectKey] = true;
+      hasNewUnlock = true;
+    }
+  }
+
+  // Return updated object if new unlocks occurred, otherwise return original
+  return hasNewUnlock ? newUnlockedProjects : state.unlockedFreelanceProjects;
 }
 
 /**

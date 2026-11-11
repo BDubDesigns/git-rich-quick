@@ -13,7 +13,8 @@
  *
  * The adapters at the bottom translate game events into mail:
  * employee visible / unlocked, open-source visible / unlocked /
- * level-up, and star rewards. Each adapter only fires on a transition
+ * level-up, freelance project visible / unlocked, and star rewards.
+ * Each adapter only fires on a transition
  * (a latch flip, a level increase, a claim), so the same event never
  * mails twice, and a restored save never re-mails old unlocks.
  */
@@ -22,10 +23,14 @@ import {
   EMAIL_CONFIG,
   EMPLOYEE_DISPLAY_NAMES,
   EMPLOYEE_TYPES,
+  FREELANCE_PROJECT_DISPLAY_NAMES,
+  FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_DISPLAY_NAMES,
   OPEN_SOURCE_IDS,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
+  buildFreelanceProjectUnlockedEmail,
+  buildFreelanceProjectVisibleEmail,
   buildOpenSourceLevelEmail,
   buildOpenSourceUnlockedEmail,
   buildOpenSourceVisibleEmail,
@@ -35,6 +40,7 @@ import {
 } from "../../../shared/game-balance.js";
 import {
   getUnlockProgress,
+  getUnlockProgressForFreelanceProject,
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
 } from "../utils/unlockProgress.js";
@@ -126,6 +132,9 @@ export function describeUnlockRequirements(progress) {
  *   for the same employee in one transition.
  * - Open-source latch flip: unlocked email. Newly visible: teaser
  *   email. Level increase: one email per level crossed.
+ * - Freelance project latch flip: unlocked email. Newly visible:
+ *   teaser email. Same latch/visibility rules as employees and
+ *   open-source (issue #19).
  * - Star claim: one email per claim, keyed by its claimId.
  */
 export function collectTriggerEmails(prevState, newState, starClaim = null) {
@@ -197,6 +206,34 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
       send(
         buildOpenSourceLevelEmail({ projectName: config, level }),
         `opensource-level:${projectId}:${level}`
+      );
+    }
+  }
+
+  for (const projectKey of FREELANCE_PROJECT_KEYS) {
+    const wasUnlocked =
+      prevState.unlockedFreelanceProjects?.[projectKey] ?? false;
+    const isUnlocked =
+      newState.unlockedFreelanceProjects?.[projectKey] ?? false;
+    const config = FREELANCE_PROJECT_DISPLAY_NAMES[projectKey];
+    if (!config) continue;
+    if (!wasUnlocked && isUnlocked) {
+      send(
+        buildFreelanceProjectUnlockedEmail({ projectName: config }),
+        `freelance-unlocked:${projectKey}`
+      );
+    } else if (
+      !isUnlocked &&
+      hasCrossedUnlockThreshold("freelanceProject", projectKey, newState)
+    ) {
+      send(
+        buildFreelanceProjectVisibleEmail({
+          projectName: config,
+          requirementText: describeUnlockRequirements(
+            getUnlockProgressForFreelanceProject(projectKey, newState)
+          ),
+        }),
+        `freelance-visible:${projectKey}`
       );
     }
   }

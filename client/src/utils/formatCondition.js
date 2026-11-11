@@ -13,6 +13,12 @@ const formatCondition = (condition) => {
       return `Hire ${formatNumber(condition.target)} ${condition.employeeName}${
         condition.target > 1 ? "s" : ""
       }`;
+    case "SPECIFIC_PROJECT_COUNT":
+      return `Ship ${formatNumber(condition.target)} ${condition.projectName}${
+        condition.target > 1 ? "s" : ""
+      }`;
+    case "TOTAL_PROJECTS_COUNT":
+      return `Ship ${formatNumber(condition.target)} projects in total`;
     default:
       return "Complete an unknown objective";
   }
