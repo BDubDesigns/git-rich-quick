@@ -621,6 +621,11 @@ export function initialSaveState() {
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
     // (10-60s); expired entries are dropped by the client tick.
     activeStarEffects: [],
+    // In-game inbox (issue #31). Each entry is
+    // { id, triggerKey, sender, subject, body, createdAtMs, read }.
+    // Capped at EMAIL_CONFIG.maxInboxEmails; the client trims the
+    // oldest when a new one arrives past the cap.
+    emails: [],
   };
 }
 
@@ -662,6 +667,9 @@ export function normalizeSaveState(state) {
   if (!Array.isArray(next.activeStarEffects)) {
     next.activeStarEffects = [];
   }
+  if (!Array.isArray(next.emails)) {
+    next.emails = [];
+  }
   return next;
 }
 
@@ -691,4 +699,170 @@ export function normalizeStarActions(actions) {
     };
   }
   return next;
+}
+
+/**
+ * ===== In-game email (issue #31) =====
+ *
+ * The inbox is a fictional mailbox in the game world, not real email.
+ * Email content is data: one builder per trigger, each returning
+ * { sender, subject, body }. The client email module calls the builder
+ * for the trigger that fired and stores the result in the inbox. The
+ * server never renders email — it only enforces the shape and the cap.
+ */
+
+/**
+ * Display names for employees and open-source projects. These are the
+ * single source of truth for names: the client display config
+ * (gameConfig.js) spreads them in alongside icons/colors/descriptions,
+ * and the email module reads them from here so it stays free of the
+ * client's icon imports (react-icons), which the save server's test
+ * environment does not install.
+ */
+export const EMPLOYEE_DISPLAY_NAMES = Object.freeze({
+  intern: "Intern",
+  junior: "Junior Developer",
+  senior: "Senior Developer",
+});
+
+export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
+  overReactFramework: "OverReact Framework",
+  blocker: "Blocker Containerization Platform",
+  constellation: "GitNub Constellation",
+});
+
+/**
+ * Unlock visibility threshold: a locked card (and its teaser email)
+ * appears once ANY unlock condition reaches this fraction of its target.
+ * Lives here (not in the client display config) because the unlock
+ * helpers in client/src/utils/unlockProgress.js read it, and that module
+ * must stay free of client-only imports for the server tests.
+ */
+export const UNLOCK_VISIBILITY_THRESHOLD = 0.1;
+
+/** Inbox bounds and field length caps (server-enforced in the save shape check). */
+export const EMAIL_CONFIG = Object.freeze({
+  /** Max emails in the inbox; the client deletes the oldest past this. */
+  maxInboxEmails: 25,
+  maxTriggerKeyLength: 128,
+  maxSenderLength: 100,
+  maxSubjectLength: 200,
+  maxBodyLength: 2000,
+});
+
+/** The reward detail for a resolved star claim ("+500 LOC", "Production x7"). */
+export function starRewardDetail(claim, employeeTypeName) {
+  const formatMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
+  switch (claim.effect) {
+    case "lucky": {
+      if (claim.locDelta !== 0) {
+        const sign = claim.locDelta > 0 ? "+" : "";
+        return `${sign}${claim.locDelta} LOC`;
+      }
+      const sign = claim.moneyDelta > 0 ? "+" : "-";
+      return `${sign}${formatMoney(Math.abs(claim.moneyDelta))}`;
+    }
+    case "shootingStars": {
+      const parts = [];
+      if (claim.locDelta !== 0) parts.push(`+${claim.locDelta} LOC`);
+      if (claim.moneyDelta !== 0)
+        parts.push(`+${formatMoney(claim.moneyDelta)}`);
+      return parts.join(" ");
+    }
+    case "frenzy":
+      return `Production x${claim.multiplier}`;
+    case "click":
+      return `Clicks x${claim.multiplier}`;
+    case "employee": {
+      const typeName = employeeTypeName ?? claim.employeeType;
+      return `${typeName}s x${claim.multiplier}`;
+    }
+    default:
+      return "";
+  }
+}
+
+/**
+ * An employee became VISIBLE but is not unlocked yet — a teaser and a
+ * goal. `requirementText` is the human-readable unlock requirement
+ * (e.g. "Earn 100 total lines of code"), supplied by the caller.
+ */
+export function buildEmployeeVisibleEmail({ employeeName, requirementText }) {
+  return {
+    sender: "HR Dept",
+    subject: `We found a ${employeeName}!`,
+    body:
+      `We found a ${employeeName}! They're interested, but not impressed ` +
+      `yet — they want to see a bigger operation first.\n\n` +
+      `To win them over: ${requirementText}.\n\n` +
+      `Keep shipping. They'll be watching your commit history.`,
+  };
+}
+
+/** An employee's unlock requirement is met — they are hireable now. */
+export function buildEmployeeUnlockedEmail({ employeeName }) {
+  return {
+    sender: "HR Dept",
+    subject: `${employeeName} is available to hire!`,
+    body:
+      `Good news: the ${employeeName} looked at your commit history and ` +
+      `decided you're worth working for.\n\n` +
+      `They're on the market now. Hire them before some other startup does.`,
+  };
+}
+
+/** An open-source project became VISIBLE but is not unlocked yet — a teaser and a goal. */
+export function buildOpenSourceVisibleEmail({ projectName, requirementText }) {
+  return {
+    sender: "GitNub",
+    subject: `${projectName} is on the horizon!`,
+    body:
+      `Word is ${projectName} will open for contributions soon. The ` +
+      `maintainers are watching for one thing:\n\n` +
+      `${requirementText}.\n\n` +
+      `Get there and the repo is yours to spam with pull requests.`,
+  };
+}
+
+/** An open-source project's unlock requirement is met. */
+export function buildOpenSourceUnlockedEmail({ projectName }) {
+  return {
+    sender: "GitNub",
+    subject: `${projectName} is open for contributions!`,
+    body:
+      `You can now contribute LOC to ${projectName}. The maintainers have ` +
+      `been waiting. Mostly patiently.\n\n` +
+      `Ship some code their way and they'll owe you one. Or at least a ` +
+      `shoutout in the changelog.`,
+  };
+}
+
+/** An open-source project reached a new level. */
+export function buildOpenSourceLevelEmail({ projectName, level }) {
+  return {
+    sender: "GitNub",
+    subject: `${projectName} reached v${level}.0!`,
+    body:
+      `Your contributions pushed ${projectName} to v${level}.0. The ` +
+      `changelog just says "various bug fixes and performance ` +
+      `improvements", but you know what you did.\n\n` +
+      `Keep contributing — the next version has your name on it. Figuratively.`,
+  };
+}
+
+/**
+ * A golden star was claimed. `effectName` is the locked pun name
+ * (Airdrop, Rug Pull, ...), `rewardText` is the starRewardDetail
+ * string, and `good` picks the sign-off.
+ */
+export function buildStarRewardEmail({ effectName, rewardText, good }) {
+  return {
+    sender: "GitNub",
+    subject: "A star fell on your repo!",
+    body:
+      `${effectName}: ${rewardText}.\n\n` +
+      (good
+        ? "The GitNub sky provides. Mostly."
+        : "The GitNub sky giveth, and the GitNub sky taketh away."),
+  };
 }

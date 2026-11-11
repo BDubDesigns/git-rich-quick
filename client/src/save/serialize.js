@@ -7,8 +7,8 @@
  * `{ id: level }`). These are thin adapters — the numbers come from the
  * reducer, never invented here.
  *
- * The 10 game fields are saved, including the timed golden-star buffs
- * (activeStarEffects). UI state (activeTab, selectedPanes,
+ * The 11 game fields are saved, including the timed golden-star buffs
+ * (activeStarEffects) and the in-game inbox (emails, issue #31). UI state (activeTab, selectedPanes,
  * clickHistory, currentCPS, uiState) is NOT saved and is reset to the
  * initial values on restore.
  */
@@ -51,7 +51,7 @@ function inflateLevels(flat) {
   }, {});
 }
 
-/** Client reducer state -> the flat 10-field save shape the server stores. */
+/** Client reducer state -> the flat 11-field save shape the server stores. */
 export function stateToSaveState(clientState) {
   return {
     linesOfCode: clientState.linesOfCode,
@@ -66,10 +66,14 @@ export function stateToSaveState(clientState) {
     // Timed golden-star buffs. A shallow copy of the array (the entries
     // are plain data); expired entries are dropped by the game tick.
     activeStarEffects: [...(clientState.activeStarEffects ?? [])],
+    // In-game inbox (issue #31). Entries are plain data, copied per
+    // entry; the inbox is capped at EMAIL_CONFIG.maxInboxEmails and the
+    // oldest is dropped past it (see the email module).
+    emails: (clientState.emails ?? []).map((entry) => ({ ...entry })),
   };
 }
 
-/** Server flat save shape -> the 10 game fields in client reducer shape. */
+/** Server flat save shape -> the 11 game fields in client reducer shape. */
 export function saveStateToGameFields(saveState) {
   return {
     linesOfCode: saveState.linesOfCode,
@@ -82,6 +86,7 @@ export function saveStateToGameFields(saveState) {
     unlockedEmployees: { ...saveState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...saveState.unlockedOpenSourceProjects },
     activeStarEffects: [...(saveState.activeStarEffects ?? [])],
+    emails: [...(saveState.emails ?? [])].map((entry) => ({ ...entry })),
   };
 }
 
@@ -124,17 +129,19 @@ export function diffCounts(baseline, current, keys) {
 
 /**
  * The fields that only change on a "big action" (hire, open-source
- * level). Used to trigger a save on big actions. Project completions
+ * level, new email). Used to trigger a save on big actions. Project completions
  * (Ship) are deliberately NOT here: Ship is a rapid-fire action (the
  * player smashes it to sell LOC for cash as fast as possible), so
  * saving on every Ship would spam the 10s rate limit. Ship progress
  * is still saved by the 60s heartbeat and by the keepalive on tab
- * hide/unload.
+ * hide/unload. A new email IS here: mail arrives rarely (unlocks,
+ * star rewards), and the inbox should persist promptly.
  */
 export function bigActionFields(saveState) {
   return {
     employees: saveState.employees,
     openSourceProjects: saveState.openSourceProjects,
+    emails: (saveState.emails ?? []).length,
   };
 }
 
@@ -172,6 +179,7 @@ export function isInitialSaveState(saveState) {
       return false;
   }
   if ((saveState.activeStarEffects ?? []).length !== 0) return false;
+  if ((saveState.emails ?? []).length !== 0) return false;
   return true;
 }
 
@@ -187,5 +195,6 @@ export function bigActionIncreased(prev, next) {
     )
       return true;
   }
+  if ((next.emails ?? 0) > (prev.emails ?? 0)) return true;
   return false;
 }

@@ -34,6 +34,10 @@ import {
   isOpenSourceProjectUnlocked,
   flatEmployeeCounts,
 } from "./gameLogic.js";
+import {
+  collectTriggerEmails,
+  markEmailRead,
+} from "../email/email.js";
 import { GameContext } from "./gameContext.js";
 
 // Initial state of the game
@@ -107,6 +111,14 @@ const initialState = {
   // Expired entries are dropped by the GAME_TICK.
   activeStarEffects: [],
 
+  // In-game inbox (issue #31). Plain records, owned by the email
+  // module (client/src/email/email.js). Saved with the game state.
+  emails: [],
+  // The email currently open in the Email tab (transient UI state, not saved).
+  selectedEmailId: null,
+  // The email the notification bar is showing (transient UI state, not saved).
+  emailNotification: null,
+
   uiState: {
     sections: {
       shop: { isDescriptionVisible: true },
@@ -114,6 +126,7 @@ const initialState = {
       openSource: { isDescriptionVisible: true },
       settings: { isDescriptionVisible: true },
       leaderboard: { isDescriptionVisible: true },
+      email: { isDescriptionVisible: true },
     },
   },
 };
@@ -152,11 +165,13 @@ function gameReducer(state, action) {
 
       // Check for unlocks instantly (not waiting for GAME_TICK)
       // Writing code could trigger unlocks so we run both unlock checks
-      return {
+      const latched = {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
+      // Unlocks and new visibility send mail (issue #31).
+      return withEmailTriggers(state, latched);
     }
     // Buy employee(s) (intern, junior, or senior). `quantity` is the
     // bulk-buy amount from the Shop selector (default 1). The total
@@ -201,11 +216,13 @@ function gameReducer(state, action) {
         };
 
         // Check for unlocks instantly (buying changed employee count)
-        return {
+        const latched = {
           ...newState,
           unlockedEmployees: updateUnlockLatch(newState),
           unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
         };
+        // Unlocks and new visibility send mail (issue #31).
+        return withEmailTriggers(state, latched);
       }
 
       return state;
@@ -265,11 +282,13 @@ function gameReducer(state, action) {
 
       // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)
       // Employees generating LOC could trigger unlocks
-      return {
+      const latched = {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
+      // Unlocks and new visibility send mail (issue #31).
+      return withEmailTriggers(state, latched);
     }
 
     // contribute to open source project
@@ -301,7 +320,7 @@ function gameReducer(state, action) {
       }
 
       // deduct LOC cost and increase project level
-      return {
+      const contributed = {
         ...state,
         linesOfCode: state.linesOfCode - cost,
         openSourceProjects: {
@@ -312,6 +331,8 @@ function gameReducer(state, action) {
           },
         },
       };
+      // A new open-source level sends mail (issue #31).
+      return withEmailTriggers(state, contributed);
     }
 
     // Apply a golden-star claim (issue #33). The payload is the claim
@@ -358,12 +379,14 @@ function gameReducer(state, action) {
         money: newMoney,
         activeStarEffects,
       };
-      // A star reward can push total LOC past an unlock threshold.
-      return {
+      // A star reward can push total LOC past an unlock threshold, and
+      // the reward itself sends mail (issue #31).
+      const latched = {
         ...newState,
         unlockedEmployees: updateUnlockLatch(newState),
         unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
       };
+      return withEmailTriggers(state, latched, claim);
     }
 
     case "TOGGLE_SECTION_DESC_VISIBILITY": {
@@ -384,6 +407,38 @@ function gameReducer(state, action) {
       };
     }
 
+    // Open an email (issue #31): go to the Email tab, expand the email,
+    // and mark it read. The notification bar, if it was showing this
+    // email, is cleared (the player is now looking at the mail).
+    case "OPEN_EMAIL": {
+      const { emailId } = action.payload;
+      const email = (state.emails ?? []).find(
+        (entry) => entry.id === emailId
+      );
+      if (!email) return state;
+      return {
+        ...state,
+        activeTab: "email",
+        selectedEmailId: emailId,
+        emails: markEmailRead(state.emails, emailId),
+        emailNotification:
+          state.emailNotification?.emailId === emailId
+            ? null
+            : state.emailNotification,
+      };
+    }
+
+    // Collapse the open email back to the list.
+    case "CLOSE_EMAIL": {
+      return { ...state, selectedEmailId: null };
+    }
+
+    // Dismiss the notification bar (X or swipe). The email stays unread
+    // in the inbox until the player opens it.
+    case "DISMISS_EMAIL_NOTIFICATION": {
+      return { ...state, emailNotification: null };
+    }
+
     // Restore the game fields from a server snapshot (initial load, or a
     // 409 revert to the last good state). UI state (active tab, panes) is
     // preserved; only the saved game fields are replaced. Click history is
@@ -395,6 +450,11 @@ function gameReducer(state, action) {
         ...saveStateToGameFields(saveState),
         clickHistory: [],
         currentCPS: 0,
+        // Transient email UI state is reset on restore: the selected /
+        // notified email may not exist in the restored inbox (a 409
+        // revert), so it must not linger.
+        emailNotification: null,
+        selectedEmailId: null,
       };
     }
 
@@ -564,6 +624,39 @@ function updateOpenSourceUnlockLatch(state) {
 
   // Return updated object if new unlocks occurred, otherwise return original
   return hasNewUnlock ? newUnlockedProjects : state.unlockedOpenSourceProjects;
+}
+
+/**
+ * Apply the email triggers for a state transition (issue #31).
+ *
+ * Runs the email adapters over the before/after states (unlock flips,
+ * new visibility, level-ups, a star claim) and merges any new mail into
+ * the new state. When mail arrives, the notification bar shows the
+ * newest email — unless the player is already looking at the inbox,
+ * where the badge updates instead.
+ *
+ * @param {Object} prevState - The reducer state before the action
+ * @param {Object} newState - The reducer state after the action
+ * @param {Object|null} starClaim - The claim from an APPLY_STAR_REWARD action
+ * @returns {Object} The new state, with emails (and the notification) applied
+ *
+ * @private
+ */
+function withEmailTriggers(prevState, newState, starClaim = null) {
+  const { emails, newEmailId } = collectTriggerEmails(
+    prevState,
+    newState,
+    starClaim
+  );
+  if (newEmailId === null) return newState;
+  return {
+    ...newState,
+    emails,
+    emailNotification:
+      newState.activeTab === "email"
+        ? newState.emailNotification
+        : { emailId: newEmailId },
+  };
 }
 
 // GameProvider component to wrap the app and provide game state

@@ -10,6 +10,7 @@ import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
 import { Settings } from "./components/Settings";
 import { Leaderboard } from "./components/Leaderboard";
+import { Email } from "./components/Email";
 import { GameLayout } from "./components/GameLayout";
 import { GoldenStar } from "./components/GoldenStar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
@@ -75,7 +76,7 @@ function App() {
               state.activeTab === "projects") && <OpenSource />}
             {state.activeTab === "settings" && <Settings />}
             {state.activeTab === "leaderboard" && <Leaderboard />}
-            {/* Email can be added here later (issue #31) */}
+            {state.activeTab === "email" && <Email />}
           </div>
 
           {/* Right pane: Always Projects */}
@@ -91,7 +92,7 @@ function App() {
           {state.activeTab === "openSource" && <OpenSource />}
           {state.activeTab === "settings" && <Settings />}
           {state.activeTab === "leaderboard" && <Leaderboard />}
-          {/* Email can be added here later (issue #31) */}
+          {state.activeTab === "email" && <Email />}
         </div>
       )}
     </GameLayout>

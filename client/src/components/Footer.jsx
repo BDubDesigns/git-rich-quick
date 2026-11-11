@@ -3,6 +3,7 @@ import { useGameContext } from "../context/useGameContext";
 import { ClickButton } from "./ClickButton";
 import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";
+import { EmailNotificationBar } from "./EmailNotificationBar";
 import { SAVE_RATE_LIMIT_SECONDS } from "../save/saveSync.js";
 
 // Save status (Slice 2, server-authoritative saves). The engine reports it
@@ -108,8 +109,12 @@ function SaveStatus() {
 }
 
 export function Footer() {
+  // The wrapper is relative so the email notification bar (absolute,
+  // bottom-full) sits directly above the footer — above the navbar —
+  // floating over the main content instead of shifting layout.
   return (
-    <>
+    <div className="relative">
+      <EmailNotificationBar />
       {/* Mobile: Stacked (nav + commit button) */}
       <div className="lg:hidden">
         <div className="panel flex justify-evenly gap-4 mt-1 py-4 bg-[#181818]">
@@ -140,6 +145,6 @@ export function Footer() {
           </div>
         </span>
       </div>
-    </>
+    </div>
   );
 }

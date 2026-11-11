@@ -1,4 +1,4 @@
-export function NavButton({ id, label, Icon, isActive, onClick }) {
+export function NavButton({ id, label, Icon, isActive, badgeCount = 0, onClick }) {
   // Alias so the prop counts as used: a destructured prop rendered
   // directly as a JSX tag is not counted as a reference by no-unused-vars.
   const IconComponent = Icon;
@@ -6,7 +6,7 @@ export function NavButton({ id, label, Icon, isActive, onClick }) {
     <button
       key={id}
       onClick={onClick}
-      className={`transition-all hover:scale-110 hover:shadow-[0_0_15px_5px_rgba(250,250,250,0.5)] w-12 h-12 rounded-full flex items-center justify-center ${
+      className={`relative transition-all hover:scale-110 hover:shadow-[0_0_15px_5px_rgba(250,250,250,0.5)] w-12 h-12 rounded-full flex items-center justify-center ${
         isActive
           ? "bg-blue-400 text-white"
           : "bg-blue-900 text-gray-300 hover:bg-blue-800"
@@ -14,6 +14,13 @@ export function NavButton({ id, label, Icon, isActive, onClick }) {
       title={label}
     >
       <IconComponent size={24} />
+      {/* Unread count badge (Email tab): a circle over the button's
+          corner. Hidden at zero. */}
+      {badgeCount > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] leading-5 text-center font-bold pointer-events-none">
+          {badgeCount > 99 ? "99+" : badgeCount}
+        </span>
+      )}
     </button>
   );
 }

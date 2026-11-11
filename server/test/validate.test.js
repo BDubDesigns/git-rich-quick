@@ -1074,3 +1074,117 @@ test("a save from before Constellation (no star fields) still validates", () => 
   const r = validateSave(prev(before, T0), body(after, actions), T0 + 60_000);
   assert.deepEqual(r, { ok: true });
 });
+
+function validEmailEntry(overrides = {}) {
+  return {
+    id: "123e4567-e89b-42d3-a456-426614174002",
+    triggerKey: "employee-visible:junior",
+    sender: "HR Dept",
+    subject: "We found a Junior Developer!",
+    body: "We found a Junior Developer!",
+    createdAtMs: T0,
+    read: false,
+    ...overrides,
+  };
+}
+
+test("emails: a save with a valid inbox passes", () => {
+  const after = stateWith({ emails: [validEmailEntry()] });
+  const r = validateSave(
+    prev(initialSaveState(), T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("emails: a save from before email shipped (no emails field) still validates", () => {
+  const before = initialSaveState();
+  delete before.emails;
+  const after = stateWith({ linesOfCode: 50, totalLinesOfCode: 50 });
+  delete after.emails;
+  const r = validateSave(
+    prev(before, T0),
+    body(after, { ...zeroActions(), clicks: 50 }),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("emails: more than 25 is a shape rejection (400)", () => {
+  const inbox = Array.from({ length: 26 }, (_, i) =>
+    validEmailEntry({
+      id: `123e4567-e89b-42d3-a456-42661417${String(4000 + i)}`,
+      triggerKey: `test:${i}`,
+    })
+  );
+  const after = stateWith({ emails: inbox });
+  const r = validateSave(
+    prev(initialSaveState(), T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "SHAPE");
+  assert.match(r.detail, /25/);
+});
+
+test("emails: malformed entries are shape rejections (400)", () => {
+  const badEntries = [
+    // Missing a key.
+    (() => {
+      const entry = validEmailEntry();
+      delete entry.subject;
+      return entry;
+    })(),
+    // Non-UUID id.
+    validEmailEntry({ id: "not-a-uuid" }),
+    // Unknown key.
+    validEmailEntry({ extra: 1 }),
+    // Over-long subject.
+    validEmailEntry({ subject: "x".repeat(201) }),
+    // Read flag not a boolean.
+    validEmailEntry({ read: "yes" }),
+    // Negative createdAtMs.
+    validEmailEntry({ createdAtMs: -1 }),
+  ];
+  for (const entry of badEntries) {
+    const after = stateWith({ emails: [entry] });
+    const r = validateSave(
+      prev(initialSaveState(), T0),
+      body(after, zeroActions()),
+      T0 + 60_000
+    );
+    assert.equal(r.ok, false, JSON.stringify(entry));
+    assert.equal(r.rule, "SHAPE", JSON.stringify(entry));
+  }
+});
+
+test("emails: duplicate ids are a shape rejection (400)", () => {
+  const after = stateWith({
+    emails: [
+      validEmailEntry(),
+      validEmailEntry({ triggerKey: "employee-unlocked:junior" }),
+    ],
+  });
+  const r = validateSave(
+    prev(initialSaveState(), T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "SHAPE");
+  assert.match(r.detail, /unique/);
+});
+
+test("emails: read state can flip false -> true, and the cap trims on the client", () => {
+  // The server does not police read flips or inbox growth between
+  // saves (mail arrives client-side and the client trims); it only
+  // bounds the shape. A save that marks mail read still validates.
+  const before = stateWith({ emails: [validEmailEntry()] });
+  const after = stateWith({
+    emails: [validEmailEntry({ read: true })],
+  });
+  const r = validateSave(prev(before, T0), body(after, zeroActions()), T0 + 60_000);
+  assert.deepEqual(r, { ok: true });
+});

@@ -8,11 +8,19 @@
  */
 
 import * as shared from "../../../shared/game-balance.js";
-import {
-  GAME_BALANCE_CONFIG,
-  EMPLOYEE_CONFIGS,
-  OPEN_SOURCE_PROJECTS_CONFIG,
-} from "./gameConfig.js";
+import { EMPLOYEE_CONFIGS } from "./gameConfig.js";
+
+// Unlock progress + visibility live in a pure shared-only module (see
+// client/src/utils/unlockProgress.js) so the save server's tests can
+// import them without the display config's react-icons. Re-exported here
+// so existing consumers (Shop, Projects, GameContext) keep importing
+// from gameLogic.
+export {
+  getTotalEmployeeCount,
+  getUnlockProgress,
+  getUnlockProgressForOpenSource,
+  hasCrossedUnlockThreshold,
+} from "../utils/unlockProgress.js";
 
 /**
  * ========================================
@@ -24,60 +32,6 @@ import {
  * information from the current game state without modifying it.
  * ========================================
  */
-
-/**
- * Determine whether an unlock unit has crossed the visibility threshold.
- *
- * For unlockType === "employee", this function calls getUnlockProgress(unlockUnit, state)
- * to obtain an array of progress conditions. Each condition is expected to have numeric
- * `current` and `target` properties; the progress for a condition is computed as
- * `condition.current / condition.target`. If any condition's progress is greater than
- * or equal to GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD, the function returns true.
- *
- * For unknown unlockType values the function logs a warning and returns false.
- *
- * @param {string} unlockType - The type of unlock to check (e.g. "employee").
- * @param {*} unlockUnit - Identifier or descriptor of the unit being checked (passed to getUnlockProgress).
- * @param {Object} state - Global/state object; threshold value comes from GAME_BALANCE_CONFIG.
- * @returns {boolean} True if any condition meets or exceeds the visibility threshold; otherwise false.
- *
- * @see getUnlockProgress
- * @see GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD
- */
-
-/**
- * Private helper to check if any progress meets the visibility threshold.
- * @private
- */
-function checkProgressAgainstThreshold(progress, threshold) {
-  if (progress.length === 0) {
-    // Defensive: empty progress means no conditions, so consider it met
-    return true;
-  }
-  // Check if any condition meets or exceeds the threshold
-  return progress.some(
-    (condition) =>
-      condition.target > 0 && condition.current / condition.target >= threshold
-  );
-}
-// Checks if an unlockable has crossed the visibility threshold
-export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
-  const threshold = GAME_BALANCE_CONFIG.UNLOCK_VISIBILITY_THRESHOLD;
-
-  // Handle employee unlock type
-  if (unlockType === "employee") {
-    const progress = getUnlockProgress(unlockUnit, state);
-    return checkProgressAgainstThreshold(progress, threshold);
-  }
-  // Handle openSource unlock type
-  if (unlockType === "openSource") {
-    const progress = getUnlockProgressForOpenSource(unlockUnit, state);
-    return checkProgressAgainstThreshold(progress, threshold);
-  }
-
-  console.warn(`Unknown unlock type: ${unlockType}`);
-  return false;
-}
 
 /**
  * Calculates the current Clicks Per Second (CPS) based on click history.
@@ -98,23 +52,6 @@ export function calculateCPS(clickHistory) {
   );
 
   return recentClicks.length;
-}
-
-/**
- * Calculates the total number of employees across all employee types.
- *
- * Iterates through all employees in the state and sums their individual counts
- * to get the total number of hired employees (interns, juniors, and seniors).
- *
- * @param {Object} state - The game state object containing employees data
- * @param {Object} state.employees - Object mapping employee types to their counts
- * @returns {number} The total count of all employees
- */
-export function getTotalEmployeeCount(state) {
-  return Object.values(state.employees).reduce(
-    (total, employee) => total + employee.count,
-    0
-  );
 }
 
 /**
@@ -303,140 +240,6 @@ export function getConstellationLevel(state) {
  */
 export function isEmployeeUnlocked(employeeType, state) {
   return state.unlockedEmployees[employeeType];
-}
-
-/**
- * Calculates progress toward unlocking an employee.
- *
- * For each unlock condition, returns: current value, target value, and remaining.
- * Used by LockedEmployeeCard to display progress bars and remaining counts.
- *
- * @param {string} employeeType - The employee type to check
- * @param {Object} state - The game state
- * @returns {Array<Object>} Array of { type, current, target, remaining }
- *
- * @example
- * getUnlockProgress("junior", state)
- * // Returns: [
- * //   { type: "TOTAL_LOC", current: 45, target: 100, remaining: 55 }
- * // ]
- *
- * getUnlockProgress("senior", state)
- * // Returns: [
- * //   { type: "TOTAL_LOC", current: 2000, target: 3000, remaining: 1000 },
- * //   { type: "TOTAL_EMPLOYEE_COUNT", current: 5, target: 10, remaining: 5 }
- * // ]
- */
-export function getUnlockProgress(employeeType, state) {
-  const config = EMPLOYEE_CONFIGS[employeeType];
-
-  if (
-    !config ||
-    !config.unlockConditions ||
-    config.unlockConditions.length === 0
-  ) {
-    return []; // No unlock conditions, no progress to show
-  }
-
-  return config.unlockConditions.map((condition) => {
-    let current = 0;
-
-    switch (condition.type) {
-      case "TOTAL_LOC":
-        current = state.totalLinesOfCode;
-        break;
-      case "TOTAL_EMPLOYEE_COUNT":
-        current = getTotalEmployeeCount(state);
-        break;
-      case "SPECIFIC_EMPLOYEE_COUNT":
-        if (condition.employeeType && state.employees[condition.employeeType]) {
-          current = state.employees[condition.employeeType].count;
-        } else {
-          console.warn(
-            `Invalid employeeType in unlock condition: ${condition.employeeType}`
-          );
-          current = 0;
-        }
-        break;
-      default:
-        current = 0;
-    }
-
-    const target = condition.target;
-    const remaining = Math.max(0, target - current);
-
-    return {
-      type: condition.type,
-      current,
-      target,
-      remaining,
-      ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
-        employeeType: condition.employeeType,
-        employeeName: EMPLOYEE_CONFIGS[condition.employeeType].name,
-      }),
-    };
-  });
-}
-
-/**
- * Calculates progress toward unlocking an open source project.
- *
- * Similar to getUnlockProgress() for employees, but pulls conditions from
- * the project config instead of the employee config.
- *
- * @param {string} projectId - The project ID (e.g., "blocker")
- * @param {Object} state - The game state
- * @returns {Array<Object>} Array of { type, current, target, remaining }
- */
-export function getUnlockProgressForOpenSource(projectId, state) {
-  const config = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
-
-  if (
-    !config ||
-    !config.unlockConditions ||
-    config.unlockConditions.length === 0
-  ) {
-    return []; // No unlock conditions
-  }
-
-  return config.unlockConditions.map((condition) => {
-    let current = 0;
-
-    switch (condition.type) {
-      case "TOTAL_LOC":
-        current = state.totalLinesOfCode;
-        break;
-      case "TOTAL_EMPLOYEE_COUNT":
-        current = getTotalEmployeeCount(state);
-        break;
-      case "SPECIFIC_EMPLOYEE_COUNT":
-        if (condition.employeeType && state.employees[condition.employeeType]) {
-          current = state.employees[condition.employeeType].count;
-        } else {
-          console.warn(
-            `Invalid employeeType in unlock condition: ${condition.employeeType}`
-          );
-          current = 0;
-        }
-        break;
-      default:
-        current = 0;
-    }
-
-    const target = condition.target;
-    const remaining = Math.max(0, target - current);
-
-    return {
-      type: condition.type,
-      current,
-      target,
-      remaining,
-      ...(condition.type === "SPECIFIC_EMPLOYEE_COUNT" && {
-        employeeType: condition.employeeType,
-        employeeName: EMPLOYEE_CONFIGS[condition.employeeType].name,
-      }),
-    };
-  });
 }
 
 /**
