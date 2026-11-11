@@ -1,9 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 // Import game context
 import { useGameContext } from "./context/useGameContext";
 // Import game balance and LOC calculation
 import { GAME_BALANCE_CONFIG } from "./context/gameConfig";
 import { calculateLOCPerSecond } from "./context/gameLogic";
+// Import save player id key (splash gating: a returning player has one)
+import { PLAYER_ID_KEY } from "./save/api.js";
 // Import components
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
@@ -15,13 +17,51 @@ import { Email } from "./components/Email";
 import { GameLayout } from "./components/GameLayout";
 import { ScrollAffordanceFrame } from "./components/ScrollAffordances.jsx";
 import { GoldenStar } from "./components/GoldenStar";
+import { SplashScreen } from "./components/SplashScreen.jsx";
 import { useMediaQuery } from "./hooks/useMediaQuery";
+
+/** localStorage key for the splash dismissal (same `grq:` prefix as the
+ *  player id). A device preference, never in the server save. */
+const SPLASH_SEEN_KEY = "grq:splashSeen";
+
+/**
+ * First run? True only when there is no stored player id (no existing
+ * save) AND the splash has never been dismissed. A returning player
+ * with a save never sees the splash, even if they played before it
+ * existed (no flag yet). Read synchronously at first render — before
+ * the save engine's mount effect can mint a player — so a new user is
+ * detected correctly.
+ */
+function shouldShowSplash() {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    if (localStorage.getItem(SPLASH_SEEN_KEY)) return false;
+    return !localStorage.getItem(PLAYER_ID_KEY);
+  } catch {
+    return false;
+  }
+}
 
 function App() {
   // Access game context
   const { dispatch, state } = useGameContext();
   // Create ref to hold current state without triggering re-runs
   const stateRef = useRef(state);
+
+  // Splash screen (first run only): lazy initializer reads localStorage
+  // synchronously at first render, before the save engine can mint a
+  // player, so a new user is detected correctly. Dismissing it sets the
+  // flag, so it never shows again on this device.
+  const [showSplash, setShowSplash] = useState(shouldShowSplash);
+  const dismissSplash = () => {
+    try {
+      localStorage.setItem(SPLASH_SEEN_KEY, "1");
+    } catch {
+      // Dismissal is best-effort in a storage-less environment; the
+      // splash still hides for this session.
+    }
+    setShowSplash(false);
+  };
 
   // Keep the ref updated whenever state changes
   useEffect(() => {
@@ -52,6 +92,14 @@ function App() {
   // Local state to manage active tab (employees, projects, upgrades)
   // Detect desktop screen size
   const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  // First run: the splash replaces the whole game until `npm start`
+  // dismisses it. The save engine still mints/loads in the background
+  // (harmless for a fresh save — 0 LOC, no employees), so the game is
+  // ready the moment the splash goes away.
+  if (showSplash) {
+    return <SplashScreen onStart={dismissSplash} />;
+  }
 
   return (
     <GameLayout>
