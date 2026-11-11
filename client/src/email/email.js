@@ -101,6 +101,59 @@ export function markEmailRead(emails, emailId) {
   );
 }
 
+/**
+ * Delete one email from the inbox. Returns the original array when the
+ * id is not in the inbox. The caller (reducer) triggers a save — a
+ * delete is a big action, so the save sync picks it up the same way it
+ * picks up a new email arriving (see bigActionIncreased).
+ */
+export function deleteEmail(emails, emailId) {
+  const inbox = emails ?? [];
+  if (!inbox.some((entry) => entry.id === emailId)) {
+    return inbox;
+  }
+  return inbox.filter((entry) => entry.id !== emailId);
+}
+
+/**
+ * Signed amounts in an email body ("+11.21K LOC", "-$10.54"), split
+ * into segments so the renderer can color gains green and losses red.
+ *
+ * Returns `[{ text, tone }]` where tone is "gain", "loss", or null
+ * (plain text). Only a SIGNED amount with a unit is colored: the "$"
+ * (money), a suffix (K/M/B/...), or " LOC". A bare signed number with
+ * no unit ("level +5") is left plain. The shared reward string
+ * (starRewardDetail) is NOT changed — the coloring happens here, at
+ * the email render layer, so the floating text stays uncolored.
+ */
+const AMOUNT_PATTERN =
+  /([+-])(\$?[\d,]+(?:\.\d+)?(?:K|M|B|T|Qa|Qi|Sx|Sp|Oc|No|Dc)?)(\s?LOC)?/g;
+
+export function highlightAmounts(text) {
+  const segments = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(AMOUNT_PATTERN)) {
+    const [full, sign, amount, loc] = match;
+    const hasUnit =
+      amount.includes("$") ||
+      /(?:K|M|B|T|Qa|Qi|Sx|Sp|Oc|No|Dc)$/.test(amount) ||
+      loc;
+    if (!hasUnit) continue;
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), tone: null });
+    }
+    segments.push({
+      text: full,
+      tone: sign === "+" ? "gain" : "loss",
+    });
+    lastIndex = match.index + full.length;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), tone: null });
+  }
+  return segments;
+}
+
 /** How many emails are unread. */
 export function unreadEmailCount(emails) {
   return (emails ?? []).reduce(

@@ -57,7 +57,7 @@ export function EmployeeCard({
             icon={<config.Icon size={20} color={config.color} />}
           >
             <div>{quantity > 1 ? `Hire x${quantity}` : "Hire"}</div>
-            <div>(${formatMoney(currentCost)})</div>
+            <div>({formatMoney(currentCost)})</div>
           </BouncyButton>
         </div>
       </div>

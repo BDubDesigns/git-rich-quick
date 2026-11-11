@@ -224,7 +224,10 @@ export function isInitialSaveState(saveState) {
   return true;
 }
 
-/** True if any big-action field in `next` is larger than in `prev`. */
+/** True if a big action happened between `prev` and `next`. Employee
+ * and open-source counts only count upward (a hire, a level); the
+ * inbox counts ANY count change — a new email arriving AND a deleted
+ * email both persist via a big-action save. */
 export function bigActionIncreased(prev, next) {
   if (!prev) return false;
   for (const key of EMPLOYEE_TYPES) {
@@ -236,7 +239,7 @@ export function bigActionIncreased(prev, next) {
     )
       return true;
   }
-  if ((next.emails ?? 0) > (prev.emails ?? 0)) return true;
+  if ((next.emails ?? 0) !== (prev.emails ?? 0)) return true;
   if ((next.unlockedCosmetics ?? 0) > (prev.unlockedCosmetics ?? 0))
     return true;
   // Equipping is not a count — any change (equip, unequip, switch)

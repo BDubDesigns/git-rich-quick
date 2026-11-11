@@ -37,6 +37,7 @@ import {
 } from "./gameLogic.js";
 import {
   collectTriggerEmails,
+  deleteEmail,
   markEmailRead,
 } from "../email/email.js";
 import { GameContext } from "./gameContext.js";
@@ -525,6 +526,30 @@ function gameReducer(state, action) {
     // Collapse the open email back to the list.
     case "CLOSE_EMAIL": {
       return { ...state, selectedEmailId: null };
+    }
+
+    // Delete an email from the inbox (issue #31 inbox redesign):
+    // remove it from state and return to the list. The unread badge
+    // is derived from the inbox, so it drops automatically when the
+    // deleted mail was unread. A delete is a big action (see
+    // bigActionIncreased — any inbox count change saves), so the
+    // removal persists on the next save, same as a new email arriving.
+    // A notification pointing at the deleted mail is cleared too.
+    case "DELETE_EMAIL": {
+      const { emailId } = action.payload;
+      if (!(state.emails ?? []).some((entry) => entry.id === emailId)) {
+        return state;
+      }
+      return {
+        ...state,
+        emails: deleteEmail(state.emails, emailId),
+        selectedEmailId:
+          state.selectedEmailId === emailId ? null : state.selectedEmailId,
+        emailNotification:
+          state.emailNotification?.emailId === emailId
+            ? null
+            : state.emailNotification,
+      };
     }
 
     // Dismiss the notification bar (X or swipe). The email stays unread
