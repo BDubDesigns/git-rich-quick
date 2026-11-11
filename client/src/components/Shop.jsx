@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useGameContext } from "../context/useGameContext";
 import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
 import {
+  activeStarBuff,
   getEmployeeBulkCost,
   isEmployeeUnlocked,
   getUnlockProgress,
@@ -74,6 +75,14 @@ export function Shop() {
           const { Icon, color } = resolveEmployeeIcon(employeeType, state);
           const cardConfig = { ...config, Icon, color };
 
+          // Live golden-star Employee buff for this type (Sprint 2x /
+          // Meeting 0.5x), or null when none is active. The card tints
+          // green (buffed) or red (debuffed) while it is live, so the
+          // player sees at a glance that this type's production is
+          // changed. activeStarBuff drops expired entries, so the
+          // tint clears when the effect ends.
+          const buff = activeStarBuff(state, "employee", employeeType);
+
           return (
             <EmployeeCard
               key={employeeType}
@@ -83,6 +92,7 @@ export function Shop() {
               canAfford={canAfford}
               onPurchase={() => handleBuyEmployee(employeeType)}
               quantity={quantity}
+              effectMultiplier={buff ? buff.multiplier : null}
             />
           );
         }

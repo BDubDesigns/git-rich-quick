@@ -16,9 +16,20 @@ export function EmployeeCard({
   canAfford,
   onPurchase,
   quantity = 1,
+  // Live golden-star Employee buff multiplier for this type (Sprint
+  // 2x / Meeting 0.5x), or null when none is active. The card tints
+  // green (buffed) or red (debuffed) while it is live — a visual
+  // indicator only, production itself is unchanged here.
+  effectMultiplier = null,
 }) {
+  const tintClass =
+    effectMultiplier !== null && effectMultiplier > 1
+      ? "buffed"
+      : effectMultiplier !== null && effectMultiplier < 1
+        ? "debuffed"
+        : "";
   return (
-    <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
+    <div className={`panel px-3 pb-1 flex flex-col gap-1 m-0 ${tintClass}`}>
       <div className="flex items-center gap-4">
         {/* Left: JSDoc block — name, description, cost multiplier, LOC/s.
             The multiplier is the per-hire cost scaling (cost =

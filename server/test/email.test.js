@@ -477,7 +477,52 @@ test("star reward email reports a bad outcome with its locked name", () => {
   const { emails } = collectTriggerEmails(gameState(), gameState(), claim);
   assert.equal(emails.length, 1);
   assert.match(emails[0].body, /Throttling/);
-  assert.match(emails[0].body, /Production x0\.5/);
+  assert.match(emails[0].body, /Production 0\.5x/);
+});
+
+test("star reward email reports an employee effect as a production change", () => {
+  // Brandon's playtest note: "Meeting: Senior Developers x0.5" read
+  // like a bare multiplier, not a production change. The detail now
+  // says "0.5x productivity" (and "2x productivity" for a buff).
+  const meeting = {
+    effect: "employee",
+    good: false,
+    locDelta: 0,
+    moneyDelta: 0,
+    multiplier: 0.5,
+    durationSeconds: 30,
+    employeeType: "senior",
+    claimId: CLAIM_ID,
+  };
+  const { emails: meetingEmails } = collectTriggerEmails(
+    gameState(),
+    gameState(),
+    meeting
+  );
+  assert.equal(meetingEmails.length, 1);
+  assert.match(meetingEmails[0].body, /Meeting/);
+  assert.match(
+    meetingEmails[0].body,
+    /Senior Developers 0\.5x productivity/
+  );
+  const sprint = {
+    effect: "employee",
+    good: true,
+    locDelta: 0,
+    moneyDelta: 0,
+    multiplier: 2,
+    durationSeconds: 60,
+    employeeType: "intern",
+    claimId: "123e4567-e89b-42d3-a456-426614174009",
+  };
+  const { emails: sprintEmails } = collectTriggerEmails(
+    gameState(),
+    gameState(),
+    sprint
+  );
+  assert.equal(sprintEmails.length, 1);
+  assert.match(sprintEmails[0].body, /Sprint/);
+  assert.match(sprintEmails[0].body, /Interns 2x productivity/);
 });
 
 test("save shape round-trips emails, and a new email is a big action", () => {
@@ -595,8 +640,45 @@ test("highlightAmounts: gains green, losses red, for LOC and money", () => {
   ]);
 });
 
+test("highlightAmounts: multipliers color by value (buff green, debuff red)", () => {
+  // Timed star effects report "{multiplier}x": above 1x is a buff
+  // (green), below 1x a debuff (red). The multiplier token needs
+  // digits before the "x".
+  assert.deepEqual(highlightAmounts("Production 7x"), [
+    { text: "Production ", tone: null },
+    { text: "7x", tone: "gain" },
+  ]);
+  assert.deepEqual(highlightAmounts("Production 0.5x"), [
+    { text: "Production ", tone: null },
+    { text: "0.5x", tone: "loss" },
+  ]);
+  assert.deepEqual(
+    highlightAmounts("Meeting: Senior Developers 0.5x productivity."),
+    [
+      { text: "Meeting: Senior Developers ", tone: null },
+      { text: "0.5x", tone: "loss" },
+      { text: " productivity.", tone: null },
+    ]
+  );
+  assert.deepEqual(highlightAmounts("Sprint: Interns 2x productivity."), [
+    { text: "Sprint: Interns ", tone: null },
+    { text: "2x", tone: "gain" },
+    { text: " productivity.", tone: null },
+  ]);
+  assert.deepEqual(highlightAmounts("AI Accelerator: Clicks 4x."), [
+    { text: "AI Accelerator: Clicks ", tone: null },
+    { text: "4x", tone: "gain" },
+    { text: ".", tone: null },
+  ]);
+  // Exactly 1x is neither a buff nor a debuff: plain.
+  assert.deepEqual(highlightAmounts("Production 1x"), [
+    { text: "Production 1x", tone: null },
+  ]);
+});
+
 test("highlightAmounts: no sign or no unit means no coloring", () => {
-  // Multipliers and plain numbers are not amounts.
+  // "x7" has the x BEFORE the digits, so it is not a multiplier
+  // token (multipliers read "7x"). Plain numbers are not amounts.
   assert.deepEqual(highlightAmounts("Production x7"), [
     { text: "Production x7", tone: null },
   ]);

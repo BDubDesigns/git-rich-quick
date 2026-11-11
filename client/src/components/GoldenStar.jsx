@@ -5,7 +5,7 @@ import { useGameContext } from "../context/useGameContext";
 import { useFloatingText } from "../hooks/useFloatingText";
 import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
 import { getConstellationLevel } from "../context/gameLogic";
-import { STAR_CONFIG, starEffectName, starRewardDetail } from "../../../shared/game-balance.js";
+import { STAR_CONFIG, starBuffDurationSeconds, starEffectName, starRewardDetail } from "../../../shared/game-balance.js";
 import {
   SAVE_API_URL,
   getNextStar,
@@ -50,6 +50,54 @@ function formatCountdown(seconds) {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
+}
+
+/**
+ * One active star-effect duration bar: the effect name (plus the
+ * employee type for Sprint/Meeting) and the seconds left, over a fill
+ * that depletes as the effect runs out (remaining / total duration).
+ * The total is derived from the config — the stored buff only carries
+ * expiresAtMs, not its duration — and good is a multiplier above 1x
+ * (the config only ever issues good 2-7x, bad 0.5x). Green fill for a
+ * buff, red for a debuff.
+ */
+function StarEffectBar({ buff, nowMs }) {
+  const good = buff.multiplier > 1;
+  const totalSeconds = starBuffDurationSeconds(buff.effect, good) ?? 0;
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((buff.expiresAtMs - nowMs) / 1000)
+  );
+  const fillPct =
+    totalSeconds > 0
+      ? Math.min(100, Math.max(0, (remainingSeconds / totalSeconds) * 100))
+      : 0;
+  const name = starEffectName(buff.effect, good);
+  const employeeTypeName =
+    buff.effect === "employee"
+      ? EMPLOYEE_CONFIGS[buff.employeeType]?.name
+      : null;
+  const label = employeeTypeName ? `${name} (${employeeTypeName})` : name;
+  return (
+    <div
+      className="star-effect-bar"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(fillPct)}
+      aria-label={`${label} — ${formatCountdown(remainingSeconds)} left`}
+    >
+      <div
+        className={`star-effect-bar-fill ${
+          good ? "star-effect-bar-fill--good" : "star-effect-bar-fill--bad"
+        }`}
+        style={{ width: `${fillPct}%` }}
+      />
+      <span className="star-effect-bar-text">
+        {label} · {formatCountdown(remainingSeconds)}
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -99,8 +147,12 @@ export function GoldenStar() {
   // above the Commit button. Grabbed after mount — the header is in
   // the same commit, so it always exists by then.
   const [countdownSlot, setCountdownSlot] = useState(null);
+  // The header slot the active-effect bars portal into (below the
+  // countdown slot). Same grab-after-mount pattern.
+  const [effectSlot, setEffectSlot] = useState(null);
   useEffect(() => {
     setCountdownSlot(document.getElementById("star-countdown-slot"));
+    setEffectSlot(document.getElementById("star-effect-slot"));
   }, []);
   const constellationLevel = getConstellationLevel(state);
   const mountedRef = useRef(true);
@@ -164,6 +216,24 @@ export function GoldenStar() {
     }, 1000);
     return () => clearInterval(id);
   }, [star, secondsLeft]);
+
+  // Live timed buffs (frenzy / click / employee) with their expiry
+  // still ahead. GAME_TICK drops expired entries from state, but the
+  // expiry check here keeps a buff from showing in the gap between
+  // its expiry and the next tick.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const liveEffects = (state.activeStarEffects ?? []).filter(
+    (buff) => buff.expiresAtMs > nowMs
+  );
+
+  // Tick the clock once a second while any effect is live, so the
+  // duration bars deplete. The interval only runs while there is
+  // something to deplete.
+  useEffect(() => {
+    if (liveEffects.length === 0) return undefined;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [liveEffects.length]);
 
   // Show the star the moment the countdown hits zero.
   useEffect(() => {
@@ -299,6 +369,24 @@ export function GoldenStar() {
             </span>
           </div>,
           countdownSlot
+        )}
+      {/* One duration bar per live timed buff, below the countdown
+          bar: the bar depletes as the effect runs out. At most one
+          buff per (effect, employeeType) can be live, so the stack
+          stays short in practice (usually one bar). */}
+      {liveEffects.length > 0 &&
+        effectSlot &&
+        createPortal(
+          <div className="star-effect-bars">
+            {liveEffects.map((buff) => (
+              <StarEffectBar
+                key={`${buff.effect}:${buff.employeeType ?? ""}`}
+                buff={buff}
+                nowMs={nowMs}
+              />
+            ))}
+          </div>,
+          effectSlot
         )}
       {floatingTexts.map((ft) => (
         <FloatingText

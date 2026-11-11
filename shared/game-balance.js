@@ -987,7 +987,36 @@ export const EMAIL_CONFIG = Object.freeze({
   maxBodyLength: 2000,
 });
 
-/** The reward detail for a resolved star claim ("+500 LOC", "Production x7"). */
+/**
+ * Total duration (seconds) of a timed star buff, from its effect and
+ * whether it is good or bad. The stored buff (activeStarEffects) only
+ * carries expiresAtMs — not its total duration — so the effect
+ * duration bar derives the total from the config instead of growing
+ * the save shape. Good is a multiplier above 1x, bad below 1x (the
+ * config only ever issues those: good 2-7x, bad 0.5x).
+ */
+export function starBuffDurationSeconds(effect, good) {
+  const key = good ? "good" : "bad";
+  switch (effect) {
+    case "frenzy":
+      return STAR_CONFIG.frenzyDurationSeconds[key];
+    case "click":
+      return STAR_CONFIG.clickDurationSeconds[key];
+    case "employee":
+      return STAR_CONFIG.employeeDurationSeconds[key];
+    default:
+      return null;
+  }
+}
+
+/**
+ * The reward detail for a resolved star claim ("+500 LOC",
+ * "Production 7x", "Senior Developers 0.5x productivity"). Timed
+ * multipliers read "{multiplier}x" so the email renderer can color
+ * them (green above 1x, red below 1x), and the employee detail says
+ * "productivity" so it reads as a production change, not a bare
+ * multiplier.
+ */
 export function starRewardDetail(claim, employeeTypeName) {
   switch (claim.effect) {
     case "lucky": {
@@ -1007,12 +1036,12 @@ export function starRewardDetail(claim, employeeTypeName) {
       return parts.join(" ");
     }
     case "frenzy":
-      return `Production x${claim.multiplier}`;
+      return `Production ${claim.multiplier}x`;
     case "click":
-      return `Clicks x${claim.multiplier}`;
+      return `Clicks ${claim.multiplier}x`;
     case "employee": {
       const typeName = employeeTypeName ?? claim.employeeType;
-      return `${typeName}s x${claim.multiplier}`;
+      return `${typeName}s ${claim.multiplier}x productivity`;
     }
     default:
       return "";

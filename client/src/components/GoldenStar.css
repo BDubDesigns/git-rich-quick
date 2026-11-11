@@ -81,6 +81,9 @@
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
   pointer-events: none;
+  /* A small gap below the bar so it does not crowd the content (or
+     the effect bars) beneath it. */
+  margin-bottom: 8px;
 }
 
 .star-countdown-bar-fill {
@@ -91,6 +94,60 @@
 }
 
 .star-countdown-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Active star-effect duration bars: one per live timed buff, in the
+   header under the next-star countdown bar. Each bar depletes (its
+   fill shrinks) as the effect runs out — fill is remaining / total
+   duration. Green fill for a buff, red for a debuff, so good/bad
+   reads at a glance, matching the email gain/loss coloring. The
+   small name + seconds-remaining text sits inside the bar, centered,
+   white with a dark shadow so it reads on both the fill and the
+   dark track. */
+.star-effect-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.star-effect-bar {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.star-effect-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 1s linear;
+}
+
+.star-effect-bar-fill--good {
+  background: linear-gradient(90deg, #15803d, #4ade80);
+}
+
+.star-effect-bar-fill--bad {
+  background: linear-gradient(90deg, #b91c1c, #f87171);
+}
+
+.star-effect-bar-text {
   position: absolute;
   inset: 0;
   display: flex;
