@@ -113,7 +113,7 @@ export const BALANCE = Object.freeze({
     // Cosmetics (issue #11): each employee type has one cosmetic
     // slot (the thing being skinned — its icon) and a list of
     // unlocks, each firing when the owned count reaches its trigger.
-    // One cosmetic per tier at 10 hires in v1; the system is
+    // One cosmetic per tier at 25 hires in v1; the system is
     // extensible — add more entries to cosmeticUnlocks.
     intern: Object.freeze({
       baseCost: 2500, // cents
@@ -122,7 +122,7 @@ export const BALANCE = Object.freeze({
       unlockConditions: Object.freeze([]),
       cosmeticSlot: "employeeIcon_intern",
       cosmeticUnlocks: Object.freeze([
-        Object.freeze({ triggerCount: 10, cosmeticId: "intern-icon-bronze" }),
+        Object.freeze({ triggerCount: 25, cosmeticId: "intern-icon-bronze" }),
       ]),
     }),
     junior: Object.freeze({
@@ -134,7 +134,7 @@ export const BALANCE = Object.freeze({
       ]),
       cosmeticSlot: "employeeIcon_junior",
       cosmeticUnlocks: Object.freeze([
-        Object.freeze({ triggerCount: 10, cosmeticId: "junior-icon-silver" }),
+        Object.freeze({ triggerCount: 25, cosmeticId: "junior-icon-silver" }),
       ]),
     }),
     senior: Object.freeze({
@@ -147,7 +147,7 @@ export const BALANCE = Object.freeze({
       ]),
       cosmeticSlot: "employeeIcon_senior",
       cosmeticUnlocks: Object.freeze([
-        Object.freeze({ triggerCount: 10, cosmeticId: "senior-icon-gold" }),
+        Object.freeze({ triggerCount: 25, cosmeticId: "senior-icon-gold" }),
       ]),
     }),
     // Each Project Manager adds +1% to ALL employee passive LOC.
@@ -165,7 +165,7 @@ export const BALANCE = Object.freeze({
       cosmeticSlot: "employeeIcon_projectManager",
       cosmeticUnlocks: Object.freeze([
         Object.freeze({
-          triggerCount: 10,
+          triggerCount: 25,
           cosmeticId: "projectManager-icon-platinum",
         }),
       ]),
@@ -184,7 +184,7 @@ export const BALANCE = Object.freeze({
       cosmeticSlot: "employeeIcon_commitSpecialist",
       cosmeticUnlocks: Object.freeze([
         Object.freeze({
-          triggerCount: 10,
+          triggerCount: 25,
           cosmeticId: "commitSpecialist-icon-diamond",
         }),
       ]),
@@ -1056,7 +1056,7 @@ export function cosmeticTriggerMet(cosmeticId, state) {
 /**
  * Every cosmetic whose trigger is met by a save-shaped state. Used to
  * derive the unlocked list for a save from before cosmetics shipped
- * (see normalizeSaveState): a veteran with 10+ interns gets the
+ * (see normalizeSaveState): a veteran with 25+ interns gets the
  * Bronze Duck on load, not locked behind a goal they already cleared.
  */
 export function deriveUnlockedCosmetics(state) {
@@ -1074,7 +1074,7 @@ export function deriveUnlockedCosmetics(state) {
 /**
  * Cosmetics newly unlocked by a hire that moves a type's count from
  * `oldCount` to `newCount`. Threshold-crossing (>=), not exact match:
- * a bulk buy can jump past a trigger (5 -> 15 crosses 10), and the
+ * a bulk buy can jump past a trigger (5 -> 30 crosses 25), and the
  * unlock must still fire. The caller filters out cosmetics the
  * player already has.
  */
@@ -1253,7 +1253,7 @@ export function normalizeSaveState(state) {
   if (!Array.isArray(next.unlockedCosmetics)) {
     // A save from before cosmetics shipped (issue #11) has no
     // cosmetic fields at all. Derive the unlocked list from the
-    // save's own employee counts, so a player who already hired 10
+    // save's own employee counts, so a player who already hired 25
     // interns gets the Bronze Duck on load instead of locked behind
     // a goal they already cleared. Same pattern as the freelance
     // latch (issue #19).

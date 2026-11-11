@@ -1,5 +1,5 @@
 import { useGameContext } from "../context/useGameContext.js";
-import { highlightAmounts } from "../email/email.js";
+import { highlightAmounts, unreadEmailCount } from "../email/email.js";
 import gitmailBanner from "../img/gitmail-banner.png";
 import { Button } from "./Button.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
@@ -124,6 +124,15 @@ export function Email() {
       )}
       {emails.length > 0 && (
         <div className="panel flex flex-col gap-1">
+          {unreadEmailCount(state.emails) > 0 && (
+            <div className="flex justify-end px-1 pb-1">
+              <Button
+                onClick={() => dispatch({ type: "MARK_ALL_EMAILS_READ" })}
+              >
+                Mark all as read
+              </Button>
+            </div>
+          )}
           {emails.map((email) => (
             <button
               key={email.id}

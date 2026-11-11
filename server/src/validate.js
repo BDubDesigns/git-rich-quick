@@ -48,12 +48,15 @@
  *    will 400 on a star claim until it reloads — the save itself is
  *    not lost, and the next heartbeat retries with fresh state).
  *
- * 4. COSMETICS (issue #11) extend Rule 3 (unlocks are real): an
- *    unlocked cosmetic's hire-count trigger must be met by the new
- *    snapshot itself, and an equipped cosmetic must be unlocked and
- *    belong to the slot it is equipped in. The unlocked list only
- *    grows (Rule 2); the equipped map switches freely. Failures are
- *    the COSMETIC rule (409).
+ * 4. COSMETICS (issue #11) extend Rule 3 (unlocks are real): a
+ *    cosmetic NEWLY claimed in a save must have its hire-count
+ *    trigger met by the new snapshot itself, and an equipped cosmetic
+ *    must be unlocked and belong to the slot it is equipped in. A
+ *    cosmetic already unlocked in the previous save is grandfathered
+ *    (the trigger rose from 10 to 25 hires; an earned cosmetic is
+ *    never revoked). The unlocked list only grows (Rule 2); the
+ *    equipped map switches freely. Failures are the COSMETIC rule
+ *    (409).
  *
  * Star-era fields are backward-compatible: a save (or client) from
  * before Constellation shipped lacks `constellation` in the
@@ -986,12 +989,19 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   }
 
   // Rule 3, cosmetics (issue #11) — unlocks and equips are real:
-  // every unlocked cosmetic's hire-count trigger must be met by the
-  // new snapshot itself, and every equipped cosmetic must be unlocked
-  // and belong to the slot it is equipped in. Recomputed from the new
-  // state, same as the other unlock rules. A failure here is a
+  // every cosmetic NEWLY claimed in this save must have its
+  // hire-count trigger met by the new snapshot itself, and every
+  // equipped cosmetic must be unlocked and belong to the slot it is
+  // equipped in. A cosmetic already unlocked in the previous save is
+  // grandfathered: the trigger rose under it (10 -> 25 hires), and
+  // the MONOTONIC rule above already guarantees the unlocked list
+  // only grows, so an earned cosmetic is never revoked or rejected
+  // for a threshold it met when it was earned. A failure here is a
   // COSMETIC rejection (409 with the last good state).
   for (const cosmeticId of newState.unlockedCosmetics ?? []) {
+    if ((prevState.unlockedCosmetics ?? []).includes(cosmeticId)) {
+      continue;
+    }
     if (!cosmeticTriggerMet(cosmeticId, newState)) {
       return fail(
         "COSMETIC",

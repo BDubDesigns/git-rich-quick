@@ -15,6 +15,7 @@ import {
   addEmail,
   deleteEmail,
   highlightAmounts,
+  markAllEmailsRead,
   markEmailRead,
   unreadEmailCount,
   collectTriggerEmails,
@@ -138,6 +139,53 @@ test("markEmailRead + unreadEmailCount", () => {
   assert.equal(markEmailRead(read, a.id), read);
   assert.equal(markEmailRead(read, "123e4567-e89b-42d3-a456-426614174099"), read);
   assert.equal(unreadEmailCount([]), 0);
+});
+
+test("markAllEmailsRead: every unread mail becomes read, already-read is a no-op", () => {
+  const a = validEmail({ id: "123e4567-e89b-42d3-a456-426614174002" });
+  const b = validEmail({
+    id: "123e4567-e89b-42d3-a456-426614174003",
+    triggerKey: "test:two",
+  });
+  const c = validEmail({
+    id: "123e4567-e89b-42d3-a456-426614174004",
+    triggerKey: "test:three",
+    read: true,
+  });
+  const inbox = [a, b, c];
+  assert.equal(unreadEmailCount(inbox), 2);
+  const allRead = markAllEmailsRead(inbox);
+  assert.equal(unreadEmailCount(allRead), 0);
+  assert.equal(allRead[0].read, true);
+  assert.equal(allRead[1].read, true);
+  assert.equal(allRead[2].read, true);
+  // The original array is untouched (pure function).
+  assert.equal(unreadEmailCount(inbox), 2);
+  // Nothing unread: the same array back, so a no-op tap changes no
+  // state and triggers no save.
+  assert.equal(markAllEmailsRead(allRead), allRead);
+  const empty = [];
+  assert.equal(markAllEmailsRead(empty), empty);
+});
+
+test("marking mail read is a big action (saves promptly, like a new email)", () => {
+  const unread = {
+    ...initialSaveState(),
+    emails: [validEmail()],
+  };
+  const read = {
+    ...initialSaveState(),
+    emails: [validEmail({ read: true })],
+  };
+  // Same inbox count, only the read state changed — still a save.
+  assert.equal(
+    bigActionIncreased(bigActionFields(unread), bigActionFields(read)),
+    true
+  );
+  assert.equal(
+    bigActionIncreased(bigActionFields(read), bigActionFields(read)),
+    false
+  );
 });
 
 test("employee teaser fires once when the employee becomes visible", () => {

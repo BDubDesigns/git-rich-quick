@@ -372,21 +372,21 @@ test("old saves migrate: missing PM/CS keys default to 0, latches derive from th
   assert.equal(migratedVeteran.unlockedEmployees.commitSpecialist, true);
 });
 
-test("cosmetics: one per new tier at 10 hires", () => {
+test("cosmetics: one per new tier at 25 hires", () => {
   assert.deepEqual(
-    deriveUnlockedCosmetics(stateWith({ employees: { projectManager: 10 } })),
+    deriveUnlockedCosmetics(stateWith({ employees: { projectManager: 25 } })),
     ["projectManager-icon-platinum"]
   );
   assert.deepEqual(
     deriveUnlockedCosmetics(
-      stateWith({ employees: { commitSpecialist: 10 } })
+      stateWith({ employees: { commitSpecialist: 25 } })
     ),
     ["commitSpecialist-icon-diamond"]
   );
   // Below the trigger, nothing unlocks.
   assert.deepEqual(
     deriveUnlockedCosmetics(
-      stateWith({ employees: { projectManager: 9, commitSpecialist: 9 } })
+      stateWith({ employees: { projectManager: 24, commitSpecialist: 24 } })
     ),
     []
   );

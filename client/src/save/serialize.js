@@ -24,6 +24,7 @@ import {
   initialSaveState,
   openSourceUnlockConditionsMet,
 } from "../../../shared/game-balance.js";
+import { unreadEmailCount } from "../email/email.js";
 
 function flatCounts(nested) {
   return EMPLOYEE_TYPES.reduce((acc, key) => {
@@ -206,6 +207,10 @@ export function bigActionFields(saveState) {
     employees: saveState.employees,
     openSourceProjects: saveState.openSourceProjects,
     emails: (saveState.emails ?? []).length,
+    // Read state is part of the save, so the unread count is a
+    // big-action field too: marking mail read (one email, or all of
+    // them) saves promptly instead of waiting for the heartbeat.
+    unreadEmails: unreadEmailCount(saveState.emails),
     // The unlocked list only grows; the equipped map is compared as
     // a string because any change (equip, unequip, switch) is a
     // big action.
@@ -276,6 +281,7 @@ export function bigActionIncreased(prev, next) {
       return true;
   }
   if ((next.emails ?? 0) !== (prev.emails ?? 0)) return true;
+  if ((next.unreadEmails ?? 0) !== (prev.unreadEmails ?? 0)) return true;
   if ((next.unlockedCosmetics ?? 0) > (prev.unlockedCosmetics ?? 0))
     return true;
   // Equipping is not a count — any change (equip, unequip, switch)
