@@ -82,7 +82,7 @@ async function setState(srv, playerId, overrides) {
   // A player who owns Constellation levels necessarily met the
   // TOTAL_LOC >= 500 unlock (L1 costs 1000 LOC), and a player who owns
   // StarBroker levels necessarily met the TOTAL_LOC >= 5000 unlock
-  // (L1 costs 5000 LOC) — so the fixture carries a realistic
+  // (L1 costs 10000 LOC) — so the fixture carries a realistic
   // lifetime-LOC base, otherwise the level rule rejects the state on save.
   if (
     (state.openSourceProjects?.constellation ?? 0) > 0 &&
@@ -491,7 +491,7 @@ test("StarBroker unlock: a level without TOTAL_LOC >= 5000 is rejected; a save w
       playerId: poor,
       state: {
         ...poorStored,
-        linesOfCode: 20000 - 5000 + 110,
+        linesOfCode: 20000 - 10000 + 110,
         totalLinesOfCode: 1000 + 110,
         openSourceProjects: { ...poorStored.openSourceProjects, starBroker: 1 },
         unlockedOpenSourceProjects: {
@@ -527,7 +527,7 @@ test("StarBroker unlock: a level without TOTAL_LOC >= 5000 is rejected; a save w
       playerId: rich,
       state: {
         ...richStored,
-        linesOfCode: 20000 - 5000 + 110,
+        linesOfCode: 20000 - 10000 + 110,
         totalLinesOfCode: 20000 + 110,
         openSourceProjects: { ...richStored.openSourceProjects, starBroker: 1 },
         unlockedOpenSourceProjects: {
