@@ -8,10 +8,11 @@
  *
  * Key numbers: both cost 500000c base, x1.2 per hire. A Project
  * Manager adds +1% to ALL employee passive LOC. A Commit Specialist
- * adds +0.1 LOC to each manual click; the FINAL click total is floored
- * (10 specialists = +1, 15 = +1, 25 = +2). Project Manager unlocks at
- * TOTAL_LOC >= 50000 AND 25 employees; Commit Specialist at
- * TOTAL_LOC >= 25000 AND 20 employees.
+ * adds +0.2 LOC to each manual click, and the bonus gets the same
+ * OverReact click boost as the base manual click; the FINAL click
+ * total is floored (10 specialists = +2, 15 = +3, 25 = +5 at no
+ * OverReact). Project Manager unlocks at TOTAL_LOC >= 50000 AND 25
+ * employees; Commit Specialist at TOTAL_LOC >= 25000 AND 20 employees.
  */
 
 import test from "node:test";
@@ -19,6 +20,7 @@ import assert from "node:assert/strict";
 import { validateSave } from "../src/validate.js";
 import {
   BALANCE,
+  clickBonus,
   commitSpecialistClickBonus,
   deriveUnlockedCosmetics,
   effectiveEmployeeMultiplier,
@@ -185,51 +187,53 @@ test("passive floor also floors a pre-existing fractional Blocker rate", () => {
   );
 });
 
-test("Commit Specialist: the RAW bonus is +0.1 per specialist (no floor here)", () => {
-  assert.equal(commitSpecialistClickBonus(counts({ commitSpecialist: 15 })), 1.5);
-  assert.equal(commitSpecialistClickBonus(counts({ commitSpecialist: 25 })), 2.5);
+test("Commit Specialist: the RAW bonus is +0.2 per specialist (no floor here)", () => {
+  assert.equal(commitSpecialistClickBonus(counts({ commitSpecialist: 15 })), 3);
+  assert.equal(commitSpecialistClickBonus(counts({ commitSpecialist: 25 })), 5);
   assert.equal(commitSpecialistClickBonus(counts({ commitSpecialist: 0 })), 0);
-  // A 5x Sprint makes each specialist give +0.5 per click.
+  // A 5x Sprint makes each specialist give +1.0 per click.
   assert.equal(
     commitSpecialistClickBonus(counts({ commitSpecialist: 15 }), 5),
-    7.5
+    15
   );
-  // A Meeting halves it (+0.05 per specialist).
+  // A Meeting halves it (+0.1 per specialist).
   assert.equal(
     commitSpecialistClickBonus(counts({ commitSpecialist: 15 }), 0.5),
-    0.75
+    1.5
   );
 });
 
 test("click total is floored (Brandon: never commit 5093.1, always 5093)", () => {
-  // Base click 1 + the raw bonus, floored as a total: 10 -> +1,
-  // 15 -> +1 (floor of 1.5), 25 -> +2 (floor of 2.5), 30 -> +3.
-  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 10 })), 2);
-  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 15 })), 2);
-  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 25 })), 3);
-  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 30 })), 4);
+  // Base click 1 + the raw bonus, floored as a total: 10 -> +2,
+  // 15 -> +3 (floor of 3), 25 -> +5, 30 -> +6.
+  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 10 })), 3);
+  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 15 })), 4);
+  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 25 })), 6);
+  assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 30 })), 7);
   assert.equal(locPerClick(OPEN_SOURCE_ZERO, counts()), 1);
-  // A 5x Sprint on 15 specialists: floor(1 + 7.5) = 8.
+  // A 5x Sprint on 15 specialists: floor(1 + 15) = 16.
   assert.equal(
     locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 15 }), 5),
-    8
+    16
   );
-  // OverReact L1 (+1 click) stacks additively, then the total floors:
-  // floor(2 + 1.5) = 3.
+  // OverReact L1 (+1 click) boosts the Commit Specialist bonus too:
+  // the bonus is part of the click, not a flat add-on, so the total
+  // is floor((1 + 3) x 2) = 8. Without the scaling it would be
+  // floor(1 x 2 + 3) = 5.
   assert.equal(
     locPerClick(
       { ...OPEN_SOURCE_ZERO, overReactFramework: 1 },
       counts({ commitSpecialist: 15 })
     ),
-    3
+    8
   );
-  // The floored Sprint delta is exact: floor(3.8) - floor(1.9) = 2.
+  // The floored Sprint delta is exact: floor(8.6) - floor(4.8) = 4.
   // (19 specialists at 2x vs 1x.) The server's allowance uses this
   // difference, so it credits exactly what the client earns.
   assert.equal(
     locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 19 }), 2) -
       locPerClick(OPEN_SOURCE_ZERO, counts({ commitSpecialist: 19 })),
-    2
+    4
   );
 });
 
@@ -462,7 +466,30 @@ test("hire validation: a Commit Specialist hire at exactly 500000c passes", () =
   assert.deepEqual(r, { ok: true });
 });
 
-test("click credit: 25 Commit Specialists make each click worth 3 LOC", () => {
+test("Brandon's live case: 9 Commit Specialists with OverReact L5 is not eaten by the floor", () => {
+  // Brandon, Nov 10 (playerId 0c3781c2-d611-441e-b5df-e04330c8223e):
+  // 9 Commit Specialists, OverReact L5 (cumulative click bonus +31),
+  // click showed +32. The old math floored (1 x 32 + 0.9) = 32.9 to
+  // 32, so all 9 specialists gave him 0 extra LOC — he would have
+  // needed 10 just to see +1. With the 0.2 rate AND the OverReact
+  // scaling, the bonus is part of the click: floor((1 + 1.8) x 32)
+  // = floor(89.6) = 89. (Unscaled, 0.2 alone would give
+  // floor(32 + 1.8) = 33; the scaling is what makes the bonus
+  // match the manual click's GitNub boost.)
+  const overReact5 = { ...OPEN_SOURCE_ZERO, overReactFramework: 5 };
+  assert.equal(clickBonus(overReact5), 31);
+  assert.equal(
+    locPerClick(overReact5, counts({ commitSpecialist: 9 })),
+    89
+  );
+  // Sanity: the old 0.1 rate really was invisible here.
+  assert.equal(
+    Math.floor(1 * (1 + 31) + 0.1 * 9),
+    32
+  );
+});
+
+test("click credit: 25 Commit Specialists make each click worth 6 LOC", () => {
   const before = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 30000,
@@ -470,12 +497,12 @@ test("click credit: 25 Commit Specialists make each click worth 3 LOC", () => {
     employees: { intern: 20, commitSpecialist: 25 },
     unlockedEmployees: { commitSpecialist: true },
   });
-  // 10 clicks x 3 LOC = 30, plus 20 interns x 1 LOC/s x 60s = 1200
+  // 10 clicks x 6 LOC = 60, plus 20 interns x 1 LOC/s x 60s = 1200
   // passive. (The interns are there for the CS unlock's 20-employee
   // condition; their passive is part of the expected gain.)
   const after = stateWith({
-    linesOfCode: 1230,
-    totalLinesOfCode: 31230,
+    linesOfCode: 1260,
+    totalLinesOfCode: 31260,
     money: 0,
     employees: { intern: 20, commitSpecialist: 25 },
     unlockedEmployees: { commitSpecialist: true },
@@ -488,13 +515,63 @@ test("click credit: 25 Commit Specialists make each click worth 3 LOC", () => {
   assert.deepEqual(r, { ok: true });
 
   // Claiming 2000 LOC from those 10 clicks exceeds the max
-  // (30 click + 1200 passive + tolerance) and is rejected.
+  // (60 click + 1200 passive + tolerance) and is rejected.
   const greedy = stateWith({
     linesOfCode: 2000,
     totalLinesOfCode: 32000,
     money: 0,
     employees: { intern: 20, commitSpecialist: 25 },
     unlockedEmployees: { commitSpecialist: true },
+  });
+  const r2 = validateSave(
+    prev(before, T0),
+    body(greedy, { ...zeroActions(), clicks: 10 }),
+    T0 + 60_000
+  );
+  assert.equal(r2.ok, false);
+  assert.equal(r2.rule, "LOC");
+});
+
+test("legit play: OverReact boosts the Commit Specialist bonus", () => {
+  // 10 interns + 10 specialists (20 employees, TOTAL_LOC 25000 —
+  // the CS unlock is met), OverReact L1 already owned, 60s window.
+  // Each click is floor((1 + 2) x 2) = 6, not the unscaled
+  // floor(1 x 2 + 2) = 4: the CS bonus gets the same OverReact boost
+  // as the base manual click. 10 clicks x 6 = 60, plus 10 interns
+  // x 60s = 600 passive. Total 660. Without the scaling the server
+  // would allow only 600 + 40 + tolerance and false-reject.
+  const before = stateWith({
+    linesOfCode: 0,
+    totalLinesOfCode: 25000,
+    money: 0,
+    employees: { intern: 10, commitSpecialist: 10 },
+    unlockedEmployees: { commitSpecialist: true },
+    openSourceProjects: { overReactFramework: 1 },
+  });
+  const after = stateWith({
+    linesOfCode: 660,
+    totalLinesOfCode: 25660,
+    money: 0,
+    employees: { intern: 10, commitSpecialist: 10 },
+    unlockedEmployees: { commitSpecialist: true },
+    openSourceProjects: { overReactFramework: 1 },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, { ...zeroActions(), clicks: 10 }),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+
+  // Claiming 2000 LOC from those 10 clicks exceeds the max
+  // (60 click + 600 passive + tolerance) and is rejected.
+  const greedy = stateWith({
+    linesOfCode: 2000,
+    totalLinesOfCode: 27000,
+    money: 0,
+    employees: { intern: 10, commitSpecialist: 10 },
+    unlockedEmployees: { commitSpecialist: true },
+    openSourceProjects: { overReactFramework: 1 },
   });
   const r2 = validateSave(
     prev(before, T0),
@@ -550,13 +627,45 @@ test("legit star play: a Sprint on Project Managers scales the boost", () => {
   assert.deepEqual(r, { ok: true });
 });
 
+test("legit play: Brandon's 9 Commit Specialists with OverReact L5 earn 89 LOC per click", () => {
+  // Same live case as the unit test above, end to end through the
+  // server: 11 interns + 9 specialists (20 employees, TOTAL_LOC
+  // 100000 — the CS unlock is met), OverReact L5 already owned, 60s
+  // window. 10 clicks x 89 = 890, plus 11 interns x 60s = 660
+  // passive. Total 1550. The server's allowance must cover the
+  // boosted clicks, or the save false-rejects like the old client
+  // math did to Brandon.
+  const before = stateWith({
+    linesOfCode: 0,
+    totalLinesOfCode: 100000,
+    money: 0,
+    employees: { intern: 11, commitSpecialist: 9 },
+    unlockedEmployees: { commitSpecialist: true },
+    openSourceProjects: { overReactFramework: 5 },
+  });
+  const after = stateWith({
+    linesOfCode: 1550,
+    totalLinesOfCode: 101550,
+    money: 0,
+    employees: { intern: 11, commitSpecialist: 9 },
+    unlockedEmployees: { commitSpecialist: true },
+    openSourceProjects: { overReactFramework: 5 },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, { ...zeroActions(), clicks: 10 }),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
 test("legit star play: a Sprint on Commit Specialists scales the click bonus", () => {
   // 5 interns + 15 specialists (20 employees, TOTAL_LOC 30000 — the
   // CS unlock is met), Constellation L4, 50s window. Base click is
-  // floor(1 + 1.5) = 2; with the 5x Sprint it is floor(1 + 7.5) = 8.
-  // 40 clicks x 8 = 320, plus 5 interns x 50s = 250 passive. Total
-  // 570. Without the allowance the server would allow only
-  // 250 + 80 = 330 + tolerance and false-reject.
+  // floor(1 + 3) = 4; with the 5x Sprint it is floor(1 + 15) = 16.
+  // 40 clicks x 16 = 640, plus 5 interns x 50s = 250 passive. Total
+  // 890. Without the allowance the server would allow only
+  // 250 + 160 = 410 + tolerance and false-reject.
   const before = constellationState(4, {
     linesOfCode: 0,
     totalLinesOfCode: 30000,
@@ -565,8 +674,8 @@ test("legit star play: a Sprint on Commit Specialists scales the click bonus", (
     unlockedEmployees: { commitSpecialist: true },
   });
   const after = constellationState(4, {
-    linesOfCode: 570,
-    totalLinesOfCode: 30570,
+    linesOfCode: 890,
+    totalLinesOfCode: 30890,
     money: 0,
     employees: { intern: 5, commitSpecialist: 15 },
     unlockedEmployees: { commitSpecialist: true },
@@ -597,10 +706,10 @@ test("legit star play: a Sprint on Commit Specialists scales the click bonus", (
 
 test("legit star play: Click buff x Commit Specialist Sprint multiply (interaction)", () => {
   // Same setup as the CS Sprint test, plus a Click x3 for 20s. All 40
-  // clicks land inside both buffs: each click is floor(1 + 7.5) x 3
-  // = 24, so 960 click LOC + 250 passive = 1210. Without the
-  // interaction term the server would allow only 250 + 80 + 160 +
-  // 240 = 730 and false-reject.
+  // clicks land inside both buffs: each click is floor(1 + 15) x 3
+  // = 48, so 1920 click LOC + 250 passive = 2170. Without the
+  // interaction term the server would allow only 250 + 160 + 320 +
+  // 480 = 1210 and false-reject.
   const before = constellationState(4, {
     linesOfCode: 0,
     totalLinesOfCode: 30000,
@@ -609,8 +718,8 @@ test("legit star play: Click buff x Commit Specialist Sprint multiply (interacti
     unlockedEmployees: { commitSpecialist: true },
   });
   const after = constellationState(4, {
-    linesOfCode: 1210,
-    totalLinesOfCode: 31210,
+    linesOfCode: 2170,
+    totalLinesOfCode: 32170,
     money: 0,
     employees: { intern: 5, commitSpecialist: 15 },
     unlockedEmployees: { commitSpecialist: true },
@@ -654,7 +763,7 @@ test("legit star play: a Meeting on Commit Specialists does not false-reject", (
   // the base credit already covers it — the server adds no negative
   // allowance for it (subtracting could under-credit clicks made
   // outside the Meeting). 40 clicks during the Meeting earn
-  // floor(1 + 0.75) = 1 each: 40 click LOC + 250 passive = 290.
+  // floor(1 + 1.5) = 2 each: 80 click LOC + 250 passive = 330.
   const before = constellationState(4, {
     linesOfCode: 0,
     totalLinesOfCode: 30000,
@@ -663,8 +772,8 @@ test("legit star play: a Meeting on Commit Specialists does not false-reject", (
     unlockedEmployees: { commitSpecialist: true },
   });
   const after = constellationState(4, {
-    linesOfCode: 290,
-    totalLinesOfCode: 30290,
+    linesOfCode: 330,
+    totalLinesOfCode: 30330,
     money: 0,
     employees: { intern: 5, commitSpecialist: 15 },
     unlockedEmployees: { commitSpecialist: true },

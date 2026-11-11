@@ -23,7 +23,7 @@ import { employeeReturnsLine } from "../context/gameLogic.js";
 
 export function LockedEmployeeCard({ config, progress }) {
   // The @returns line: the base bonus for this type. A Project Manager
-  // shows "+1% passive per Manager" and a Commit Specialist "+0.1 LOC
+  // shows "+1% passive per Manager" and a Commit Specialist "+0.2 LOC
   // per Click" instead of a LOC/s rate — see employeeReturnsLine
   // (gameLogic.js), shared with the unlocked card so both cards agree.
   const returnsLine = employeeReturnsLine(config);

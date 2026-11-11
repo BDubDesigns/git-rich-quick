@@ -132,13 +132,16 @@ export function getTotalPassiveBonus(state) {
  * A golden-star Click buff (AI Accelerator / Hallucination) multiplies the
  * click value while it is live. See activeStarBuff.
  *
- * Commit Specialists add a flat bonus on top of the base click and the
- * OverReact boost: +0.1 LOC per specialist. The FINAL total is floored
+ * Commit Specialists add +0.2 LOC per specialist, and the bonus gets the
+ * same OverReact click boost as the base manual click: the total is
+ * floor((base + 0.2 x N) x (1 + click bonus)). The FINAL total is floored
  * to a whole number (Brandon: a click must never yield or commit a
  * fractional amount — never 5093.1, always 5093), so 10 specialists
- * = +1, 15 = +1, 25 = +2 once the total is floored. A Sprint on Commit
- * Specialists multiplies their per-click bonus (+0.5 per specialist at
- * 5x) before the Click buff multiplies the total.
+ * = +2, 15 = +3, 25 = +5 once the total is floored (at no OverReact).
+ * A Sprint on Commit Specialists multiplies their per-click bonus (+1.0
+ * per specialist at 5x) before the Click buff multiplies the total —
+ * and the Click buff multiplies the whole click total, CS bonus
+ * included, because it scales the floored total from locPerClick.
  *
  * @param {Object} state - The game state object
  * @returns {number} Total LOC generated from one click, including bonuses
@@ -232,7 +235,7 @@ export function calculateLOCPerSecond(state) {
  * value when a star buff (or the Project Manager boost) makes the
  * effective multiplier differ from 1. One implementation for both
  * EmployeeCard and LockedEmployeeCard (DRY): a Project Manager shows
- * "+1% passive per Manager" and a Commit Specialist "+0.1 LOC per
+ * "+1% passive per Manager" and a Commit Specialist "+0.2 LOC per
  * Click" instead of the normal "{N} LOC per Sec", because neither has
  * a per-second rate — their value is the boost they give. The suffix
  * is green for a buff (>1x) and red for a debuff (<1x), matching the

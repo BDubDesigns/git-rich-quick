@@ -33,6 +33,10 @@ import gitmailIcon from "../img/gitmail-icon.png";
 import { BsClipboard2CheckFill } from "react-icons/bs"; // to-do list app
 import { GiPostStamp } from "react-icons/gi"; // hobby website
 import { GiCoinsPile } from "react-icons/gi"; // paradigm-shifting blockchain project
+import { FaRobot } from "react-icons/fa"; // AI-powered dashboard
+import { FaImage } from "react-icons/fa"; // NFT marketplace
+import { FaGlobe } from "react-icons/fa"; // metaverse real estate
+import { FaAtom } from "react-icons/fa"; // quantum to-do list
 
 // import icons for gitnub / open source projects
 import { FaCircleRadiation } from "react-icons/fa6"; // overReact framework
@@ -260,6 +264,42 @@ export const FREELANCE_PROJECTS_CONFIG = Object.freeze({
       "A very useful project that leverages the blockchain to convert hype, overpromises, and investor's money into your money.",
     icon: GiCoinsPile,
     color: "gold",
+  },
+  aiPoweredDashboard: {
+    // LOC cost, reward, and unlock conditions come from shared.
+    ...shared.BALANCE.freelanceProjects.aiPoweredDashboard,
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.aiPoweredDashboard,
+    description:
+      "An AI-powered dashboard that generates beautiful reports nobody will ever read. The AI is mostly a random number generator with confidence.",
+    icon: FaRobot,
+    color: "purple",
+  },
+  nftMarketplace: {
+    // LOC cost, reward, and unlock conditions come from shared.
+    ...shared.BALANCE.freelanceProjects.nftMarketplace,
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.nftMarketplace,
+    description:
+      "A marketplace for NFTs of to-do lists. Own a JPEG of someone else's unfinished chores — yours forever, on the blockchain, until the site goes down.",
+    icon: FaImage,
+    color: "pink",
+  },
+  metaverseRealEstate: {
+    // LOC cost, reward, and unlock conditions come from shared.
+    ...shared.BALANCE.freelanceProjects.metaverseRealEstate,
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.metaverseRealEstate,
+    description:
+      "Virtual land in a metaverse nobody visits. Prime location, zero foot traffic, infinite upside (allegedly).",
+    icon: FaGlobe,
+    color: "green",
+  },
+  quantumToDoList: {
+    // LOC cost, reward, and unlock conditions come from shared.
+    ...shared.BALANCE.freelanceProjects.quantumToDoList,
+    name: shared.FREELANCE_PROJECT_DISPLAY_NAMES.quantumToDoList,
+    description:
+      "A to-do list that is both done and not done until you observe it. Schrodinger's sprint planning, now shipping.",
+    icon: FaAtom,
+    color: "cyan",
   },
 });
 

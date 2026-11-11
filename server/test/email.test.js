@@ -48,8 +48,18 @@ function validEmail(overrides = {}) {
   };
 }
 
-/** Minimal client-shaped reducer state for the trigger adapters. */
+/** Minimal client-shaped reducer state for the trigger adapters.
+ * The freelance maps carry all seven projects (the four big ones
+ * included): the adapters iterate FREELANCE_PROJECT_KEYS and the
+ * progress helper warns on a missing key, so a 3-key map would
+ * flood the output and misread the new projects' counts as 0.
+ * Overrides merge into the maps instead of replacing them. */
 function gameState(overrides = {}) {
+  const {
+    freelanceProjectsCompleted,
+    unlockedFreelanceProjects,
+    ...rest
+  } = overrides;
   return {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -67,6 +77,11 @@ function gameState(overrides = {}) {
       toDoListApp: 0,
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
+      aiPoweredDashboard: 0,
+      nftMarketplace: 0,
+      metaverseRealEstate: 0,
+      quantumToDoList: 0,
+      ...freelanceProjectsCompleted,
     },
     unlockedEmployees: { intern: true, junior: false, senior: false, projectManager: false, commitSpecialist: false },
     openSourceProjects: {
@@ -83,10 +98,15 @@ function gameState(overrides = {}) {
       toDoListApp: true,
       hobbyWebsite: false,
       paradigmShiftingBlockchainProject: false,
+      aiPoweredDashboard: false,
+      nftMarketplace: false,
+      metaverseRealEstate: false,
+      quantumToDoList: false,
+      ...unlockedFreelanceProjects,
     },
     activeStarEffects: [],
     emails: [],
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -401,7 +421,9 @@ test("freelance unlock email fires on the latch flip, not the teaser", () => {
   // Teaser already sent at 5 shipped; now the latch flips at 50.
   // The jump 5 -> 50 also crosses the Blockchain's 10% visibility
   // threshold (20 total projects), so its teaser fires in the same
-  // transition — the never-both rule is per project.
+  // transition — the never-both rule is per project. 50 total is also
+  // 10% of the NFT Marketplace's 500-total condition, so its teaser
+  // fires too.
   const teaser = collectTriggerEmails(
     gameState(),
     gameState({
@@ -440,6 +462,7 @@ test("freelance unlock email fires on the latch flip, not the teaser", () => {
       "freelance-visible:hobbyWebsite",
       "freelance-unlocked:hobbyWebsite",
       "freelance-visible:paradigmShiftingBlockchainProject",
+      "freelance-visible:nftMarketplace",
     ]
   );
   assert.match(emails[1].subject, /available to ship/);
@@ -475,7 +498,8 @@ test("no freelance teaser when visibility and unlock coincide in one jump", () =
   // unlocks outright, so it sends only the unlocked email — no teaser
   // for that project. The Blockchain still sends its teaser, though:
   // 50/200 total projects is past its 10% visibility threshold, and
-  // the never-both rule is per project, not global.
+  // the never-both rule is per project, not global. The NFT
+  // Marketplace teasers too: 50/500 total is exactly its 10%.
   const prev = gameState();
   const next = gameState({
     freelanceProjectsCompleted: {
@@ -495,6 +519,7 @@ test("no freelance teaser when visibility and unlock coincide in one jump", () =
     [
       "freelance-unlocked:hobbyWebsite",
       "freelance-visible:paradigmShiftingBlockchainProject",
+      "freelance-visible:nftMarketplace",
     ]
   );
 });

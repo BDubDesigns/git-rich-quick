@@ -36,7 +36,7 @@ export function EmployeeCard({
   // production is unchanged, including a Frenzy bad cancelled by an
   // Employee good). Green when the rate is higher than base, red when
   // lower. A Project Manager shows "+1% passive per Manager" and a
-  // Commit Specialist "+0.1 LOC per Click" instead of a LOC/s rate —
+  // Commit Specialist "+0.2 LOC per Click" instead of a LOC/s rate —
   // see employeeReturnsLine (gameLogic.js), shared with the locked
   // card so both cards agree.
   const returnsLine = employeeReturnsLine(config, effectMultiplier);

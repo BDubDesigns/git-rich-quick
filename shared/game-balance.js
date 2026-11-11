@@ -170,13 +170,15 @@ export const BALANCE = Object.freeze({
         }),
       ]),
     }),
-    // Each Commit Specialist adds +0.1 LOC to each manual click; the
-    // FINAL click total is floored to a whole number (see locPerClick).
+    // Each Commit Specialist adds +0.2 LOC to each manual click, and
+    // the bonus gets the same OverReact click boost as the base manual
+    // click (see locPerClick); the FINAL click total is floored to a
+    // whole number.
     commitSpecialist: Object.freeze({
       baseCost: 500000,
       locPerSecond: 0,
       costMultiplier: 1.2,
-      clickBonusPerEmployee: 0.1,
+      clickBonusPerEmployee: 0.2,
       unlockConditions: Object.freeze([
         Object.freeze({ type: "TOTAL_LOC", target: 25000 }),
         Object.freeze({ type: "TOTAL_EMPLOYEE_COUNT", target: 20 }),
@@ -233,6 +235,63 @@ export const BALANCE = Object.freeze({
           projectKey: "hobbyWebsite",
           target: 50,
         }),
+      ]),
+    }),
+    // AI-Powered Dashboard: 6000 LOC -> 204000c (34c/LOC). The rate
+    // keeps falling as the LOC cost rises (the tradeoff: hammer the
+    // cheap efficient gigs, or spam the big ones for faster money but
+    // less per LOC). Unlocks after shipping 25 Blockchain Projects.
+    aiPoweredDashboard: Object.freeze({
+      loc: 6000,
+      reward: 204000,
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_PROJECT_COUNT",
+          projectKey: "paradigmShiftingBlockchainProject",
+          target: 25,
+        }),
+      ]),
+    }),
+    // NFT Marketplace: 20000 LOC -> 580000c (29c/LOC). Unlocks after
+    // shipping 10 AI-Powered Dashboards and 500 total projects.
+    nftMarketplace: Object.freeze({
+      loc: 20000,
+      reward: 580000,
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_PROJECT_COUNT",
+          projectKey: "aiPoweredDashboard",
+          target: 10,
+        }),
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 500 }),
+      ]),
+    }),
+    // Metaverse Real Estate: 60000 LOC -> 1500000c (25c/LOC).
+    // Unlocks after shipping 10 NFT Marketplaces and 1000 total.
+    metaverseRealEstate: Object.freeze({
+      loc: 60000,
+      reward: 1500000,
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_PROJECT_COUNT",
+          projectKey: "nftMarketplace",
+          target: 10,
+        }),
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 1000 }),
+      ]),
+    }),
+    // Quantum To-Do List: 200000 LOC -> 4200000c (21c/LOC). Unlocks
+    // after shipping 10 Metaverse Real Estates and 2000 total.
+    quantumToDoList: Object.freeze({
+      loc: 200000,
+      reward: 4200000,
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_PROJECT_COUNT",
+          projectKey: "metaverseRealEstate",
+          target: 10,
+        }),
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 2000 }),
       ]),
     }),
   }),
@@ -391,6 +450,10 @@ export const FREELANCE_PROJECT_KEYS = Object.freeze([
   "toDoListApp",
   "hobbyWebsite",
   "paradigmShiftingBlockchainProject",
+  "aiPoweredDashboard",
+  "nftMarketplace",
+  "metaverseRealEstate",
+  "quantumToDoList",
 ]);
 export const OPEN_SOURCE_IDS = Object.freeze([
   "overReactFramework",
@@ -785,15 +848,18 @@ export function passiveBonus(openSourceLevels) {
 }
 
 /** LOC earned by one click, given the open-source levels and the employee
- * counts. The Commit Specialist bonus is a flat additive amount on top of
- * the base click and the OverReact click boost. The FINAL total is floored
+ * counts. The Commit Specialist bonus is part of the click, so it gets
+ * the same OverReact click boost as the base manual click: the total is
+ * floor((base + 0.2 x N) x (1 + clickBonus)). The FINAL total is floored
  * to a whole number (Brandon: a click must never yield or commit a
  * fractional amount — never 5093.1, always 5093). The floor is on the
  * total, not on the bonus in isolation, so it still holds if any part
  * of the total is ever fractional. `csSprintMultiplier` is a live Sprint
  * on Commit Specialists (default 1, i.e. no Sprint); each specialist
- * gives +0.1 LOC per click at 1x, +0.5 at 5x, +0.05 at 0.5x (a Meeting).
- * `employeeCounts` may be omitted (a save from before Commit
+ * gives +0.2 LOC per click at 1x, +1.0 at 5x, +0.1 at 0.5x (a Meeting).
+ * The Click star buff (AI Accelerator / Hallucination) multiplies the
+ * whole click total in the client (see calculateLOCPerClick), CS bonus
+ * included. `employeeCounts` may be omitted (a save from before Commit
  * Specialists shipped has no specialists, so the bonus is 0). */
 export function locPerClick(
   openSourceLevels,
@@ -801,8 +867,9 @@ export function locPerClick(
   csSprintMultiplier = 1
 ) {
   return Math.floor(
-    BALANCE.mechanics.baseLocPerClick * (1 + clickBonus(openSourceLevels)) +
-      commitSpecialistClickBonus(employeeCounts, csSprintMultiplier)
+    (BALANCE.mechanics.baseLocPerClick +
+      commitSpecialistClickBonus(employeeCounts, csSprintMultiplier)) *
+      (1 + clickBonus(openSourceLevels))
   );
 }
 
@@ -843,14 +910,14 @@ export function projectManagerBoostRate(employeeCounts, openSourceLevels) {
 }
 
 /**
- * Commit Specialist click bonus: each Commit Specialist adds +0.1 LOC to
- * a manual click. This is the RAW bonus — it is NOT floored here. The
- * floor lives on the final click total in locPerClick (Brandon: floor
- * the final total, not the bonus in isolation), so 10 specialists = +1,
- * 15 = +1, 25 = +2 once the total is floored. `csSprintMultiplier` is a
- * live Sprint on Commit Specialists (default 1); a 5x Sprint makes each
- * specialist give +0.5 per click, so floor(0.5 x N) once the total is
- * floored.
+ * Commit Specialist click bonus: each Commit Specialist adds +0.2 LOC to
+ * a manual click, before the OverReact click boost (see locPerClick).
+ * This is the RAW bonus — it is NOT floored here. The floor lives on
+ * the final click total in locPerClick (Brandon: floor the final total,
+ * not the bonus in isolation), so 10 specialists = +2, 15 = +3, 25 = +5
+ * once the total is floored. `csSprintMultiplier` is a live Sprint on
+ * Commit Specialists (default 1); a 5x Sprint makes each specialist
+ * give +1.0 per click, so floor(1.0 x N) once the total is floored.
  */
 export function commitSpecialistClickBonus(
   employeeCounts,
@@ -1126,17 +1193,21 @@ export function initialSaveState() {
     unlockedFreelanceProjects[projectKey] =
       BALANCE.freelanceProjects[projectKey].unlockConditions.length === 0;
   }
+  // Shipped counts derive from the keys (same pattern as the
+  // employees above): a hardcoded list here went stale when the
+  // big projects shipped, and a fresh server-minted save would have
+  // lacked the new keys.
+  const freelanceProjectsCompleted = {};
+  for (const projectKey of FREELANCE_PROJECT_KEYS) {
+    freelanceProjectsCompleted[projectKey] = 0;
+  }
   return {
     linesOfCode: BALANCE.mechanics.startingLoc,
     totalLinesOfCode: 0,
     money: BALANCE.mechanics.startingMoney,
     employees,
     aiAssistants: { noPilot: 0 },
-    freelanceProjectsCompleted: {
-      toDoListApp: 0,
-      hobbyWebsite: 0,
-      paradigmShiftingBlockchainProject: 0,
-    },
+    freelanceProjectsCompleted,
     openSourceProjects,
     unlockedEmployees,
     unlockedOpenSourceProjects,
@@ -1250,6 +1321,48 @@ export function normalizeSaveState(state) {
     }
     next.unlockedFreelanceProjects = unlocked;
   }
+  if (
+    next.freelanceProjectsCompleted &&
+    typeof next.freelanceProjectsCompleted === "object" &&
+    !Array.isArray(next.freelanceProjectsCompleted)
+  ) {
+    // The four big projects shipped after the first three: a save
+    // from before them lacks those keys. Default the missing counts
+    // to 0 instead of failing the shape check, same pattern as the
+    // employee migration below.
+    let changed = false;
+    const completed = { ...next.freelanceProjectsCompleted };
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      if (completed[projectKey] === undefined) {
+        completed[projectKey] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.freelanceProjectsCompleted = completed;
+  }
+  if (
+    next.unlockedFreelanceProjects &&
+    typeof next.unlockedFreelanceProjects === "object" &&
+    !Array.isArray(next.unlockedFreelanceProjects)
+  ) {
+    // Same migration for the unlock latch: a save from before the big
+    // projects lacks their latch keys. Derive each missing latch from
+    // the save's own shipped counts, so a veteran who already shipped
+    // 25 Blockchain Projects gets the AI-Powered Dashboard unlocked
+    // on load instead of locked behind a goal they already cleared.
+    let changed = false;
+    const unlocked = { ...next.unlockedFreelanceProjects };
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      if (unlocked[projectKey] === undefined) {
+        unlocked[projectKey] = freelanceProjectUnlockConditionsMet(
+          projectKey,
+          next
+        );
+        changed = true;
+      }
+    }
+    if (changed) next.unlockedFreelanceProjects = unlocked;
+  }
   if (!Array.isArray(next.unlockedCosmetics)) {
     // A save from before cosmetics shipped (issue #11) has no
     // cosmetic fields at all. Derive the unlocked list from the
@@ -1346,6 +1459,25 @@ export function normalizeStarActions(actions) {
       starBroker: 0,
     };
   }
+  if (
+    next.projectsCompleted &&
+    typeof next.projectsCompleted === "object" &&
+    !Array.isArray(next.projectsCompleted)
+  ) {
+    // The four big projects shipped after the first three: an action
+    // from an older client (or an older test fixture) lacks those
+    // keys. Default the missing counts to 0 instead of failing the
+    // shape check, same pattern as the open-source migration above.
+    let changed = false;
+    const completed = { ...next.projectsCompleted };
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      if (completed[projectKey] === undefined) {
+        completed[projectKey] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.projectsCompleted = completed;
+  }
   return next;
 }
 
@@ -1386,6 +1518,10 @@ export const FREELANCE_PROJECT_DISPLAY_NAMES = Object.freeze({
   toDoListApp: "To Do List App",
   hobbyWebsite: "Hobby Website",
   paradigmShiftingBlockchainProject: "Paradigm-Shifting Blockchain Project",
+  aiPoweredDashboard: "AI-Powered Dashboard",
+  nftMarketplace: "NFT Marketplace",
+  metaverseRealEstate: "Metaverse Real Estate",
+  quantumToDoList: "Quantum To-Do List",
 });
 
 /**
