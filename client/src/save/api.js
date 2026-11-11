@@ -130,3 +130,49 @@ export async function saveGame(baseUrl, body, { keepalive } = {}) {
     keepalive,
   });
 }
+
+/**
+ * Leaderboard (issue #29): the top 10 accounts, ranked by `sort`
+ * ("lifetime" | "current" | "cash"; default lifetime). Public read.
+ * Returns `{ status, data }` — 200 with
+ * `{ sort, entries: [{ rank, displayName, lifetimeLoc, currentLoc, money }] }`.
+ * Throws on network failure.
+ */
+export async function getLeaderboard(baseUrl = SAVE_API_URL, sort = "lifetime") {
+  return request(
+    baseUrl,
+    `/api/leaderboard?sort=${encodeURIComponent(sort)}`
+  );
+}
+
+/**
+ * Next golden star (issue #29): when the player's next star may spawn.
+ * The server rolls the time; the response is
+ * `{ nextStarAtMs, secondsUntilStar, constellationLevel, countdownUnlocked }`.
+ * `secondsUntilStar` is a duration (null at level 0), so the client
+ * schedules from it instead of comparing wall clocks. Returns
+ * `{ status, data }`; 404 for an unknown player. Throws on network failure.
+ */
+export async function getNextStar(baseUrl, playerId) {
+  return request(
+    baseUrl,
+    `/api/star/next?playerId=${encodeURIComponent(playerId)}`
+  );
+}
+
+/**
+ * Claim the due golden star (issue #29): the server rolls the outcome,
+ * records it as an issued outcome, and rolls the next spawn time.
+ * Returns `{ status, data }`:
+ * - 200 `{ claim, nextStarAtMs, secondsUntilStar }` — apply exactly
+ *   this claim (it carries its claimId) and record it for the next save.
+ * - 409 `{ error: "no-stars" | "star-not-due" }` — no star to claim.
+ * - 404 `{ error: "unknown-player" }`.
+ * Throws on network failure.
+ */
+export async function claimStar(baseUrl, playerId) {
+  return request(baseUrl, "/api/star/claim", {
+    method: "POST",
+    body: { playerId },
+  });
+}

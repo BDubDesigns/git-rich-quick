@@ -9,6 +9,7 @@ import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
 import { Settings } from "./components/Settings";
+import { Leaderboard } from "./components/Leaderboard";
 import { GameLayout } from "./components/GameLayout";
 import { GoldenStar } from "./components/GoldenStar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
@@ -73,6 +74,7 @@ function App() {
             {(state.activeTab === "shop" ||
               state.activeTab === "projects") && <OpenSource />}
             {state.activeTab === "settings" && <Settings />}
+            {state.activeTab === "leaderboard" && <Leaderboard />}
             {/* Email can be added here later (issue #31) */}
           </div>
 
@@ -88,6 +90,7 @@ function App() {
           {state.activeTab === "projects" && <Projects />}
           {state.activeTab === "openSource" && <OpenSource />}
           {state.activeTab === "settings" && <Settings />}
+          {state.activeTab === "leaderboard" && <Leaderboard />}
           {/* Email can be added here later (issue #31) */}
         </div>
       )}

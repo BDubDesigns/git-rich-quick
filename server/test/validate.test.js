@@ -545,9 +545,19 @@ test("heavy shipping that drains LOC does not false-reject (tick quantization)",
   assert.deepEqual(r, { ok: true });
 });
 
-/** A star claim with the fields the client sends; overrides win. */
+/**
+ * A star claim with the fields the client sends; overrides win.
+ * Each claim gets a distinct claimId (the server-issued outcome id,
+ * issue #29). A legit test passes the SAME claim object as the save's
+ * claim and as the issued outcome (4th arg to validateSave); a
+ * rejection test passes a different (or no) issued outcome.
+ */
+let claimCounter = 0;
 function starClaim(overrides) {
+  claimCounter += 1;
+  const claimId = `aaaaaaaa-0000-4000-8000-${String(claimCounter).padStart(12, "0")}`;
   return {
+    claimId,
     effect: "lucky",
     good: true,
     locDelta: 0,
@@ -581,14 +591,18 @@ test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", (
     money: 0,
     employees: { intern: 1 },
   });
+  // The claim is the outcome the server issued (4th arg); the save
+  // carries the identical claim, so it matches.
+  const claimA = starClaim({ locDelta: 35 });
   assert.deepEqual(
     validateSave(
       prev(beforeA, T0),
       body(afterA, {
         ...zeroActions(),
-        starClaims: [starClaim({ locDelta: 35 })],
+        starClaims: [claimA],
       }),
-      T0 + 60_000
+      T0 + 60_000,
+      [claimA]
     ),
     { ok: true }
   );
@@ -606,14 +620,16 @@ test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", (
     money: 105000,
     employees: { intern: 1 },
   });
+  const claimB = starClaim({ moneyDelta: 5000 });
   assert.deepEqual(
     validateSave(
       prev(beforeB, T0),
       body(afterB, {
         ...zeroActions(),
-        starClaims: [starClaim({ moneyDelta: 5000 })],
+        starClaims: [claimB],
       }),
-      T0 + 60_000
+      T0 + 60_000,
+      [claimB]
     ),
     { ok: true }
   );
@@ -632,14 +648,16 @@ test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", (
     money: 0,
     employees: { intern: 1 },
   });
+  const claimC = starClaim({ good: false, locDelta: -15 });
   assert.deepEqual(
     validateSave(
       prev(beforeC, T0),
       body(afterC, {
         ...zeroActions(),
-        starClaims: [starClaim({ good: false, locDelta: -15 })],
+        starClaims: [claimC],
       }),
-      T0 + 60_000
+      T0 + 60_000,
+      [claimC]
     ),
     { ok: true }
   );
@@ -667,20 +685,20 @@ test("legit star play: frenzy buff boosts passive for its duration", () => {
       },
     ],
   });
+  const claim = starClaim({
+    effect: "frenzy",
+    good: true,
+    multiplier: 7,
+    durationSeconds: 60,
+  });
   const r = validateSave(
     prev(before, T0),
     body(after, {
       ...zeroActions(),
-      starClaims: [
-        starClaim({
-          effect: "frenzy",
-          good: true,
-          multiplier: 7,
-          durationSeconds: 60,
-        }),
-      ],
+      starClaims: [claim],
     }),
-    T0 + 50_000
+    T0 + 50_000,
+    [claim]
   );
   assert.deepEqual(r, { ok: true });
 });
@@ -701,21 +719,21 @@ test("legit star play: click buff boosts clicks made while it is live", () => {
     openSourceProjects: { overReactFramework: 1, constellation: 2 },
     activeStarEffects: [],
   });
+  const claim = starClaim({
+    effect: "click",
+    good: true,
+    multiplier: 3,
+    durationSeconds: 20,
+  });
   const r = validateSave(
     prev(before, T0),
     body(after, {
       ...zeroActions(),
       clicks: 40,
-      starClaims: [
-        starClaim({
-          effect: "click",
-          good: true,
-          multiplier: 3,
-          durationSeconds: 20,
-        }),
-      ],
+      starClaims: [claim],
     }),
-    T0 + 60_000
+    T0 + 60_000,
+    [claim]
   );
   assert.deepEqual(r, { ok: true });
 });
@@ -754,27 +772,27 @@ test("legit star play: frenzy and employee buffs multiply (interaction)", () => 
       },
     ],
   });
+  const frenzyClaim = starClaim({
+    effect: "frenzy",
+    good: true,
+    multiplier: 7,
+    durationSeconds: 60,
+  });
+  const employeeClaim = starClaim({
+    effect: "employee",
+    good: true,
+    multiplier: 2,
+    durationSeconds: 60,
+    employeeType: "junior",
+  });
   const r = validateSave(
     prev(before, T0),
     body(after, {
       ...zeroActions(),
-      starClaims: [
-        starClaim({
-          effect: "frenzy",
-          good: true,
-          multiplier: 7,
-          durationSeconds: 60,
-        }),
-        starClaim({
-          effect: "employee",
-          good: true,
-          multiplier: 2,
-          durationSeconds: 60,
-          employeeType: "junior",
-        }),
-      ],
+      starClaims: [frenzyClaim, employeeClaim],
     }),
-    T0 + 50_000
+    T0 + 50_000,
+    [frenzyClaim, employeeClaim]
   );
   assert.deepEqual(r, { ok: true });
 });
@@ -795,20 +813,20 @@ test("legit star play: shooting stars burst", () => {
     money: 108000,
     employees: { intern: 1 },
   });
+  const claim = starClaim({
+    effect: "shootingStars",
+    good: true,
+    locDelta: 100,
+    moneyDelta: 8000,
+  });
   const r = validateSave(
     prev(before, T0),
     body(after, {
       ...zeroActions(),
-      starClaims: [
-        starClaim({
-          effect: "shootingStars",
-          good: true,
-          locDelta: 100,
-          moneyDelta: 8000,
-        }),
-      ],
+      starClaims: [claim],
     }),
-    T0 + 60_000
+    T0 + 60_000,
+    [claim]
   );
   assert.deepEqual(r, { ok: true });
 });
@@ -899,8 +917,9 @@ test("inflated star claims are rejected", () => {
   }
 });
 
-test("star claims for locked effects, at level 0, or above the spawn cap are rejected", () => {
-  // Frenzy unlocks at L3; claiming it at L1 is not plausible.
+test("star claims for locked effects, at level 0, or beyond the issued outcomes are rejected", () => {
+  // Frenzy unlocks at L3; the server never issues it at L1, so a
+  // claim for it has no matching issued outcome.
   const beforeL1 = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -950,24 +969,28 @@ test("star claims for locked effects, at level 0, or above the spawn cap are rej
   assert.equal(levelZero.ok, false);
   assert.equal(levelZero.rule, "STAR");
 
-  // Spawn cap at L1 (90-180s): at most ceil(60/90) + 1 = 2 claims in 60s.
+  // More claims than issued outcomes: the server issued two stars,
+  // the save claims three — the third has no issued outcome to match.
+  // (The spawn cap is now enforced at issuance, not here.)
+  const issuedA = starClaim({ locDelta: 10 });
+  const issuedB = starClaim({ locDelta: 10 });
   const tooMany = validateSave(
     prev(beforeL1, T0),
     body(afterL1, {
       ...zeroActions(),
-      starClaims: [
-        starClaim({ locDelta: 10 }),
-        starClaim({ locDelta: 10 }),
-        starClaim({ locDelta: 10 }),
-      ],
+      starClaims: [issuedA, issuedB, starClaim({ locDelta: 10 })],
     }),
-    T0 + 60_000
+    T0 + 60_000,
+    [issuedA, issuedB]
   );
   assert.equal(tooMany.ok, false);
   assert.equal(tooMany.rule, "STAR");
 });
 
-test("a lucky claim giving both LOC and money, or a buff with a wrong multiplier, is rejected", () => {
+test("a tampered star claim (same claimId, different content) is rejected", () => {
+  // The server issued a valid outcome; the save presents the same
+  // claimId with different content. The content must match the issued
+  // outcome exactly, so every tamper is a STAR rejection.
   const before = constellationState(3, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -981,18 +1004,40 @@ test("a lucky claim giving both LOC and money, or a buff with a wrong multiplier
     employees: { intern: 1 },
   });
   const cases = [
-    // A Lucky roll gives LOC or cash, never both.
-    starClaim({ locDelta: 10, moneyDelta: 100 }),
-    // Frenzy is x7 good / x0.5 bad — x3 is not a real roll.
-    starClaim({ effect: "frenzy", multiplier: 3, durationSeconds: 60 }),
-    // Click good is an integer x2-5 — x6 is not a real roll.
-    starClaim({ effect: "click", multiplier: 6, durationSeconds: 20 }),
+    // A Lucky roll gives LOC or cash, never both — the issued claim
+    // was LOC-only, the saved claim adds a money gain.
+    {
+      issued: starClaim({ locDelta: 10 }),
+      tamper: (c) => ({ ...c, moneyDelta: 100 }),
+    },
+    // Frenzy is x7 good / x0.5 bad — the issued claim was x7, the
+    // saved claim says x3.
+    {
+      issued: starClaim({
+        effect: "frenzy",
+        multiplier: 7,
+        durationSeconds: 60,
+      }),
+      tamper: (c) => ({ ...c, multiplier: 3 }),
+    },
+    // Click good is an integer x2-5 — the issued claim was x3, the
+    // saved claim says x6.
+    {
+      issued: starClaim({
+        effect: "click",
+        multiplier: 3,
+        durationSeconds: 20,
+      }),
+      tamper: (c) => ({ ...c, multiplier: 6 }),
+    },
   ];
-  for (const claim of cases) {
+  for (const { issued, tamper } of cases) {
+    const saved = tamper(issued);
     const r = validateSave(
       prev(before, T0),
-      body(after, { ...zeroActions(), starClaims: [claim] }),
-      T0 + 60_000
+      body(after, { ...zeroActions(), starClaims: [saved] }),
+      T0 + 60_000,
+      [issued]
     );
     assert.equal(r.ok, false);
     assert.equal(r.rule, "STAR");
