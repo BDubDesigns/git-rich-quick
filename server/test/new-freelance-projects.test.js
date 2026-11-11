@@ -142,9 +142,9 @@ test("the four big projects have the approved costs and payouts", () => {
       {
         type: "SPECIFIC_PROJECT_COUNT",
         projectKey: "aiPoweredDashboard",
-        target: 10,
+        target: 500,
       },
-      { type: "TOTAL_PROJECTS_COUNT", target: 500 },
+      { type: "TOTAL_PROJECTS_COUNT", target: 1000 },
     ],
   });
   assert.deepEqual(BALANCE.freelanceProjects.metaverseRealEstate, {
@@ -154,9 +154,9 @@ test("the four big projects have the approved costs and payouts", () => {
       {
         type: "SPECIFIC_PROJECT_COUNT",
         projectKey: "nftMarketplace",
-        target: 10,
+        target: 500,
       },
-      { type: "TOTAL_PROJECTS_COUNT", target: 1000 },
+      { type: "TOTAL_PROJECTS_COUNT", target: 2000 },
     ],
   });
   assert.deepEqual(BALANCE.freelanceProjects.quantumToDoList, {
@@ -166,9 +166,9 @@ test("the four big projects have the approved costs and payouts", () => {
       {
         type: "SPECIFIC_PROJECT_COUNT",
         projectKey: "metaverseRealEstate",
-        target: 10,
+        target: 500,
       },
-      { type: "TOTAL_PROJECTS_COUNT", target: 2000 },
+      { type: "TOTAL_PROJECTS_COUNT", target: 4000 },
     ],
   });
 });
@@ -278,21 +278,21 @@ test("AI-Powered Dashboard unlock needs 25 Blockchain Projects", () => {
   assert.deepEqual(ok, { ok: true });
 });
 
-test("NFT Marketplace unlock needs 10 AI Dashboards AND 500 total projects", () => {
-  // 10 AI Dashboards but only 400 total: the total condition fails.
+test("NFT Marketplace unlock needs 500 AI Dashboards AND 1000 total projects", () => {
+  // 500 AI Dashboards but only 925 total: the total condition fails.
   const shortTotal = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 365,
+      toDoListApp: 400,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
+      aiPoweredDashboard: 500,
     },
     unlockedFreelanceProjects: { aiPoweredDashboard: true },
   });
   const cheaterTotal = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 365,
+      toDoListApp: 400,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
+      aiPoweredDashboard: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -307,10 +307,10 @@ test("NFT Marketplace unlock needs 10 AI Dashboards AND 500 total projects", () 
   assert.equal(r1.ok, false);
   assert.equal(r1.rule, "UNLOCK");
 
-  // 500 total but only 5 AI Dashboards: the specific condition fails.
+  // 1000 total but only 5 AI Dashboards: the specific condition fails.
   const shortSpecific = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 470,
+      toDoListApp: 970,
       paradigmShiftingBlockchainProject: 25,
       aiPoweredDashboard: 5,
     },
@@ -318,7 +318,7 @@ test("NFT Marketplace unlock needs 10 AI Dashboards AND 500 total projects", () 
   });
   const cheaterSpecific = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 470,
+      toDoListApp: 970,
       paradigmShiftingBlockchainProject: 25,
       aiPoweredDashboard: 5,
     },
@@ -335,20 +335,20 @@ test("NFT Marketplace unlock needs 10 AI Dashboards AND 500 total projects", () 
   assert.equal(r2.ok, false);
   assert.equal(r2.rule, "UNLOCK");
 
-  // Both met: 465 To Do + 25 Blockchain + 10 AI Dashboards = 500.
+  // Both met: 475 To Do + 25 Blockchain + 500 AI Dashboards = 1000.
   const met = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 465,
+      toDoListApp: 475,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
+      aiPoweredDashboard: 500,
     },
     unlockedFreelanceProjects: { aiPoweredDashboard: true },
   });
   const legit = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 465,
+      toDoListApp: 475,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
+      aiPoweredDashboard: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -363,14 +363,14 @@ test("NFT Marketplace unlock needs 10 AI Dashboards AND 500 total projects", () 
   assert.deepEqual(ok, { ok: true });
 });
 
-test("Metaverse Real Estate unlock needs 10 NFT Marketplaces AND 1000 total projects", () => {
-  // 10 NFT Marketplaces but only 900 total.
+test("Metaverse Real Estate unlock needs 500 NFT Marketplaces AND 2000 total projects", () => {
+  // 500 NFT Marketplaces but only 1425 total.
   const shortTotal = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 855,
+      toDoListApp: 400,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -379,10 +379,10 @@ test("Metaverse Real Estate unlock needs 10 NFT Marketplaces AND 1000 total proj
   });
   const cheaterTotal = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 855,
+      toDoListApp: 400,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -398,13 +398,13 @@ test("Metaverse Real Estate unlock needs 10 NFT Marketplaces AND 1000 total proj
   assert.equal(r1.ok, false);
   assert.equal(r1.rule, "UNLOCK");
 
-  // Both met: 955 To Do + 25 Blockchain + 10 AI + 10 NFT = 1000.
+  // Both met: 975 To Do + 25 Blockchain + 500 AI + 500 NFT = 2000.
   const met = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 955,
+      toDoListApp: 975,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -413,10 +413,10 @@ test("Metaverse Real Estate unlock needs 10 NFT Marketplaces AND 1000 total proj
   });
   const legit = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 955,
+      toDoListApp: 975,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -432,14 +432,14 @@ test("Metaverse Real Estate unlock needs 10 NFT Marketplaces AND 1000 total proj
   assert.deepEqual(ok, { ok: true });
 });
 
-test("Quantum To-Do List unlock needs 10 Metaverse Real Estates AND 2000 total projects", () => {
-  // 2000 total but only 5 Metaverse Real Estates.
+test("Quantum To-Do List unlock needs 500 Metaverse Real Estates AND 4000 total projects", () => {
+  // 4530 total but only 5 Metaverse Real Estates.
   const shortSpecific = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 1950,
+      toDoListApp: 3500,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
       metaverseRealEstate: 5,
     },
     unlockedFreelanceProjects: {
@@ -450,10 +450,10 @@ test("Quantum To-Do List unlock needs 10 Metaverse Real Estates AND 2000 total p
   });
   const cheater = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 1950,
+      toDoListApp: 3500,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
       metaverseRealEstate: 5,
     },
     unlockedFreelanceProjects: {
@@ -471,15 +471,15 @@ test("Quantum To-Do List unlock needs 10 Metaverse Real Estates AND 2000 total p
   assert.equal(r.ok, false);
   assert.equal(r.rule, "UNLOCK");
 
-  // Both met: 1945 To Do + 25 Blockchain + 10 AI + 10 NFT + 10
-  // Metaverse = 2000.
+  // Both met: 2475 To Do + 25 Blockchain + 500 AI + 500 NFT + 500
+  // Metaverse = 4000.
   const met = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 1945,
+      toDoListApp: 2475,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
-      metaverseRealEstate: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
+      metaverseRealEstate: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -489,11 +489,11 @@ test("Quantum To-Do List unlock needs 10 Metaverse Real Estates AND 2000 total p
   });
   const legit = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 1945,
+      toDoListApp: 2475,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
-      metaverseRealEstate: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
+      metaverseRealEstate: 500,
     },
     unlockedFreelanceProjects: {
       aiPoweredDashboard: true,
@@ -582,11 +582,11 @@ test("unlock conditions for the big projects match the shared config", () => {
   // validator and the client's progress bar both read this.
   const veteran = stateWith({
     freelanceProjectsCompleted: {
-      toDoListApp: 1945,
+      toDoListApp: 2475,
       paradigmShiftingBlockchainProject: 25,
-      aiPoweredDashboard: 10,
-      nftMarketplace: 10,
-      metaverseRealEstate: 10,
+      aiPoweredDashboard: 500,
+      nftMarketplace: 500,
+      metaverseRealEstate: 500,
     },
   });
   assert.equal(freelanceProjectUnlockConditionsMet("aiPoweredDashboard", veteran), true);
