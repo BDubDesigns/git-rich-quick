@@ -6,11 +6,13 @@ import {
   isEmployeeUnlocked,
   getUnlockProgress,
   hasCrossedUnlockThreshold,
+  resolveEmployeeIcon,
 } from "../context/gameLogic";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
+import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -63,10 +65,19 @@ export function Shop() {
           const canAfford = state.money >= currentCost;
           const ownedCount = state.employees[employeeType].count;
 
+          // Cosmetics (issue #11): the card renders the equipped
+          // cosmetic's icon instead of the config default. The
+          // resolved Icon/color ride on a config copy, so
+          // EmployeeCard itself needs no cosmetic logic — it just
+          // renders config.Icon, which is now the cosmetic's icon
+          // (the hire float icon follows the same override).
+          const { Icon, color } = resolveEmployeeIcon(employeeType, state);
+          const cardConfig = { ...config, Icon, color };
+
           return (
             <EmployeeCard
               key={employeeType}
-              config={config}
+              config={cardConfig}
               currentCost={currentCost}
               ownedCount={ownedCount}
               canAfford={canAfford}
@@ -92,6 +103,9 @@ export function Shop() {
           </div>
         );
       })}
+      {/* Cosmetics (issue #11): the equip UI, below the employee
+          list so the effect of equipping is visible right above it. */}
+      <CosmeticsPanel />
     </SectionLayout>
   );
 }

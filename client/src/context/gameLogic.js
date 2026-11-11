@@ -8,7 +8,7 @@
  */
 
 import * as shared from "../../../shared/game-balance.js";
-import { EMPLOYEE_CONFIGS } from "./gameConfig.js";
+import { COSMETICS_CONFIG, EMPLOYEE_CONFIGS } from "./gameConfig.js";
 
 // Unlock progress + visibility live in a pure shared-only module (see
 // client/src/utils/unlockProgress.js) so the save server's tests can
@@ -216,6 +216,26 @@ export function activeStarBuff(state, effect, employeeType = null) {
 /** The player's Constellation level (0 = no golden stars). */
 export function getConstellationLevel(state) {
   return state.openSourceProjects.constellation?.level ?? 0;
+}
+
+/**
+ * The icon (component + color) an employee type renders with right
+ * now (issue #11). When a cosmetic is equipped for the type's slot,
+ * the cosmetic's icon replaces the config default; otherwise the
+ * default. Callers render `<Icon size={n} color={color} />` from the
+ * result. Equipped cosmetics are trusted here — the reducer only
+ * stores valid equips, and the server rejects an invalid one — so a
+ * missing entry in COSMETICS_CONFIG falls back to the default
+ * instead of crashing the card.
+ */
+export function resolveEmployeeIcon(employeeType, state) {
+  const config = EMPLOYEE_CONFIGS[employeeType];
+  if (!config) return { Icon: null, color: null };
+  const cosmeticId =
+    state.equippedCosmetics?.[config.cosmeticSlot] ?? null;
+  const cosmetic = cosmeticId ? COSMETICS_CONFIG[cosmeticId] : null;
+  if (!cosmetic) return { Icon: config.Icon, color: config.color };
+  return { Icon: cosmetic.Icon, color: cosmetic.color };
 }
 
 /**

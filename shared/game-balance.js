@@ -35,11 +35,20 @@ export const BALANCE = Object.freeze({
   }),
 
   employees: Object.freeze({
+    // Cosmetics (issue #11): each employee type has one cosmetic
+    // slot (the thing being skinned — its icon) and a list of
+    // unlocks, each firing when the owned count reaches its trigger.
+    // One cosmetic per tier at 10 hires in v1; the system is
+    // extensible — add more entries to cosmeticUnlocks.
     intern: Object.freeze({
       baseCost: 2500, // cents
       locPerSecond: 1,
       costMultiplier: 1.1,
       unlockConditions: Object.freeze([]),
+      cosmeticSlot: "employeeIcon_intern",
+      cosmeticUnlocks: Object.freeze([
+        Object.freeze({ triggerCount: 10, cosmeticId: "intern-icon-bronze" }),
+      ]),
     }),
     junior: Object.freeze({
       baseCost: 20000,
@@ -47,6 +56,10 @@ export const BALANCE = Object.freeze({
       costMultiplier: 1.15,
       unlockConditions: Object.freeze([
         Object.freeze({ type: "TOTAL_LOC", target: 100 }),
+      ]),
+      cosmeticSlot: "employeeIcon_junior",
+      cosmeticUnlocks: Object.freeze([
+        Object.freeze({ triggerCount: 10, cosmeticId: "junior-icon-silver" }),
       ]),
     }),
     senior: Object.freeze({
@@ -56,6 +69,10 @@ export const BALANCE = Object.freeze({
       unlockConditions: Object.freeze([
         Object.freeze({ type: "TOTAL_LOC", target: 3000 }),
         Object.freeze({ type: "TOTAL_EMPLOYEE_COUNT", target: 10 }),
+      ]),
+      cosmeticSlot: "employeeIcon_senior",
+      cosmeticUnlocks: Object.freeze([
+        Object.freeze({ triggerCount: 10, cosmeticId: "senior-icon-gold" }),
       ]),
     }),
   }),
@@ -658,6 +675,102 @@ export function freelanceProjectUnlockConditionsMet(projectKey, state) {
   );
 }
 
+/**
+ * ===== Cosmetics (issue #11) =====
+ *
+ * Each employee type has one cosmetic slot (its icon) and a list of
+ * unlocks, each firing when the owned count reaches its trigger. The
+ * visual data (name, icon, color) lives in the client's
+ * COSMETICS_CONFIG (gameConfig.js) — it is React, so it cannot live
+ * here. What lives here is the registry the server validates against:
+ * which cosmetic belongs to which slot, and what triggers it.
+ *
+ * A cosmetic definition is
+ *   { cosmeticId, slot, employeeType, triggerCount }.
+ */
+
+/** Every cosmetic slot, one per employee type. */
+export const COSMETIC_SLOTS = Object.freeze(
+  EMPLOYEE_TYPES.map((type) => BALANCE.employees[type].cosmeticSlot)
+);
+
+/** The cosmetic definition for an id, or null when it is not a known cosmetic. */
+export function findCosmetic(cosmeticId) {
+  for (const type of EMPLOYEE_TYPES) {
+    const config = BALANCE.employees[type];
+    for (const unlock of config.cosmeticUnlocks) {
+      if (unlock.cosmeticId === cosmeticId) {
+        return {
+          cosmeticId,
+          slot: config.cosmeticSlot,
+          employeeType: type,
+          triggerCount: unlock.triggerCount,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** Whether a cosmetic's hire-count trigger is met by a save-shaped state. */
+export function cosmeticTriggerMet(cosmeticId, state) {
+  const def = findCosmetic(cosmeticId);
+  if (!def) return false;
+  return (state.employees?.[def.employeeType] ?? 0) >= def.triggerCount;
+}
+
+/**
+ * Every cosmetic whose trigger is met by a save-shaped state. Used to
+ * derive the unlocked list for a save from before cosmetics shipped
+ * (see normalizeSaveState): a veteran with 10+ interns gets the
+ * Bronze Duck on load, not locked behind a goal they already cleared.
+ */
+export function deriveUnlockedCosmetics(state) {
+  const unlocked = [];
+  for (const type of EMPLOYEE_TYPES) {
+    for (const unlock of BALANCE.employees[type].cosmeticUnlocks) {
+      if (cosmeticTriggerMet(unlock.cosmeticId, state)) {
+        unlocked.push(unlock.cosmeticId);
+      }
+    }
+  }
+  return unlocked;
+}
+
+/**
+ * Cosmetics newly unlocked by a hire that moves a type's count from
+ * `oldCount` to `newCount`. Threshold-crossing (>=), not exact match:
+ * a bulk buy can jump past a trigger (5 -> 15 crosses 10), and the
+ * unlock must still fire. The caller filters out cosmetics the
+ * player already has.
+ */
+export function newlyUnlockedCosmetics(employeeType, oldCount, newCount) {
+  const config = BALANCE.employees[employeeType];
+  if (!config) return [];
+  return config.cosmeticUnlocks
+    .filter(
+      (unlock) =>
+        unlock.triggerCount > oldCount && unlock.triggerCount <= newCount
+    )
+    .map((unlock) => unlock.cosmeticId);
+}
+
+/**
+ * Whether a cosmetic may be equipped in a slot, given the unlocked
+ * list. `cosmeticId` null means unequip (back to the default icon),
+ * which is always allowed. Otherwise the cosmetic must exist, belong
+ * to that slot, and be unlocked. The client reducer and the save
+ * server both use this, so the rule cannot drift between them.
+ */
+export function canEquipCosmetic(slot, cosmeticId, unlockedCosmetics) {
+  if (cosmeticId === null) return true;
+  if (typeof cosmeticId !== "string") return false;
+  const def = findCosmetic(cosmeticId);
+  if (!def) return false;
+  if (def.slot !== slot) return false;
+  return (unlockedCosmetics ?? []).includes(cosmeticId);
+}
+
 /** The save state a brand-new player starts from. Unlocks derive from the configs. */
 export function initialSaveState() {
   const unlockedEmployees = {};
@@ -701,15 +814,23 @@ export function initialSaveState() {
     // Capped at EMAIL_CONFIG.maxInboxEmails; the client trims the
     // oldest when a new one arrives past the cap.
     emails: [],
+    // Cosmetics (issue #11). unlockedCosmetics is the list of
+    // cosmeticIds the player has earned (hire-count triggers); it
+    // only grows. equippedCosmetics maps a cosmetic slot to the
+    // equipped cosmeticId — the player can switch freely between
+    // unlocked cosmetics, or unequip back to the default icon.
+    unlockedCosmetics: [],
+    equippedCosmetics: {},
   };
 }
 
 /**
- * Fill in the star-era fields on a save state that predates them (a save
- * stored before Constellation shipped). Returns a shallow copy with the
- * new fields defaulted; states that already have them are unchanged.
- * Only the NEW fields are defaulted — a missing old field is still a
- * shape error, so this never masks a malformed save.
+ * Fill in the fields a save state predates (a save stored before
+ * Constellation, project unlocks, or cosmetics shipped). Returns a
+ * shallow copy with the new fields defaulted; states that already
+ * have them are unchanged. Only the NEW fields are defaulted — a
+ * missing old field is still a shape error, so this never masks a
+ * malformed save.
  */
 export function normalizeSaveState(state) {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
@@ -763,6 +884,22 @@ export function normalizeSaveState(state) {
       );
     }
     next.unlockedFreelanceProjects = unlocked;
+  }
+  if (!Array.isArray(next.unlockedCosmetics)) {
+    // A save from before cosmetics shipped (issue #11) has no
+    // cosmetic fields at all. Derive the unlocked list from the
+    // save's own employee counts, so a player who already hired 10
+    // interns gets the Bronze Duck on load instead of locked behind
+    // a goal they already cleared. Same pattern as the freelance
+    // latch (issue #19).
+    next.unlockedCosmetics = deriveUnlockedCosmetics(next);
+  }
+  if (
+    next.equippedCosmetics === undefined ||
+    typeof next.equippedCosmetics !== "object" ||
+    Array.isArray(next.equippedCosmetics)
+  ) {
+    next.equippedCosmetics = {};
   }
   return next;
 }
