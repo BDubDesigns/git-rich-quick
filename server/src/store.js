@@ -868,6 +868,65 @@ export function createStore(pool) {
     },
 
     /**
+     * Reset a player's progress (Danger Zone): overwrite their save row
+     * with the fresh initial state and clear all server-side star state
+     * (next spawn time, bought-star cooldown/pending star), and consume
+     * any unconsumed issued star outcomes so a pre-reset claim can
+     * never be replayed against the fresh save. The account link
+     * (user_id) is untouched — the player keeps the same playerId and
+     * the same link; only the progress goes to 0. A normal save can
+     * never do this: the money rule is exact and the action deltas
+     * forbid going backwards, so the reset has its own path that
+     * bypasses validateSave entirely (the state it writes is
+     * server-generated, so it is valid by construction). One
+     * transaction against the locked row; the WHERE player_id = $1
+     * means it can only ever touch the requesting player's own row.
+     * Returns one of:
+     * - `{ status: "ok", state, savedAtMs }`
+     * - `{ status: "unknown-player" }`
+     */
+    async resetPlayer(playerId, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT player_id FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const state = initialSaveState();
+        await client.query(
+          `UPDATE git_saves
+           SET state = $1, saved_at = $2,
+               next_star_at_ms = NULL,
+               last_star_buy_at_ms = NULL,
+               bought_star_at_ms = NULL
+           WHERE player_id = $3`,
+          [JSON.stringify(state), new Date(nowMs).toISOString(), playerId]
+        );
+        await client.query(
+          `UPDATE star_issues SET consumed_at = $1
+           WHERE player_id = $2 AND consumed_at IS NULL`,
+          [new Date(nowMs).toISOString(), playerId]
+        );
+        await client.query("COMMIT");
+        return { status: "ok", state, savedAtMs: nowMs };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
      * Admin seed (issue #46): overwrite a TEST player's saved state,
      * bypassing save validation — it is setting up a test fixture, so
      * progression, rate-limit, and LOC/money rules do not apply. `state`

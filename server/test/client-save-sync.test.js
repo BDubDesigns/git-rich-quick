@@ -677,3 +677,73 @@ test("rate-limited save reports the retry delay, and a later load reports the sa
     await srv.stop();
   }
 });
+
+test("resetProgress wipes progress server-side and locally, keeping the player id", async () => {
+  const srv = await startTestServer();
+  const storage = memoryStorage();
+  let clientState = makeClientState();
+  let saveStatus = "loading";
+  let playerId = null;
+  const engine = new SaveSync({
+    apiBaseUrl: srv.base,
+    getState: () => clientState,
+    restore: (saveState) => {
+      clientState = {
+        ...clientState,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
+      };
+    },
+    onStatus: (status) => {
+      saveStatus = status;
+    },
+    onPlayerId: (id) => {
+      playerId = id;
+    },
+    storage,
+  });
+  try {
+    await engine.init();
+    assert.equal(saveStatus, "saved");
+    const originalPlayerId = playerId;
+
+    // Play: 100 clicks, then complete a project (50 LOC -> 3000c).
+    for (let i = 0; i < 100; i += 1) {
+      fakeClick(clientState);
+      engine.recordClick();
+    }
+    fakeCompleteTodoApp(clientState);
+    srv.advance(11_000);
+    await engine.requestSave("manual");
+    assert.equal(saveStatus, "saved");
+    assert.equal(clientState.linesOfCode, 50);
+    assert.equal(clientState.money, 3000);
+    assert.equal(
+      (await loadServerState(srv.base, playerId)).linesOfCode,
+      50
+    );
+
+    // Reset: the server row and the local state both go to 0, the
+    // player id stays the same, and the status reads saved.
+    const result = await engine.resetProgress();
+    assert.deepEqual(result, { ok: true });
+    assert.equal(saveStatus, "saved");
+    assert.equal(playerId, originalPlayerId);
+    assert.equal(storage.getItem("grq:playerId"), originalPlayerId);
+    assert.deepEqual(stateToSaveState(clientState), initialSaveState());
+    assert.deepEqual(
+      await loadServerState(srv.base, playerId),
+      initialSaveState()
+    );
+
+    // The next save still works: the baseline is the fresh state, so
+    // a heartbeat save of the (unchanged) fresh state is accepted.
+    srv.advance(11_000);
+    await engine.requestSave("manual");
+    assert.equal(saveStatus, "saved");
+  } finally {
+    engine.stop();
+    await srv.stop();
+  }
+});

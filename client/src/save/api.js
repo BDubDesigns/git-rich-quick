@@ -132,6 +132,23 @@ export async function saveGame(baseUrl, body, { keepalive } = {}) {
 }
 
 /**
+ * Reset a player's progress (Danger Zone): POST /api/save/reset, body
+ * `{ playerId }`. The server overwrites the player's own save row with
+ * the fresh initial state and clears their server-side star state.
+ * Returns `{ status, data }`:
+ * - 200 `{ ok: true, playerId, savedAt, state }` — the fresh state.
+ * - 404 `{ error: "unknown-player" }`.
+ * - 400 for a malformed id.
+ * Throws on network failure.
+ */
+export async function resetSave(baseUrl, playerId) {
+  return request(baseUrl, "/api/save/reset", {
+    method: "POST",
+    body: { playerId },
+  });
+}
+
+/**
  * Leaderboard (issue #29): the top 10 accounts, ranked by `sort`
  * ("lifetime" | "current" | "cash"; default lifetime). Public read.
  * Returns `{ status, data }` — 200 with

@@ -5,6 +5,11 @@
  * - POST /api/player — mint an anonymous player id (uuid-v4)
  * - GET  /api/load?playerId=... — last accepted snapshot, or 404
  * - POST /api/save — validate and store a save (see validate.js)
+ * - POST /api/save/reset — reset a player's progress (Danger Zone):
+ *   overwrite their own save row with the fresh initial state and
+ *   clear their server-side star state. A normal save can never go
+ *   backwards (the money rule is exact), so the reset has its own
+ *   path; it only ever touches the requesting player's own row.
  * - GET  /healthz — liveness check for Coolify
  * - /api/auth/* — Better Auth (Slice 3, issue #28): sign-up, sign-in,
  *   sign-out, session. Mounted via toNodeHandler; see auth.js.
@@ -571,6 +576,59 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     });
   }
 
+  /**
+   * Reset a player's progress (Danger Zone): POST /api/save/reset,
+   * body `{ playerId }`. The server overwrites the requesting
+   * player's own save row with the fresh initial state and clears
+   * their server-side star state (see store.resetPlayer) — the
+   * player keeps the same playerId and the same account link; only
+   * the progress goes to 0. A normal save can never do this (the
+   * money rule is exact and the deltas forbid going backwards), so
+   * the reset bypasses validateSave on its own path. It is NOT rate
+   * limited: a player who just saved can still reset. 400 for a
+   * malformed body, 404 for an unknown player. The playerId is the
+   * credential here, the same as /api/save in v1 — the endpoint can
+   * only ever touch the row matching the given playerId.
+   */
+  async function handleResetSave(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-reset",
+        detail: "playerId must be a UUID string",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.resetPlayer(body.playerId, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      playerId: body.playerId,
+      savedAt: iso(result.savedAtMs),
+      state: result.state,
+    });
+  }
+
   async function handleLoad(req, res, url) {
     const playerId = url.searchParams.get("playerId");
     if (!playerId || !UUID_RE.test(playerId)) {
@@ -871,6 +929,8 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleLoad(req, res, url);
       } else if (req.method === "POST" && url.pathname === "/api/save") {
         await handleSave(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/save/reset") {
+        await handleResetSave(req, res);
       } else if (req.method === "GET" && url.pathname === "/api/leaderboard") {
         await handleLeaderboard(req, res, url);
       } else if (req.method === "GET" && url.pathname === "/api/star/next") {
