@@ -31,18 +31,25 @@ export function JsDocBlock({ title, description, children }) {
 
 /** One `@tag {Type} value` line. @param lines use the default grey value;
  *  @returns lines pass valueClassName="text-green-400" (the project /
- *  open-source convention). */
+ *  open-source convention). A caller can also pass an optional suffix
+ *  (e.g. a boosted amount next to the base amount) rendered in its own
+ *  color via suffixClassName — the suffix is omitted entirely when null. */
 export function JsDocLine({
   tag,
   type,
   value,
   valueClassName = "text-gray-400",
+  suffix = null,
+  suffixClassName = "",
 }) {
   return (
     <>
       <span className="text-blue-400">{tag}</span>
       <span className="text-cyan-300"> {`{${type}}`}</span>
       <span className={valueClassName}> {value}</span>
+      {suffix !== null ? (
+        <span className={suffixClassName}>{suffix}</span>
+      ) : null}
       <br />
     </>
   );
