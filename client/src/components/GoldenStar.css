@@ -72,7 +72,10 @@
    (0% just rolled, 100% due); the small seconds-remaining text sits
    inside the bar, centered, white with a dark shadow so it reads on
    both the gold fill and the dark track. The fill eases over 1s so
-   the once-a-second tick reads as a smooth fill. */
+   the once-a-second tick reads as a smooth fill. Tapping the bar
+   collapses the whole star area (StarBroker) — it is a button, not
+   just a display, so it takes pointer events and shows a pointer
+   cursor; the chevron in the text hints it is tappable. */
 .star-countdown-bar {
   position: relative;
   width: 100%;
@@ -80,7 +83,7 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
-  pointer-events: none;
+  cursor: pointer;
   /* A small gap below the bar so it does not crowd the content (or
      the effect bars) beneath it. */
   margin-bottom: 8px;
@@ -115,12 +118,14 @@
    reads at a glance, matching the email gain/loss coloring. The
    small name + seconds-remaining text sits inside the bar, centered,
    white with a dark shadow so it reads on both the fill and the
-   dark track. */
+   dark track. Tapping the bars collapses the whole star area (like
+   the countdown bar), so the stack takes pointer events. */
 .star-effect-bars {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
+  cursor: pointer;
 }
 
 .star-effect-bar {
@@ -153,6 +158,88 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Collapsed star bar area (StarBroker): when the player taps the
+   countdown bar, all the bars hide and this thin strip takes their
+   place in the countdown slot. Tap it to reopen them. Same 16px
+   height as the countdown bar, so the layout does not jump. */
+.star-bar-collapsed {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.star-bar-collapsed-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #ffd700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Buy Star (StarBroker): the button + cooldown timer, in the star
+   bar area below the effect bars. A thin row, same 16px height and
+   rounded shape as the other bars, so the whole star area reads as
+   one stack. The gold button buys a star on demand (30x passive
+   LOC/s); the text beside it shows the cost when ready, or the time
+   until the next buy while on cooldown. Tapping the row (not the
+   button) collapses the whole star area, like the countdown bar. */
+.star-buy-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.star-buy-button {
+  height: 16px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b8860b, #ffd700);
+  color: #1a1a1a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.star-buy-button:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.45);
+  cursor: not-allowed;
+}
+
+.star-buy-text {
   font-size: 10px;
   font-weight: 600;
   line-height: 16px;

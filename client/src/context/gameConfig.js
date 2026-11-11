@@ -262,4 +262,13 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     description:
       "A constellation of golden stars, hung in the GitNub sky by a dev who clearly had too much time on their hands. Chart more of it and the stars start falling — click one before it burns out. Mostly good news. Mostly.",
   },
+  starBroker: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.starBroker,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.starBroker,
+    icon: FaStar,
+    color: "gold",
+    description:
+      "Why wait for the sky to provide when you can just buy a star? Sacrifice 30 seconds of passive LOC and a golden star falls on demand — stack it with a natural one for a two-star combo. Each level halves the wait before you can buy another. Fair warning: nobody trusts your commits for a bit after finding out you buy stars.",
+  },
 });

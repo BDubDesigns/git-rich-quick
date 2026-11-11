@@ -33,10 +33,20 @@
  *   only, by lifetime LOC (default), current LOC, or cash. Public read.
  * - GET  /api/star/next — next golden star (issue #29): when the
  *   player's next star may spawn, rolled server-side; the client
- *   schedules from it and shows a countdown when unlocked.
+ *   schedules from it and shows a countdown when unlocked. Also
+ *   carries the StarBroker buy status (level, cooldown remaining,
+ *   cost) for the Buy Star button.
  * - POST /api/star/claim — claim the due star (issue #29): the server
  *   rolls the outcome, records it as an issued outcome, and rolls the
  *   next spawn time. The client applies exactly the returned claim.
+ * - POST /api/star/buy — buy a golden star (StarBroker): the player
+ *   sacrifices 30x their passive LOC/s to summon a star on demand.
+ *   The natural star timer is never touched — the bought star stacks
+ *   with a natural one. See store.buyStar.
+ * - POST /api/star/claim-bought — claim a bought star (StarBroker):
+ *   the player clicked the star they bought. The server rolls the
+ *   outcome (at click time, like the natural star) and clears the
+ *   pending bought star. See store.claimBoughtStar.
  *
  * Status mapping: malformed bodies are 400, unknown players are 404,
  * validation failures are 409 with the last good state, and a save that
@@ -596,7 +606,9 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
    * (see getOrRollNextStarAt); the client schedules the star from
    * `secondsUntilStar` (a duration, so client/server clock skew cannot
    * shift it) and shows a countdown only when `countdownUnlocked` is
-   * true. 400 for a malformed id, 404 for an unknown player.
+   * true. The response also carries the StarBroker buy status
+   * (starBrokerLevel, buyCooldownSecondsRemaining, buyCost) for the
+   * Buy Star button. 400 for a malformed id, 404 for an unknown player.
    */
   async function handleStarNext(req, res, url) {
     const playerId = url.searchParams.get("playerId");
@@ -619,6 +631,9 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       secondsUntilStar,
       constellationLevel: result.constellationLevel,
       countdownUnlocked: result.countdownUnlocked,
+      starBrokerLevel: result.starBrokerLevel,
+      buyCooldownSecondsRemaining: result.buyCooldownSecondsRemaining,
+      buyCost: result.buyCost,
     });
   }
 
@@ -691,6 +706,156 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     });
   }
 
+  /**
+   * Buy a golden star (StarBroker): POST /api/star/buy, body
+   * `{ playerId }`. The server validates the StarBroker level, the
+   * buy cooldown, and affordability against the stored state, deducts
+   * the cost (30x passive LOC/s) from the stored state's LOC, and
+   * records a pending bought star — without touching the natural star
+   * timer, so the bought star stacks with a natural one. The outcome
+   * is rolled when the bought star is clicked (claim-bought), not
+   * here. 400 for a malformed body, 404 for an unknown player,
+   * 409 when the player owns no StarBroker, has no Constellation
+   * levels, is still on cooldown, or cannot afford the cost.
+   */
+  async function handleStarBuy(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-star-buy",
+        detail: "playerId must be a UUID string",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.buyStar(body.playerId, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "no-star-broker") {
+      sendJson(res, 409, {
+        error: "no-star-broker",
+        detail: "StarBroker level 0 cannot buy stars",
+      });
+      return;
+    }
+    if (result.status === "no-stars") {
+      sendJson(res, 409, {
+        error: "no-stars",
+        detail: "Constellation level 0 has no golden stars",
+      });
+      return;
+    }
+    if (result.status === "on-cooldown") {
+      sendJson(res, 409, {
+        error: "star-buy-cooldown",
+        detail: "a star was bought too recently",
+        nextBuyAtMs: result.nextBuyAtMs,
+        cooldownSecondsRemaining: result.cooldownSecondsRemaining,
+      });
+      return;
+    }
+    if (result.status === "not-enough-loc") {
+      sendJson(res, 409, {
+        error: "not-enough-loc",
+        detail: "not enough LOC to buy a star",
+        cost: result.cost,
+        linesOfCode: result.linesOfCode,
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      cost: result.cost,
+      linesOfCode: result.linesOfCode,
+      nextBuyAtMs: result.nextBuyAtMs,
+      boughtStarAtMs: result.boughtStarAtMs,
+      starBrokerLevel: result.starBrokerLevel,
+      buyCooldownSeconds: result.buyCooldownSeconds,
+    });
+  }
+
+  /**
+   * Claim a bought golden star (StarBroker): POST /api/star/claim-bought,
+   * body `{ playerId }`. The server rolls the outcome from the stored
+   * state, records it as an issued outcome, and clears the pending
+   * bought star — the natural star timer is never touched. The client
+   * applies exactly the returned claim (same as a natural claim) and
+   * reports it in the next save. 400 for a malformed body, 404 for an
+   * unknown player, 409 when there is no pending bought star, no
+   * Constellation levels, or the bought star already burned out.
+   */
+  async function handleClaimBoughtStar(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-star-claim",
+        detail: "playerId must be a UUID string",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.claimBoughtStar(body.playerId, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "no-stars") {
+      sendJson(res, 409, {
+        error: "no-stars",
+        detail: "Constellation level 0 has no golden stars",
+      });
+      return;
+    }
+    if (result.status === "no-bought-star") {
+      sendJson(res, 409, {
+        error: "no-bought-star",
+        detail: "no bought star is pending",
+      });
+      return;
+    }
+    if (result.status === "not-due") {
+      sendJson(res, 409, {
+        error: "star-not-due",
+        detail: "the bought star already burned out — buy another one",
+      });
+      return;
+    }
+    sendJson(res, 200, { claim: result.claim });
+  }
+
   const server = http.createServer(async (req, res) => {
     const started = Date.now();
     applyCors(req, res);
@@ -712,6 +877,10 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleStarNext(req, res, url);
       } else if (req.method === "POST" && url.pathname === "/api/star/claim") {
         await handleStarClaim(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/star/buy") {
+        await handleStarBuy(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/star/claim-bought") {
+        await handleClaimBoughtStar(req, res);
       } else if (req.method === "GET" && url.pathname === "/healthz") {
         sendJson(res, 200, { ok: true });
       } else if (url.pathname === "/api/account/link" && req.method === "POST") {

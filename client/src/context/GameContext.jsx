@@ -428,6 +428,27 @@ function gameReducer(state, action) {
       return withEmailTriggers(state, contributed);
     }
 
+    // Buy a golden star (StarBroker). The payload is the buy response
+    // from the server ({ cost }): the server already deducted the cost
+    // from the STORED state's LOC and recorded a pending bought star,
+    // so the client deducts the same cost from its local LOC here —
+    // the next save then validates (prev already has the deduction,
+    // and this state has it too, plus earnings since). The bought star
+    // itself is shown by the star UI (GoldenStar), which owns the
+    // pending star's lifetime; this action only moves the LOC. No
+    // unlock or email triggers: spending LOC cannot unlock anything
+    // (unlocks read totalLinesOfCode and counts, which do not move).
+    case "BUY_STAR": {
+      const { cost } = action.payload ?? {};
+      if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
+        return state;
+      }
+      return {
+        ...state,
+        linesOfCode: Math.max(0, state.linesOfCode - cost),
+      };
+    }
+
     // Apply a golden-star claim (issue #33). The payload is the claim
     // `resolveStarClaim` returns in shared/game-balance.js: instant
     // LOC/money deltas for Lucky / Shooting Stars, or a timed buff for

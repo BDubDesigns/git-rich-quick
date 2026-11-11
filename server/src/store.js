@@ -25,6 +25,8 @@ import {
   rollStarEffect,
   rollStarGood,
   STAR_CONFIG,
+  starBrokerBuyCost,
+  starBrokerCooldownSeconds,
 } from "../../shared/game-balance.js";
 import { validateSave, matchIssuedStarClaims } from "./validate.js";
 import {
@@ -134,6 +136,21 @@ export function createStore(pool) {
       await pool.query(`
         ALTER TABLE git_saves
           ADD COLUMN IF NOT EXISTS next_star_at_ms BIGINT
+      `);
+      // Bought stars (StarBroker): when the player last bought a star
+      // (the buy cooldown runs from it), and when the currently
+      // pending bought star was bought (its 30s lifetime runs from
+      // it). bought_star_at_ms is NULL when no bought star is pending
+      // — it is set on buy and cleared on claim. The natural star
+      // timer (next_star_at_ms) is never touched by a buy: the whole
+      // point is stacking a bought star with a natural one.
+      await pool.query(`
+        ALTER TABLE git_saves
+          ADD COLUMN IF NOT EXISTS last_star_buy_at_ms BIGINT
+      `);
+      await pool.query(`
+        ALTER TABLE git_saves
+          ADD COLUMN IF NOT EXISTS bought_star_at_ms BIGINT
       `);
       // Server-issued star outcomes (issue #29). The server rolls each
       // star's outcome and records it here; a save's star claim is only
@@ -347,15 +364,21 @@ export function createStore(pool) {
      * despawned after its 30s lifetime and was never clicked). The read
      * and the conditional roll run against the locked row, so two
      * concurrent calls cannot roll twice. Returns null for an unknown
-     * player, or `{ nextStarAtMs, constellationLevel, countdownUnlocked }`
+     * player, or `{ nextStarAtMs, constellationLevel, countdownUnlocked,
+     * starBrokerLevel, buyCooldownSecondsRemaining, buyCost }`
      * (nextStarAtMs is null at Constellation level 0 — no stars).
+     * The buy fields are the StarBroker status the client needs to
+     * render the Buy Star button: the player's StarBroker level, how
+     * many seconds until another star can be bought (0 when ready,
+     * null when the player owns no StarBroker), and the LOC cost of
+     * the next buy (30x passive LOC/s, from the stored state).
      */
     async getOrRollNextStarAt(playerId, nowMs) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
         const res = await client.query(
-          `SELECT state, next_star_at_ms FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          `SELECT state, next_star_at_ms, last_star_buy_at_ms FROM git_saves WHERE player_id = $1 FOR UPDATE`,
           [playerId]
         );
         if (res.rowCount === 0) {
@@ -364,6 +387,32 @@ export function createStore(pool) {
         }
         const state = res.rows[0].state;
         const level = state.openSourceProjects?.constellation ?? 0;
+        const starBrokerLevel = state.openSourceProjects?.starBroker ?? 0;
+        const buyCooldown = starBrokerCooldownSeconds(starBrokerLevel);
+        const buyCost =
+          starBrokerLevel < 1
+            ? null
+            : starBrokerBuyCost(
+                locPerSecond(state.employees, state.openSourceProjects)
+              );
+        let buyCooldownSecondsRemaining = null;
+        if (buyCooldown !== null) {
+          const lastBuyAtMs = res.rows[0].last_star_buy_at_ms;
+          buyCooldownSecondsRemaining =
+            lastBuyAtMs === null
+              ? 0
+              : Math.max(
+                  0,
+                  Math.ceil(
+                    (Number(lastBuyAtMs) + buyCooldown * 1000 - nowMs) / 1000
+                  )
+                );
+        }
+        const buyStatus = {
+          starBrokerLevel,
+          buyCooldownSecondsRemaining,
+          buyCost,
+        };
         let nextStarAtMs = res.rows[0].next_star_at_ms;
         if (level < 1) {
           await client.query("ROLLBACK");
@@ -371,6 +420,7 @@ export function createStore(pool) {
             nextStarAtMs: null,
             constellationLevel: level,
             countdownUnlocked: false,
+            ...buyStatus,
           };
         }
         const lifetimeMs = STAR_CONFIG.starLifetimeSeconds * 1000;
@@ -389,6 +439,7 @@ export function createStore(pool) {
           nextStarAtMs: Number(nextStarAtMs),
           constellationLevel: level,
           countdownUnlocked: level >= STAR_CONFIG.countdownUnlockLevel,
+          ...buyStatus,
         };
       } catch (err) {
         try {
@@ -504,6 +555,211 @@ export function createStore(pool) {
       }
     },
 
+
+    /**
+     * Buy a golden star (StarBroker): the player sacrifices 30x their
+     * passive LOC/s to summon a star on demand, so they can stack it
+     * with a natural star. Validates against the STORED state (the only
+     * rates the server trusts), deducts the cost from the stored
+     * state's LOC, and records a pending bought star — all in one
+     * transaction against the locked player row, so two concurrent buys
+     * cannot both pass the cooldown/affordability checks. The natural
+     * star timer (next_star_at_ms) is NEVER touched: the whole point is
+     * stacking, so the natural schedule continues independently.
+     * The outcome is NOT rolled here — it is rolled when the bought
+     * star is clicked (see claimBoughtStar), so the issued outcome's
+     * 30s validity runs from the click, not the buy, and a bought star
+     * the player never clicks simply expires. Returns one of:
+     * - `{ status: "ok", cost, linesOfCode, nextBuyAtMs, boughtStarAtMs,
+     *    starBrokerLevel, buyCooldownSeconds }` (linesOfCode is the
+     *   stored state's LOC after the deduction)
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "no-star-broker" }` (StarBroker level 0)
+     * - `{ status: "no-stars" }` (Constellation level 0 — there is no
+     *   star effect pool to roll from)
+     * - `{ status: "on-cooldown", nextBuyAtMs, cooldownSecondsRemaining }`
+     * - `{ status: "not-enough-loc", cost, linesOfCode }`
+     */
+    async buyStar(playerId, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT state, last_star_buy_at_ms FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const state = res.rows[0].state;
+        const starBrokerLevel = state.openSourceProjects?.starBroker ?? 0;
+        if (starBrokerLevel < 1) {
+          await client.query("ROLLBACK");
+          return { status: "no-star-broker" };
+        }
+        const constellationLevel =
+          state.openSourceProjects?.constellation ?? 0;
+        if (constellationLevel < 1) {
+          await client.query("ROLLBACK");
+          return { status: "no-stars" };
+        }
+        const cooldownSeconds = starBrokerCooldownSeconds(starBrokerLevel);
+        const lastBuyAtMs = res.rows[0].last_star_buy_at_ms;
+        if (
+          lastBuyAtMs !== null &&
+          nowMs < Number(lastBuyAtMs) + cooldownSeconds * 1000
+        ) {
+          const nextBuyAtMs = Number(lastBuyAtMs) + cooldownSeconds * 1000;
+          await client.query("ROLLBACK");
+          return {
+            status: "on-cooldown",
+            nextBuyAtMs,
+            cooldownSecondsRemaining: Math.ceil(
+              (nextBuyAtMs - nowMs) / 1000
+            ),
+          };
+        }
+        const cost = starBrokerBuyCost(
+          locPerSecond(state.employees, state.openSourceProjects)
+        );
+        if (state.linesOfCode < cost) {
+          await client.query("ROLLBACK");
+          return {
+            status: "not-enough-loc",
+            cost,
+            linesOfCode: state.linesOfCode,
+          };
+        }
+        const newState = { ...state, linesOfCode: state.linesOfCode - cost };
+        const nextBuyAtMs = nowMs + cooldownSeconds * 1000;
+        await client.query(
+          `UPDATE git_saves
+           SET state = $1, last_star_buy_at_ms = $2, bought_star_at_ms = $3
+           WHERE player_id = $4`,
+          [
+            JSON.stringify(newState),
+            nowMs,
+            nowMs,
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        return {
+          status: "ok",
+          cost,
+          linesOfCode: newState.linesOfCode,
+          nextBuyAtMs,
+          boughtStarAtMs: nowMs,
+          starBrokerLevel,
+          buyCooldownSeconds: cooldownSeconds,
+        };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
+     * Claim a bought golden star (StarBroker): the player clicked the
+     * star they bought. The outcome is rolled HERE (at click time, like
+     * the natural star), from the stored state, recorded as an issued
+     * outcome, and the pending bought star is cleared — all in one
+     * transaction against the locked player row, so two concurrent
+     * clicks cannot both issue. The natural star timer is never
+     * touched. Returns one of:
+     * - `{ claim }` (the claim carries its claimId)
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "no-stars" }` (Constellation level 0)
+     * - `{ status: "no-bought-star" }` (no pending bought star — it was
+     *   already claimed, or never bought)
+     * - `{ status: "not-due", expired: true }` (the bought star burned
+     *   out — its 30s lifetime passed unclicked; the pending star is
+     *   cleared so it cannot be claimed late)
+     * The same 5s grace as the natural claim covers client-timer skew.
+     */
+    async claimBoughtStar(playerId, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT state, bought_star_at_ms FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const state = res.rows[0].state;
+        const level = state.openSourceProjects?.constellation ?? 0;
+        if (level < 1) {
+          await client.query("ROLLBACK");
+          return { status: "no-stars" };
+        }
+        const boughtStarAtMs = res.rows[0].bought_star_at_ms;
+        if (boughtStarAtMs === null) {
+          await client.query("ROLLBACK");
+          return { status: "no-bought-star" };
+        }
+        const STAR_CLAIM_GRACE_MS = 5000;
+        const lifetimeMs = STAR_CONFIG.starLifetimeSeconds * 1000;
+        if (nowMs > Number(boughtStarAtMs) + lifetimeMs + STAR_CLAIM_GRACE_MS) {
+          // Burned out unclicked: clear the pending star so a late
+          // claim cannot succeed, and tell the client to re-fetch.
+          await client.query(
+            `UPDATE git_saves SET bought_star_at_ms = NULL WHERE player_id = $1`,
+            [playerId]
+          );
+          await client.query("COMMIT");
+          return { status: "not-due", expired: true };
+        }
+        // Roll the outcome from the stored state (server-trusted rates),
+        // exactly like the natural claim.
+        const effect = rollStarEffect(level);
+        const good = effect === "shootingStars" ? true : rollStarGood();
+        const claim = resolveStarClaim({
+          effect,
+          good,
+          locPerSecond: locPerSecond(state.employees, state.openSourceProjects),
+          money: state.money,
+          linesOfCode: state.linesOfCode,
+          employeeCounts: state.employees,
+        });
+        const claimId = randomUUID();
+        const issuedClaim = { ...claim, claimId };
+        await client.query(
+          `INSERT INTO star_issues (claim_id, player_id, claim, issued_at)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            claimId,
+            playerId,
+            JSON.stringify(issuedClaim),
+            new Date(nowMs).toISOString(),
+          ]
+        );
+        await client.query(
+          `UPDATE git_saves SET bought_star_at_ms = NULL WHERE player_id = $1`,
+          [playerId]
+        );
+        await client.query("COMMIT");
+        return { claim: issuedClaim };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
 
     /**
      * The player's unconsumed server-issued star outcomes (issue #29),
