@@ -85,13 +85,13 @@ export function Farm() {
     return (
       <SectionLayout sectionId="farm">
         <div className="panel flex flex-col gap-2 p-3">
-          <p className="m-0">
+          <p className="m-0 text-sm">
             Your staff have been dreaming of quitting to start an alpaca
             farm. You let them build it — but you never accepted their
             notice, so they are still employees. The llamas are
             unionizing. The barn has mood lighting. This is fine.
           </p>
-          <p className="m-0">
+          <p className="m-0 text-sm">
             Buy the barn and it arrives empty — no llamas come with it.
             Buy base llamas, move them in, set the lights, and let them
             breed to discover new types. The farm generates no cash yet
@@ -237,7 +237,7 @@ export function Farm() {
 
       {/* Discovered types: the collection. */}
       <div className="flex flex-col gap-1">
-        <p className="m-0 font-semibold">
+        <p className="m-0 text-sm font-semibold">
           Discovered types ({farm.unlockedTypes.length}/{LLAMA_TYPES.length})
         </p>
         {LLAMA_TYPES.map((type) => {
