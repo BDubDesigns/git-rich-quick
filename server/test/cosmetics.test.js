@@ -2,14 +2,15 @@
  * Tests for the Cosmetic Unlock System (issue #11).
  *
  * Cosmetics are employee-icon skins, earned by hiring: one per tier
- * at 10 hires (Bronze Duck / Silver Backpack / Gold Coffee). The
+ * at 25 hires (Bronze Duck / Silver Backpack / Gold Coffee). The
  * registry (which cosmetic belongs to which slot, what triggers it)
  * lives in shared/game-balance.js; the server validates saves
  * against it. The visual data (name, icon, color) is client-only
  * (gameConfig.js) and is not tested here.
  *
  * Rules under test:
- * - an unlocked cosmetic's hire-count trigger must be met (COSMETIC);
+ * - a newly claimed cosmetic's hire-count trigger must be met
+ *   (COSMETIC); an already-unlocked cosmetic is grandfathered;
  * - an equipped cosmetic must be unlocked and in its own slot (COSMETIC);
  * - the unlocked list only grows (MONOTONIC); the equipped map
  *   switches freely;
@@ -88,7 +89,7 @@ function internHireCost(fromCount, n) {
   );
 }
 
-test("cosmetic registry: one slot per employee type, one unlock each at 10 hires", () => {
+test("cosmetic registry: one slot per employee type, one unlock each at 25 hires", () => {
   assert.deepEqual(COSMETIC_SLOTS, [
     "employeeIcon_intern",
     "employeeIcon_junior",
@@ -100,63 +101,63 @@ test("cosmetic registry: one slot per employee type, one unlock each at 10 hires
     cosmeticId: "intern-icon-bronze",
     slot: "employeeIcon_intern",
     employeeType: "intern",
-    triggerCount: 10,
+    triggerCount: 25,
   });
   assert.deepEqual(findCosmetic("junior-icon-silver"), {
     cosmeticId: "junior-icon-silver",
     slot: "employeeIcon_junior",
     employeeType: "junior",
-    triggerCount: 10,
+    triggerCount: 25,
   });
   assert.deepEqual(findCosmetic("senior-icon-gold"), {
     cosmeticId: "senior-icon-gold",
     slot: "employeeIcon_senior",
     employeeType: "senior",
-    triggerCount: 10,
+    triggerCount: 25,
   });
   assert.deepEqual(findCosmetic("projectManager-icon-platinum"), {
     cosmeticId: "projectManager-icon-platinum",
     slot: "employeeIcon_projectManager",
     employeeType: "projectManager",
-    triggerCount: 10,
+    triggerCount: 25,
   });
   assert.deepEqual(findCosmetic("commitSpecialist-icon-diamond"), {
     cosmeticId: "commitSpecialist-icon-diamond",
     slot: "employeeIcon_commitSpecialist",
     employeeType: "commitSpecialist",
-    triggerCount: 10,
+    triggerCount: 25,
   });
   assert.equal(findCosmetic("not-a-cosmetic"), null);
 });
 
 test("cosmetic triggers: met at the hire count, not before", () => {
-  const nine = stateWith({ employees: { intern: 9 } });
-  const ten = stateWith({ employees: { intern: 10 } });
-  assert.equal(cosmeticTriggerMet("intern-icon-bronze", nine), false);
-  assert.equal(cosmeticTriggerMet("intern-icon-bronze", ten), true);
-  assert.equal(cosmeticTriggerMet("not-a-cosmetic", ten), false);
-  assert.deepEqual(deriveUnlockedCosmetics(nine), []);
-  assert.deepEqual(deriveUnlockedCosmetics(ten), ["intern-icon-bronze"]);
+  const twentyFour = stateWith({ employees: { intern: 24 } });
+  const twentyFive = stateWith({ employees: { intern: 25 } });
+  assert.equal(cosmeticTriggerMet("intern-icon-bronze", twentyFour), false);
+  assert.equal(cosmeticTriggerMet("intern-icon-bronze", twentyFive), true);
+  assert.equal(cosmeticTriggerMet("not-a-cosmetic", twentyFive), false);
+  assert.deepEqual(deriveUnlockedCosmetics(twentyFour), []);
+  assert.deepEqual(deriveUnlockedCosmetics(twentyFive), ["intern-icon-bronze"]);
   assert.deepEqual(
     deriveUnlockedCosmetics(
-      stateWith({ employees: { intern: 10, junior: 10 } })
+      stateWith({ employees: { intern: 25, junior: 25 } })
     ),
     ["intern-icon-bronze", "junior-icon-silver"]
   );
 });
 
 test("newly unlocked cosmetics: threshold-crossing, so a bulk buy past a trigger still fires", () => {
-  assert.deepEqual(newlyUnlockedCosmetics("intern", 9, 10), [
+  assert.deepEqual(newlyUnlockedCosmetics("intern", 24, 25), [
     "intern-icon-bronze",
   ]);
-  // 5 -> 15 jumps past the 10 trigger; the unlock must still fire.
-  assert.deepEqual(newlyUnlockedCosmetics("intern", 5, 15), [
+  // 5 -> 30 jumps past the 25 trigger; the unlock must still fire.
+  assert.deepEqual(newlyUnlockedCosmetics("intern", 5, 30), [
     "intern-icon-bronze",
   ]);
   // Already past the trigger: nothing new.
-  assert.deepEqual(newlyUnlockedCosmetics("intern", 10, 11), []);
-  assert.deepEqual(newlyUnlockedCosmetics("intern", 0, 9), []);
-  assert.deepEqual(newlyUnlockedCosmetics("nope", 0, 10), []);
+  assert.deepEqual(newlyUnlockedCosmetics("intern", 25, 26), []);
+  assert.deepEqual(newlyUnlockedCosmetics("intern", 0, 24), []);
+  assert.deepEqual(newlyUnlockedCosmetics("nope", 0, 25), []);
 });
 
 test("canEquipCosmetic: unlocked + own slot only; null is unequip", () => {
@@ -202,13 +203,13 @@ test("normalizeSaveState derives the unlocked list for an old save", () => {
   const old = initialSaveState();
   delete old.unlockedCosmetics;
   delete old.equippedCosmetics;
-  old.employees.intern = 10;
+  old.employees.intern = 25;
   const normalized = normalizeSaveState(old);
   assert.deepEqual(normalized.unlockedCosmetics, ["intern-icon-bronze"]);
   assert.deepEqual(normalized.equippedCosmetics, {});
   // A save that already has the fields is unchanged.
   const current = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     unlockedCosmetics: ["intern-icon-bronze"],
     equippedCosmetics: { employeeIcon_intern: "intern-icon-bronze" },
   });
@@ -218,7 +219,7 @@ test("normalizeSaveState derives the unlocked list for an old save", () => {
   // fills in new fields; a missing OLD field is still a shape
   // error). The unlocked list is derived from the counts, so a
   // wrong-typed value cannot invent an unearned cosmetic.
-  const mistyped = stateWith({ employees: { intern: 10 } });
+  const mistyped = stateWith({ employees: { intern: 25 } });
   mistyped.unlockedCosmetics = "intern-icon-bronze";
   mistyped.equippedCosmetics = [];
   const mistypedNormalized = normalizeSaveState(mistyped);
@@ -229,13 +230,13 @@ test("normalizeSaveState derives the unlocked list for an old save", () => {
 });
 
 test("validateSave accepts a hire that unlocks a cosmetic at the trigger count", () => {
-  const cost = employeeCost("intern", 9);
+  const cost = employeeCost("intern", 24);
   const before = stateWith({
-    employees: { intern: 9 },
+    employees: { intern: 24 },
     money: cost,
   });
   const after = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     money: 0,
     unlockedCosmetics: ["intern-icon-bronze"],
   });
@@ -247,11 +248,11 @@ test("validateSave accepts a hire that unlocks a cosmetic at the trigger count",
 
 test("validateSave accepts equipping an unlocked cosmetic, and unequipping it", () => {
   const before = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     unlockedCosmetics: ["intern-icon-bronze"],
   });
   const equipped = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     unlockedCosmetics: ["intern-icon-bronze"],
     equippedCosmetics: { employeeIcon_intern: "intern-icon-bronze" },
   });
@@ -287,11 +288,11 @@ test("validateSave rejects an equipped-but-not-unlocked cosmetic (COSMETIC)", ()
 
 test("validateSave rejects a cosmetic equipped in the wrong slot (COSMETIC)", () => {
   const before = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     unlockedCosmetics: ["intern-icon-bronze"],
   });
   const after = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     unlockedCosmetics: ["intern-icon-bronze"],
     equippedCosmetics: { employeeIcon_junior: "intern-icon-bronze" },
   });
@@ -323,13 +324,34 @@ test("validateSave rejects an unlocked cosmetic whose trigger is not met (COSMET
   assert.equal(result.rule, "COSMETIC");
 });
 
-test("validateSave rejects removing an unlocked cosmetic (MONOTONIC)", () => {
+test("validateSave accepts a grandfathered cosmetic unlocked below the new trigger", () => {
+  // The trigger rose from 10 to 25 hires. A player who earned the
+  // Bronze Duck at 10 hires keeps it: the unlocked list only grows,
+  // and the COSMETIC rule only checks the trigger for newly claimed
+  // cosmetics. Their save must not be rejected, and the cosmetic
+  // must still equip.
   const before = stateWith({
     employees: { intern: 10 },
     unlockedCosmetics: ["intern-icon-bronze"],
   });
   const after = stateWith({
     employees: { intern: 10 },
+    unlockedCosmetics: ["intern-icon-bronze"],
+    equippedCosmetics: { employeeIcon_intern: "intern-icon-bronze" },
+  });
+  assert.deepEqual(
+    validateSave(prev(before, T0), body(after, zeroActions()), T0 + 11_000),
+    { ok: true }
+  );
+});
+
+test("validateSave rejects removing an unlocked cosmetic (MONOTONIC)", () => {
+  const before = stateWith({
+    employees: { intern: 25 },
+    unlockedCosmetics: ["intern-icon-bronze"],
+  });
+  const after = stateWith({
+    employees: { intern: 25 },
     unlockedCosmetics: [],
   });
   const result = validateSave(
@@ -347,7 +369,7 @@ test("validateSave rejects unknown cosmetic ids, unknown slots, and duplicates (
     stateWith({ unlockedCosmetics: ["not-a-cosmetic"] }),
     stateWith({
       unlockedCosmetics: ["intern-icon-bronze", "intern-icon-bronze"],
-      employees: { intern: 10 },
+      employees: { intern: 25 },
     }),
     stateWith({
       equippedCosmetics: { employeeIcon_nope: "intern-icon-bronze" },
@@ -368,20 +390,20 @@ test("validateSave rejects unknown cosmetic ids, unknown slots, and duplicates (
 });
 
 test("validateSave accepts an old save without cosmetic fields (derived on normalize)", () => {
-  const total10 = internHireCost(0, 10);
-  const before = stateWith({ money: total10 });
-  const after = stateWith({ employees: { intern: 10 }, money: 0 });
+  const total25 = internHireCost(0, 25);
+  const before = stateWith({ money: total25 });
+  const after = stateWith({ employees: { intern: 25 }, money: 0 });
   delete after.unlockedCosmetics;
   delete after.equippedCosmetics;
   const actions = zeroActions();
-  actions.employeesBought.intern = 10;
+  actions.employeesBought.intern = 25;
   const result = validateSave(prev(before, T0), body(after, actions), T0 + 11_000);
   assert.deepEqual(result, { ok: true });
 });
 
 test("serialize round-trips the cosmetic fields, deriving them for old saves", () => {
   const withCosmetics = stateWith({
-    employees: { intern: 10 },
+    employees: { intern: 25 },
     unlockedCosmetics: ["intern-icon-bronze"],
     equippedCosmetics: { employeeIcon_intern: "intern-icon-bronze" },
   });
@@ -403,7 +425,7 @@ test("serialize round-trips the cosmetic fields, deriving them for old saves", (
   });
   // Old save without the fields: the unlocked list is derived from
   // the employee counts on load.
-  const old = stateWith({ employees: { intern: 10 } });
+  const old = stateWith({ employees: { intern: 25 } });
   delete old.unlockedCosmetics;
   delete old.equippedCosmetics;
   const oldFields = saveStateToGameFields(old);

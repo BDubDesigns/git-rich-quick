@@ -38,6 +38,7 @@ import {
 import {
   collectTriggerEmails,
   deleteEmail,
+  markAllEmailsRead,
   markEmailRead,
 } from "../email/email.js";
 import { GameContext } from "./gameContext.js";
@@ -577,6 +578,21 @@ function gameReducer(state, action) {
     // in the inbox until the player opens it.
     case "DISMISS_EMAIL_NOTIFICATION": {
       return { ...state, emailNotification: null };
+    }
+
+    // Mark every email read: the unread badge (derived from the inbox)
+    // clears, and the notification bar goes away with it — the mail it
+    // pointed at is read now. A read-state change is a big action (see
+    // bigActionIncreased — the unread count is a big-action field), so
+    // it saves promptly instead of waiting for the heartbeat.
+    case "MARK_ALL_EMAILS_READ": {
+      const emails = markAllEmailsRead(state.emails);
+      if (emails === state.emails) return state;
+      return {
+        ...state,
+        emails,
+        emailNotification: null,
+      };
     }
 
     // Restore the game fields from a server snapshot (initial load, or a

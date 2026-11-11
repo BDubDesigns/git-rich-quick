@@ -102,6 +102,20 @@ export function markEmailRead(emails, emailId) {
 }
 
 /**
+ * Mark every email read. Returns the original array when nothing is
+ * unread, so a no-op tap changes no state (and triggers no save).
+ */
+export function markAllEmailsRead(emails) {
+  const inbox = emails ?? [];
+  if (!inbox.some((entry) => !entry.read)) {
+    return inbox;
+  }
+  return inbox.map((entry) =>
+    entry.read ? entry : { ...entry, read: true }
+  );
+}
+
+/**
  * Delete one email from the inbox. Returns the original array when the
  * id is not in the inbox. The caller (reducer) triggers a save — a
  * delete is a big action, so the save sync picks it up the same way it
