@@ -463,6 +463,285 @@ export const OPEN_SOURCE_IDS = Object.freeze([
 ]);
 
 /**
+ * Llama farm mini-game (issue #79). A business you buy with pure money,
+ * and a breeding mini-game. No soil (unlike Cookie Clicker) — the farm
+ * uses MOOD and STALLS.
+ *
+ * Each tile is a barn stall. You set the lighting to different colors
+ * for mood, since it is a breeding game. Llamas have no genders — any
+ * two can breed. An empty stall between two llamas can produce a kid in
+ * that stall, usually one of the parents' types, sometimes a brand-new
+ * type. Start with 2 base llama types; new types come from breeding.
+ *
+ * Flavor: the staff dream of quitting to start an alpaca farm, and you
+ * let them start it but still have not accepted their notice of quitting.
+ *
+ * V1 scope: the purchase + the breeding game. Passive cash generation
+ * from the farm (the business generating cash slowly) and the LOC AI
+ * harness are the next slice, not v1 — the money rule is exact, and
+ * passive cash with a changing llama count cannot be validated exactly
+ * without restructuring it.
+ */
+export const FARM_CONFIG = Object.freeze({
+  /**
+   * One-time purchase cost, in cents ($250). The money is the gate —
+   * the farm has no unlock condition in v1. Tuning value.
+   */
+  purchaseCostCents: 25000,
+  /** Barn stalls in the grid (3x3). Each stall holds at most one llama. */
+  stallCount: 9,
+  /** Columns in the stall grid (used for orthogonal adjacency). */
+  gridCols: 3,
+  /** How often the breeding check runs, in seconds. */
+  breedingTickSeconds: 5,
+  /** Llamas placed when the farm is bought. */
+  startingLlamaCount: 5,
+});
+
+/**
+ * Llama type ids, in discovery order. The first two are the base types
+ * every farm starts with; the rest are discovered by breeding.
+ */
+export const LLAMA_TYPES = Object.freeze([
+  "classic",
+  "drama",
+  "spaghetti",
+  "quantum",
+  "blockchain",
+  "ai",
+]);
+
+/** The two base types every farm starts with. */
+export const LLAMA_BASE_TYPES = Object.freeze(["classic", "drama"]);
+
+/** Display names for the llama types. */
+export const LLAMA_TYPE_NAMES = Object.freeze({
+  classic: "Classic Llama",
+  drama: "Drama Llama",
+  spaghetti: "Spaghetti Llama",
+  quantum: "Quantum Llama",
+  blockchain: "Blockchain Llama",
+  ai: "AI Llama",
+});
+
+/** Descriptions for the llama types, in the GRQ satirical dev voice. */
+export const LLAMA_TYPE_DESCRIPTIONS = Object.freeze({
+  classic:
+    "The original. Ships on time, never spits on the deploy, and has been here since v1. Nobody remembers hiring it.",
+  drama:
+    "Causes an incident every sprint, then acts surprised. Spits on the production deploy and blames the intern.",
+  spaghetti:
+    "Its code is tangled, its wool is tangled, everything is tangled. Somehow it still works. Nobody dares refactor it.",
+  quantum:
+    "Both in the stall and not in the stall until you observe it. Schrodinger's llama, now shipping.",
+  blockchain:
+    "A llama on the blockchain. Decentralized, immutable, and completely useless for carrying anything.",
+  ai: "Definitely not just a random number generator with confidence. It generates wool. The wool is mostly a random number generator with confidence.",
+});
+
+/** Barn-stall lighting (mood) color ids. */
+export const FARM_LIGHTING_COLORS = Object.freeze([
+  "warm",
+  "red",
+  "blue",
+  "green",
+]);
+
+/**
+ * Lighting (mood) effects. The empty stall's own lighting sets the mood
+ * for a kid appearing there: kidChance is the chance a kid is born in
+ * that stall on one breeding tick, newTypeChance is the chance the kid
+ * is a brand-new type (one the player has not unlocked yet) instead of
+ * one of the neighbouring parents' types. Tuning values.
+ *
+ * - warm: balanced, the default.
+ * - red ("Spicy"): more kids, fewer new types — bulk breeding.
+ * - blue ("Chill"): fewer kids, more new types — type hunting.
+ * - green ("Lucky"): a bit better at both.
+ */
+export const FARM_LIGHTING = Object.freeze({
+  warm: Object.freeze({
+    label: "Warm Amber",
+    description: "Cozy and balanced. The default mood.",
+    color: "#F59E0B",
+    kidChance: 0.15,
+    newTypeChance: 0.15,
+  }),
+  red: Object.freeze({
+    label: "Spicy Red",
+    description: "More kids, fewer new types. Bulk breeding.",
+    color: "#EF4444",
+    kidChance: 0.3,
+    newTypeChance: 0.05,
+  }),
+  blue: Object.freeze({
+    label: "Chill Blue",
+    description: "Fewer kids, more new types. Type hunting.",
+    color: "#3B82F6",
+    kidChance: 0.08,
+    newTypeChance: 0.4,
+  }),
+  green: Object.freeze({
+    label: "Lucky Green",
+    description: "A bit better at both. The gambler's mood.",
+    color: "#22C55E",
+    kidChance: 0.2,
+    newTypeChance: 0.25,
+  }),
+});
+
+/**
+ * Orthogonal neighbours (up/down/left/right) of a stall in the 3x3
+ * grid. A stall's neighbours are the stalls immediately beside it in
+ * its row and column — no diagonals, so "between two llamas" means the
+ * two llamas sit on either side of the empty stall, not kitty-corner.
+ */
+export function farmStallNeighbours(stallIndex) {
+  const { stallCount, gridCols } = FARM_CONFIG;
+  if (stallIndex < 0 || stallIndex >= stallCount) return [];
+  const row = Math.floor(stallIndex / gridCols);
+  const col = stallIndex % gridCols;
+  const neighbours = [];
+  if (col > 0) neighbours.push(stallIndex - 1);
+  if (col < gridCols - 1) neighbours.push(stallIndex + 1);
+  if (row > 0) neighbours.push(stallIndex - gridCols);
+  if (row < gridCols - 1) neighbours.push(stallIndex + gridCols);
+  return neighbours;
+}
+
+/** How many llamas are in the stalls (non-null entries). */
+export function farmLlamaCount(stalls) {
+  return stalls.reduce((count, stall) => count + (stall.llama ? 1 : 0), 0);
+}
+
+/**
+ * Indices of the empty stalls that can breed right now: empty, with at
+ * least two llamas in their orthogonal neighbours. A kid can only appear
+ * between two llamas, so a lone neighbour is not enough.
+ */
+export function farmEligibleBreedingStalls(stalls) {
+  const eligible = [];
+  for (let i = 0; i < stalls.length; i++) {
+    if (stalls[i].llama) continue;
+    const llamaNeighbours = farmStallNeighbours(i).filter(
+      (n) => stalls[n].llama
+    );
+    if (llamaNeighbours.length >= 2) eligible.push(i);
+  }
+  return eligible;
+}
+
+/**
+ * The most kids that can legitimately be born in a window: the number
+ * of stalls that were empty when the window started. Each kid fills a
+ * distinct stall that was empty (a stall with a llama cannot get a
+ * kid, and a stall can only get one kid), so the empty-stall count is
+ * the hard bound. The breeding-tick rate does NOT bound the total: a
+ * kid born in one stall can make a neighbouring empty stall newly
+ * eligible (it gains a second llama neighbour), so over several ticks
+ * kids can appear in stalls that were not eligible when the window
+ * started — a ticks x eligible cap would undercount that cascade and
+ * falsely reject legitimate saves. The tick rate only affects how fast
+ * kids appear; the neighbour check (each kid must sit between two
+ * llamas) is what keeps a birth plausible.
+ */
+export function farmMaxKidsPerWindow(prevStalls) {
+  return prevStalls.reduce((count, stall) => count + (stall.llama ? 0 : 1), 0);
+}
+
+/**
+ * Roll one breeding tick for a single eligible empty stall. Returns the
+ * kid's type id, or null when no kid is born. The stall's own lighting
+ * sets the mood: kidChance is the chance a kid appears at all, and
+ * newTypeChance is the chance the kid is a brand-new type (one not in
+ * unlockedTypes) instead of one of the neighbouring parents' types.
+ * When every type is already unlocked, the "new type" roll falls back
+ * to a parent's type — there is nothing new left to discover.
+ */
+export function rollFarmKid(stallIndex, stalls, unlockedTypes, rng = Math.random) {
+  const stall = stalls[stallIndex];
+  if (!stall || stall.llama) return null;
+  const lighting = FARM_LIGHTING[stall.lighting] ?? FARM_LIGHTING.warm;
+  if (rng() >= lighting.kidChance) return null;
+  const parentTypes = farmStallNeighbours(stallIndex)
+    .map((n) => stalls[n].llama)
+    .filter(Boolean);
+  if (parentTypes.length < 2) return null;
+  const undiscovered = LLAMA_TYPES.filter(
+    (type) => !(unlockedTypes ?? []).includes(type)
+  );
+  if (undiscovered.length > 0 && rng() < lighting.newTypeChance) {
+    return undiscovered[Math.floor(rng() * undiscovered.length)];
+  }
+  return parentTypes[Math.floor(rng() * parentTypes.length)];
+}
+
+/**
+ * Run one breeding tick over the whole barn: every eligible empty stall
+ * rolls for a kid. Returns the new stalls array and the types of the
+ * kids born (empty when nothing was born). Pure — the caller passes
+ * the rng, so tests can pin it. A kid born in one stall does not make
+ * a neighbouring empty stall eligible in the same tick (the rolls all
+ * read the stalls as they were when the tick started).
+ */
+export function rollFarmBreeding(stalls, unlockedTypes, rng = Math.random) {
+  const eligible = farmEligibleBreedingStalls(stalls);
+  if (eligible.length === 0) return { stalls, kidsBorn: [] };
+  const next = stalls.map((stall) => ({ ...stall }));
+  const kidsBorn = [];
+  for (const index of eligible) {
+    const type = rollFarmKid(index, stalls, unlockedTypes, rng);
+    if (type) {
+      next[index] = { ...next[index], llama: type };
+      kidsBorn.push(type);
+    }
+  }
+  return { stalls: next, kidsBorn };
+}
+
+/**
+ * The starting stall layout when the farm is bought: 5 llamas in a
+ * checkerboard (stalls 0, 2, 4, 6, 8), so all four empty stalls sit
+ * between llamas and can breed from the start. Three Classics, two
+ * Dramas. Every stall starts on warm lighting.
+ */
+export function farmStartingStalls() {
+  const starting = {
+    0: "classic",
+    2: "drama",
+    4: "classic",
+    6: "drama",
+    8: "classic",
+  };
+  const stalls = [];
+  for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
+    stalls.push({ llama: starting[i] ?? null, lighting: "warm" });
+  }
+  return stalls;
+}
+
+/** A farm that has never been bought: no llamas, no types, warm lights. */
+export function emptyFarmState() {
+  return {
+    owned: false,
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
+      llama: null,
+      lighting: "warm",
+    })),
+    unlockedTypes: [],
+  };
+}
+
+/** The farm state right after buying it: owned, 5 starting llamas, base types unlocked. */
+export function initialFarmState() {
+  return {
+    owned: true,
+    stalls: farmStartingStalls(),
+    unlockedTypes: [...LLAMA_BASE_TYPES],
+  };
+}
+
+/**
  * Golden star (GitNub Constellation, issue #33).
  *
  * One project, many tiers. Level 0 = no stars. Each level unlocks a new
@@ -1228,6 +1507,10 @@ export function initialSaveState() {
     // unlocked cosmetics, or unequip back to the default icon.
     unlockedCosmetics: [],
     equippedCosmetics: {},
+    // Llama farm (issue #79). A save from before the farm shipped has
+    // no farm field at all — normalizeSaveState backfills it to the
+    // empty (unbought) farm, so old saves keep validating.
+    farm: emptyFarmState(),
   };
 }
 
@@ -1417,6 +1700,53 @@ export function normalizeSaveState(state) {
       }
     }
     if (changed) next.unlockedEmployees = unlocked;
+  }
+  if (
+    next.farm === undefined ||
+    next.farm === null ||
+    typeof next.farm !== "object" ||
+    Array.isArray(next.farm)
+  ) {
+    // A save from before the llama farm shipped (issue #79) has no
+    // farm field at all. Backfill it to the empty (unbought) farm so
+    // the save keeps validating — the player just has not bought the
+    // farm yet, which is the same as a fresh save.
+    next.farm = emptyFarmState();
+  } else {
+    // The farm exists: only fill in fields that are genuinely missing
+    // (undefined). A present-but-wrong value is left alone so the
+    // shape check rejects it — the backfill must never silently
+    // repair a tampered save. In particular, an unbought farm that
+    // claims llamas is NOT reset to empty here; the shape check
+    // rejects it, which is the correct outcome for a save that
+    // claims llamas without owning the farm.
+    const farm = { ...next.farm };
+    if (farm.owned === undefined) farm.owned = false;
+    if (!Array.isArray(farm.stalls)) {
+      farm.stalls = emptyFarmState().stalls;
+    } else {
+      farm.stalls = farm.stalls.map((stall) => {
+        if (!stall || typeof stall !== "object" || Array.isArray(stall)) {
+          return { llama: null, lighting: "warm" };
+        }
+        return {
+          llama: stall.llama === undefined ? null : stall.llama,
+          lighting: stall.lighting === undefined ? "warm" : stall.lighting,
+        };
+      });
+    }
+    if (!Array.isArray(farm.unlockedTypes)) {
+      // Derive the unlocked list from the llamas actually in the
+      // stalls, so a farm that predates the unlocked-types field
+      // keeps the types it already bred instead of losing them.
+      const presentTypes = farm.stalls
+        .map((stall) => stall.llama)
+        .filter(Boolean);
+      farm.unlockedTypes = [...new Set(presentTypes)].filter((type) =>
+        LLAMA_TYPES.includes(type)
+      );
+    }
+    next.farm = farm;
   }
   return next;
 }
@@ -1771,5 +2101,35 @@ export function buildStarRewardEmail({ effectName, rewardText, good }) {
       (good
         ? "The GitNub sky provides. Mostly."
         : "The GitNub sky giveth, and the GitNub sky taketh away."),
+  };
+}
+
+/** The llama farm was bought — the barn opens with 5 llamas. */
+export function buildFarmPurchasedEmail() {
+  return {
+    sender: "Your Team",
+    subject: "We bought a llama farm??",
+    body:
+      `So. The team has been threatening to quit and start an alpaca ` +
+      `farm for months, and you finally let them build one. Five llamas ` +
+      `have moved into the barn — 3 Classics, 2 Dramas. You still have ` +
+      `not accepted their notice of quitting, so technically they are ` +
+      `still employees. HR has questions. You do not have answers.\n\n` +
+      `Set the lights, let them breed, and see what new types show up. ` +
+      `The llamas generate no cash yet. They generate vibes.`,
+  };
+}
+
+/** A brand-new llama type was discovered by breeding. */
+export function buildFarmNewTypeEmail({ typeName, typeDescription }) {
+  return {
+    sender: "Your Team",
+    subject: `A ${typeName} was born!`,
+    body:
+      `One of the llamas had a kid, and it is not like the others. ` +
+      `Meet the ${typeName}.\n\n` +
+      `${typeDescription}\n\n` +
+      `Keep breeding — there are more types out there, and the barn ` +
+      `only gets weirder from here.`,
   };
 }
