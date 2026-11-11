@@ -42,7 +42,7 @@ export function ReleaseManagerAssignments() {
         Assignments: {totalAssigned} assigned, {unassigned} unassigned
       </div>
       <div className="text-xs text-gray-400">
-        Each assigned manager ships one of its project every minute, as
+        Each assigned manager ships one of its projects every second, as
         long as there is LOC to cover the cost.
       </div>
       {Object.entries(FREELANCE_PROJECTS_CONFIG).map(
