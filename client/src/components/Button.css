@@ -50,6 +50,20 @@
   background-color: rgb(220, 38, 38);
 }
 
+/* Success / go action (e.g. the splash screen's `npm start`). Green,
+   clearly separated from the canonical blue — the mockup's start
+   button is green, and a start button should never look like a
+   normal one. Defined before --disabled so the grey disabled state
+   still wins when both apply. */
+.game-button--success {
+  background-color: rgb(16, 185, 129);
+  border-color: rgb(6, 95, 70);
+}
+
+.game-button--success:hover:not(:disabled) {
+  background-color: rgb(52, 211, 153);
+}
+
 /* Disabled = grey, matching the unaffordable Hire / LOCKED look.
    Defined last so it wins over --inactive when both apply. */
 .game-button--disabled {
