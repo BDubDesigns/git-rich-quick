@@ -113,6 +113,14 @@ export class SaveSync {
    *   scheduled, and with null once the retry wait is over (save
    *   accepted or rejected). Drives the footer's "Retrying in Ns".
    * @param {object} [storage] - getItem/setItem/removeItem (defaults to localStorage).
+   * @param {(fn: Function, ms: number) => any} [setTimeoutFn] - timer
+   *   used to schedule the rate-limit retry (defaults to the global
+   *   setTimeout). Injectable so tests can control the retry clock:
+   *   the retry-timer test asserts the timer object is unchanged by
+   *   saves during the wait, which is only deterministic when the
+   *   timer cannot fire mid-test on a loaded runner (issue #50).
+   * @param {(id: any) => void} [clearTimeoutFn] - timer used to cancel
+   *   the rate-limit retry (defaults to the global clearTimeout).
    */
   constructor({
     apiBaseUrl = SAVE_API_URL,
@@ -123,6 +131,8 @@ export class SaveSync {
     onSavedAt,
     onRetry,
     storage,
+    setTimeoutFn = setTimeout,
+    clearTimeoutFn = clearTimeout,
   } = {}) {
     this.apiBaseUrl = apiBaseUrl;
     this.getState = getState;
@@ -132,6 +142,8 @@ export class SaveSync {
     this.onSavedAt = onSavedAt || (() => {});
     this.onRetry = onRetry || (() => {});
     this.storage = storage || defaultStorage();
+    this._setTimeout = setTimeoutFn;
+    this._clearTimeout = clearTimeoutFn;
 
     this.playerId = null;
     // Last accepted snapshot (flat save shape). The baseline for deltas.
@@ -191,7 +203,7 @@ export class SaveSync {
     this._started = false;
     this._startPromise = null;
     if (this._retryTimer) {
-      clearTimeout(this._retryTimer);
+      this._clearTimeout(this._retryTimer);
       this._retryTimer = null;
     }
     if (this._heartbeatTimer) {
@@ -465,7 +477,7 @@ export class SaveSync {
 
   _clearRetryTimer() {
     if (this._retryTimer) {
-      clearTimeout(this._retryTimer);
+      this._clearTimeout(this._retryTimer);
       this._retryTimer = null;
     }
   }
@@ -482,7 +494,7 @@ export class SaveSync {
   _scheduleRetry(seconds) {
     if (this._retryTimer != null) return false;
     const delayMs = Math.max(1, seconds) * 1000;
-    this._retryTimer = setTimeout(() => {
+    this._retryTimer = this._setTimeout(() => {
       // Clear before requesting, so the retry's own requestSave doesn't
       // hit a stale timer.
       this._retryTimer = null;

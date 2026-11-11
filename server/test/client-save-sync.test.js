@@ -134,6 +134,43 @@ async function waitFor(fn, { timeoutMs = 5000, intervalMs = 50 } = {}) {
   }
 }
 
+/**
+ * A controllable stand-in for setTimeout/clearTimeout (issue #50).
+ * Timers only fire when the test runs them — never on their own — so
+ * a test that asserts on the retry timer's identity is deterministic
+ * and cannot race the wall clock on a loaded runner. The engine
+ * (SaveSync) takes these via its setTimeoutFn/clearTimeoutFn options;
+ * production passes nothing and gets the real globals.
+ */
+function manualTimers() {
+  const pending = new Map();
+  let nextId = 1;
+  return {
+    setTimeout(fn, ms) {
+      const id = nextId;
+      nextId += 1;
+      pending.set(id, { fn, ms });
+      return id;
+    },
+    clearTimeout(id) {
+      pending.delete(id);
+    },
+    pendingCount() {
+      return pending.size;
+    },
+    /** Delays (ms) of the currently pending timers, in schedule order. */
+    scheduledMs() {
+      return [...pending.values()].map((t) => t.ms);
+    },
+    /** Fire every pending timer once, in schedule order. */
+    runAll() {
+      const fns = [...pending.values()].map((t) => t.fn);
+      pending.clear();
+      for (const fn of fns) fn();
+    },
+  };
+}
+
 test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
   const srv = await startTestServer();
   const storage = memoryStorage();
@@ -248,6 +285,15 @@ test("saves during a retry wait do not reset the retry timer", async () => {
   let clientState = makeClientState();
   let saveStatus = "loading";
   let playerId = null;
+  // Issue #50: the retry timer is a manual one, so it can only fire
+  // when the test runs it. With the real 1s timer, the three saves
+  // below had to finish inside a 1s wall-clock window — on a loaded
+  // runner they could stretch past it, the timer fired mid-sequence,
+  // and the engine replaced it with a new timer, failing the identity
+  // assertion. The fake timer removes the wall clock entirely: the
+  // identity assertion is deterministic, and the test fires the retry
+  // explicitly when it is ready for it.
+  const timers = manualTimers();
   const engine = new SaveSync({
     apiBaseUrl: srv.base,
     getState: () => clientState,
@@ -266,6 +312,8 @@ test("saves during a retry wait do not reset the retry timer", async () => {
       playerId = id;
     },
     storage,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
   });
   try {
     await engine.init();
@@ -274,7 +322,7 @@ test("saves during a retry wait do not reset the retry timer", async () => {
     assert.equal(saveStatus, "saved");
 
     // 9s after the last accepted save, a save is rate-limited with
-    // retryAfterSeconds = 1, and a retry is scheduled for 1s real time.
+    // retryAfterSeconds = 1, and a retry is scheduled.
     srv.advance(9_000);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
@@ -284,10 +332,16 @@ test("saves during a retry wait do not reset the retry timer", async () => {
     assert.equal(saveStatus, "retrying");
     const firstTimer = engine._retryTimer;
     assert.ok(firstTimer, "a retry timer is scheduled");
+    // The engine honored the server's delay (1s), and exactly one
+    // retry is pending.
+    assert.deepEqual(timers.scheduledMs(), [1000]);
+    assert.equal(timers.pendingCount(), 1);
 
     // Big-action saves during the wait (Ship clicks): each sends a save
     // that 429s, but none may reset the retry timer — otherwise every
     // Ship click pushes the save back another 10s and it never lands.
+    // The manual timer cannot fire on its own, so this assertion no
+    // longer depends on how fast the three saves run.
     for (let i = 0; i < 3; i += 1) {
       await engine.requestSave("big-action");
       assert.equal(
@@ -295,11 +349,13 @@ test("saves during a retry wait do not reset the retry timer", async () => {
         firstTimer,
         "retry timer not reset by a save during the wait"
       );
+      assert.equal(timers.pendingCount(), 1, "no second retry scheduled");
     }
 
-    // Advance past the rate limit; the ORIGINAL retry fires and the save
-    // lands with all the accumulated clicks.
+    // Advance past the rate limit, then fire the ORIGINAL retry: the
+    // save lands with all the accumulated clicks.
     srv.advance(5_000);
+    timers.runAll();
     await waitFor(async () => {
       const state = await loadServerState(srv.base, playerId);
       return state.totalLinesOfCode === 5 ? state : null;
@@ -311,6 +367,7 @@ test("saves during a retry wait do not reset the retry timer", async () => {
     await waitFor(() => saveStatus === "saved");
     assert.equal(saveStatus, "saved");
     assert.equal(engine.clicks, 0, "clicks reset after the retried save");
+    assert.equal(timers.pendingCount(), 0, "retry timer cleared on success");
   } finally {
     engine.stop();
     await srv.stop();
