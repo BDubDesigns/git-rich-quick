@@ -555,7 +555,13 @@ function gameReducer(state, action) {
           money: state.money + project.reward,
           freelanceProjectsCompleted: {
             ...state.freelanceProjectsCompleted,
-            [projectKey]: state.freelanceProjectsCompleted[projectKey] + 1,
+            // A save from before PR #78 shipped the four new projects
+            // has no key for a never-shipped project; without the
+            // fallback, `undefined + 1` is NaN, which poisons the count,
+            // the unlock total, and the save (JSON turns NaN into null
+            // and the server's isCountMap rejects it). Same pattern as
+            // the auto-ship code below.
+            [projectKey]: (state.freelanceProjectsCompleted[projectKey] ?? 0) + 1,
           },
         };
 
