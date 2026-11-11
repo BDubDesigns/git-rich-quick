@@ -8,7 +8,7 @@
  *
  * Key numbers: base cost 500000c, x1.2 per hire. Unlocks at
  * TOTAL_LOC >= 100000 AND 30 employees. One ship per assigned manager
- * per 60s, only if the player has enough LOC for that project's cost
+ * per 1s, only if the player has enough LOC for that project's cost
  * at that moment. A ship follows the same rules as a manual ship
  * (LOC deducted, money credited, shipped count up); the auto-ship
  * count is reported in actions.autoShips and rate-capped by the
@@ -174,18 +174,18 @@ test("Release Manager unlocks at TOTAL_LOC >= 100000 AND 30 employees", () => {
   );
 });
 
-test("ship interval is 60s; the rate cap is one ship per manager per interval plus one grace", () => {
-  assert.equal(RELEASE_MANAGER_CONFIG.shipIntervalSeconds, 60);
-  // 1 manager, 60s window: floor(60/60) + 1 = 2 (the grace covers a
+test("ship interval is 1s; the rate cap is one ship per manager per interval plus one grace", () => {
+  assert.equal(RELEASE_MANAGER_CONFIG.shipIntervalSeconds, 1);
+  // 1 manager, 60s window: floor(60/1) + 1 = 61 (the grace covers a
   // ship event landing exactly on a window boundary).
-  assert.equal(maxReleaseManagerShips(1, 60), 2);
-  // 1 manager, 30s window: floor(30/60) + 1 = 1.
-  assert.equal(maxReleaseManagerShips(1, 30), 1);
+  assert.equal(maxReleaseManagerShips(1, 60), 61);
+  // 1 manager, 30s window: floor(30/1) + 1 = 31.
+  assert.equal(maxReleaseManagerShips(1, 30), 31);
   // 1 manager, 0s window: 1 (the grace ship — a window can straddle
   // one ship event even when it is short).
   assert.equal(maxReleaseManagerShips(1, 0), 1);
-  // 2 managers, 120s: 2 x (2 + 1) = 6.
-  assert.equal(maxReleaseManagerShips(2, 120), 6);
+  // 2 managers, 120s: 2 x (120 + 1) = 242.
+  assert.equal(maxReleaseManagerShips(2, 120), 242);
   // No managers: no ships.
   assert.equal(maxReleaseManagerShips(0, 600), 0);
 });
@@ -281,7 +281,7 @@ test("assigning more managers than owned is rejected (RELEASE_MANAGER)", () => {
 
 test("one auto-ship is accepted (LOC spent, money paid, counts up, auto-ship recorded)", () => {
   // 1 manager, 60s window, 1 auto-ship of the To Do List App
-  // (50 LOC -> 3000c). The rate cap allows 2, so 1 is inside it.
+  // (50 LOC -> 3000c). The rate cap allows 61, so 1 is inside it.
   const prevState = rmUnlockedState(1, {
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
   });
@@ -307,53 +307,61 @@ test("one auto-ship is accepted (LOC spent, money paid, counts up, auto-ship rec
 });
 
 test("auto-ships past the rate cap are rejected (RELEASE_MANAGER)", () => {
-  // 1 manager, 60s window: the cap is 2. Claiming 3 auto-ships is
-  // faster than the interval allows.
+  // 1 manager, 11s window: the cap is 12 (one per second plus the
+  // grace). Claiming 13 auto-ships is faster than the interval allows.
+  // (11s, not 10s, so the window sits safely past the 10s save rate
+  // limit.)
   const prevState = rmUnlockedState(1, {
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
   });
   const newState = rmUnlockedState(1, {
-    linesOfCode: 850,
-    money: 9000,
+    linesOfCode: 350,
+    money: 39000,
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
-    freelanceProjectsCompleted: projectCounts({ toDoListApp: 3 }),
-    autoShipsCompleted: projectCounts({ toDoListApp: 3 }),
+    freelanceProjectsCompleted: projectCounts({ toDoListApp: 13 }),
+    autoShipsCompleted: projectCounts({ toDoListApp: 13 }),
   });
   const result = validateSave(
     prev(prevState, T0),
     body(
       newState,
       zeroActions({
-        projectsCompleted: projectCounts({ toDoListApp: 3 }),
-        autoShips: projectCounts({ toDoListApp: 3 }),
+        projectsCompleted: projectCounts({ toDoListApp: 13 }),
+        autoShips: projectCounts({ toDoListApp: 13 }),
       })
     ),
-    T0 + 60_000
+    T0 + 11_000
   );
   assert.equal(result.ok, false);
   assert.equal(result.rule, "RELEASE_MANAGER");
 
-  // Same manager, 30s window: the cap is 1. Claiming 2 is too fast.
-  const shortState = rmUnlockedState(1, {
-    linesOfCode: 900,
-    money: 6000,
+  // Same manager, 60s window: the cap is 61. Claiming 62 is too fast.
+  // The player needs enough LOC for 62 ships (62 x 50 = 3100), so the
+  // previous state holds 10000 LOC.
+  const richPrev = rmUnlockedState(1, {
+    linesOfCode: 10000,
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
-    freelanceProjectsCompleted: projectCounts({ toDoListApp: 2 }),
-    autoShipsCompleted: projectCounts({ toDoListApp: 2 }),
   });
-  const shortResult = validateSave(
-    prev(prevState, T0),
+  const richState = rmUnlockedState(1, {
+    linesOfCode: 6900,
+    money: 186000,
+    releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
+    freelanceProjectsCompleted: projectCounts({ toDoListApp: 62 }),
+    autoShipsCompleted: projectCounts({ toDoListApp: 62 }),
+  });
+  const richResult = validateSave(
+    prev(richPrev, T0),
     body(
-      shortState,
+      richState,
       zeroActions({
-        projectsCompleted: projectCounts({ toDoListApp: 2 }),
-        autoShips: projectCounts({ toDoListApp: 2 }),
+        projectsCompleted: projectCounts({ toDoListApp: 62 }),
+        autoShips: projectCounts({ toDoListApp: 62 }),
       })
     ),
-    T0 + 30_000
+    T0 + 60_000
   );
-  assert.equal(shortResult.ok, false);
-  assert.equal(shortResult.rule, "RELEASE_MANAGER");
+  assert.equal(richResult.ok, false);
+  assert.equal(richResult.rule, "RELEASE_MANAGER");
 });
 
 test("auto-ships must be a subset of completions (RELEASE_MANAGER)", () => {
