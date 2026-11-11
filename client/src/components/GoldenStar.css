@@ -20,6 +20,25 @@
   transform: scale(1.15);
 }
 
+/* Fade-out for the last seconds of the star's life (issue #49). The
+   fade animation runs alongside the glow (different properties, so
+   they never fight); its duration must match
+   STAR_CONFIG.starFadeSeconds. */
+.golden-star.fading {
+  animation:
+    star-glow 1.5s ease-in-out infinite,
+    star-fade-out 5s ease-in forwards;
+}
+
+@keyframes star-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .golden-star svg {
   display: block;
   animation: star-rock 2s ease-in-out infinite;

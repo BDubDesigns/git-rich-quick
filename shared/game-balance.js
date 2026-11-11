@@ -195,6 +195,12 @@ export const OPEN_SOURCE_IDS = Object.freeze([
 export const STAR_CONFIG = Object.freeze({
   /** How long an unclicked star stays on screen, in seconds. */
   starLifetimeSeconds: 30,
+  /**
+   * How long before despawn the star starts fading out, in seconds
+   * (issue #49): the fade is the "click me now or lose me" signal.
+   * The CSS fade-out duration in GoldenStar.css must match this.
+   */
+  starFadeSeconds: 5,
   /** Chance a clicked star is a good outcome (vs bad). */
   goodChance: 0.75,
   /**

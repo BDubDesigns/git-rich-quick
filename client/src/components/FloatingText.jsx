@@ -11,11 +11,14 @@ export function FloatingText({ text, icon, x, y, onAnimationEnd }) {
   return (
     <div
       // Tailwind classes: prevent selection, disable pointer events, position fixed,
-      // apply float-up animation, bold font, green color, flex layout with gap
+      // apply float-up animation, bold font, green color, flex layout with gap.
+      // The dark translucent pill (issue #49) gives the text contrast
+      // against any background, wherever it floats.
       className="select-none pointer-events-none 
       fixed animate-float-up 
       font-bold text-xl text-green-600 
-      flex items-center gap-1"
+      flex items-center gap-1
+      bg-black/60 rounded-full px-3 py-1 whitespace-nowrap"
       // Position the element at the calculated coordinates (offset by 30px up, 15px left)
       style={{ top: `${y - 30}px`, left: `${x - 15}px` }}
       // Trigger callback when animation ends
