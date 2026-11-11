@@ -66,10 +66,13 @@ function formatCountdown(seconds) {
  * lifetime and the client re-fetches (the server rolls a fresh time —
  * the missed window has passed).
  *
- * The countdown display ("Next star in 1m 23s") is an unlockable: the
- * server reports `countdownUnlocked` and the client only shows the
- * timer once the player reaches that Constellation level. The star
- * itself still spawns on schedule before then; only the timer is gated.
+ * The countdown display is an unlockable: the server reports
+ * `countdownUnlocked` and the client only shows the timer once the
+ * player reaches that Constellation level. The star itself still
+ * spawns on schedule before then; only the timer is gated. The timer
+ * is a thin progress bar under the stats bar that fills left to
+ * right as the star approaches, with the small seconds-remaining
+ * text inside it.
  */
 export function GoldenStar() {
   const { state, dispatch, recordStarClaim, savePlayerId } =
@@ -85,8 +88,14 @@ export function GoldenStar() {
   const [countdownUnlocked, setCountdownUnlocked] = useState(false);
   // Seconds until the next star appears (null = no star scheduled).
   const [secondsLeft, setSecondsLeft] = useState(null);
-  // The header slot the countdown pill portals into (see Header.jsx):
-  // the pill sits directly beneath the stats bar instead of floating
+  // The total interval the current countdown started from (the
+  // duration the server returned). The progress bar fills from
+  // 0% (just rolled) to 100% (due) as secondsLeft counts down from
+  // this total — it is set from the same server value as secondsLeft,
+  // so the fill and the text can never disagree.
+  const [countdownTotalSeconds, setCountdownTotalSeconds] = useState(null);
+  // The header slot the countdown bar portals into (see Header.jsx):
+  // the bar sits directly beneath the stats bar instead of floating
   // above the Commit button. Grabbed after mount — the header is in
   // the same commit, so it always exists by then.
   const [countdownSlot, setCountdownSlot] = useState(null);
@@ -112,6 +121,7 @@ export function GoldenStar() {
     if (!savePlayerId || constellationLevel < 1) {
       setCountdownUnlocked(false);
       setSecondsLeft(null);
+      setCountdownTotalSeconds(null);
       return;
     }
     try {
@@ -126,6 +136,7 @@ export function GoldenStar() {
       }
       setCountdownUnlocked(data.countdownUnlocked);
       setSecondsLeft(data.secondsUntilStar);
+      setCountdownTotalSeconds(data.secondsUntilStar);
     } catch {
       if (!mountedRef.current) return;
       retryTimerRef.current = setTimeout(
@@ -216,6 +227,7 @@ export function GoldenStar() {
       );
       // Arm the next star from the server's returned time.
       setSecondsLeft(data.secondsUntilStar);
+      setCountdownTotalSeconds(data.secondsUntilStar);
     } catch {
       // Network failure: the claim may or may not have landed, but the
       // reward is only applied when the server answers, so nothing is
@@ -238,6 +250,22 @@ export function GoldenStar() {
     secondsLeft !== null &&
     secondsLeft > 0;
 
+  // Fill proportion for the countdown bar: 0% when the star was just
+  // rolled (secondsLeft == total), 100% when it is due (secondsLeft
+  // == 0). Clamped so a stale total can never over/under-fill.
+  const countdownFillPct =
+    countdownTotalSeconds !== null && countdownTotalSeconds > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            ((countdownTotalSeconds - secondsLeft) /
+              countdownTotalSeconds) *
+              100
+          )
+        )
+      : 0;
+
   return (
     <>
       {star && (
@@ -254,8 +282,21 @@ export function GoldenStar() {
       {showCountdown &&
         countdownSlot &&
         createPortal(
-          <div className="star-countdown" aria-live="off">
-            Next star in {formatCountdown(secondsLeft)}
+          <div
+            className="star-countdown-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(countdownFillPct)}
+            aria-label={`Next golden star in ${formatCountdown(secondsLeft)}`}
+          >
+            <div
+              className="star-countdown-bar-fill"
+              style={{ width: `${countdownFillPct}%` }}
+            />
+            <span className="star-countdown-bar-text">
+              ★ {formatCountdown(secondsLeft)}
+            </span>
           </div>,
           countdownSlot
         )}

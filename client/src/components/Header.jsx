@@ -24,10 +24,11 @@ export function Header() {
       </div>
 
       {/* Next-star countdown slot (issue #29): the GoldenStar component
-          portals its countdown pill here, so it sits directly beneath
-          the stats bar, centered, on mobile and desktop. Empty (zero
-          height) when no countdown is active. */}
-      <div id="star-countdown-slot" className="flex justify-center" />
+          portals its thin countdown bar here, so it sits directly
+          beneath the stats bar, full width with a small inset, on
+          mobile and desktop. Empty (zero height) when no countdown is
+          active. */}
+      <div id="star-countdown-slot" className="px-2" />
     </header>
   );
 }

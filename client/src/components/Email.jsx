@@ -104,13 +104,18 @@ export function Email() {
   return (
     <SectionLayout sectionId="email">
       {/* GITMail banner: the in-world mail brand, at the top of the
-          inbox list. The "Inbox" title and description above it keep
+          inbox list. Kept small and centered, with a completely
+          transparent container — no panel, no background, no border,
+          no rounded card — just the banner image on the page
+          background. The "Inbox" title and description above it keep
           the tab reading as the game's inbox. */}
-      <img
-        src={gitmailBanner}
-        alt="GITMail"
-        className="w-full h-auto rounded-xl"
-      />
+      <div className="flex justify-center bg-transparent">
+        <img
+          src={gitmailBanner}
+          alt="GITMail"
+          className="h-12 w-auto max-w-full object-contain"
+        />
+      </div>
       {emails.length === 0 && (
         <p className="primary-text">
           No mail yet. Hire someone, unlock something, or click a golden
