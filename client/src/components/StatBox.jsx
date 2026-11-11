@@ -8,7 +8,12 @@ import {
   calculateLOCPerSecond,
 } from "../context/gameLogic.js";
 import { useGameContext } from "../context/useGameContext.js";
-import { formatMoney } from "../utils/currency.js";
+// Number abbreviation (issue #42) — the shared formatter. formatMoney
+// returns the string WITH the "$" attached, so callers do not prepend it.
+import {
+  formatMoney,
+  formatNumber,
+} from "../../../shared/formatNumber.js";
 
 // UI Components for the button box layout
 import { StatDisplay } from "./StatDisplay.jsx";
@@ -37,9 +42,10 @@ export function StatBox() {
   const locPerSecond = calculateLOCPerSecond(state);
   const totalEmployees = getTotalEmployeeCount(state);
 
-  // Format display values for human-readable output
+  // Format display values for human-readable output (issue #42: every
+  // number display goes through the shared formatter).
   const displayMoney = formatMoney(state.money);
-  const displayLoc = Math.floor(state.linesOfCode);
+  const displayLoc = formatNumber(Math.floor(state.linesOfCode));
 
   // Create ref for the LOC/sec stat display element
   // This is used by PassiveAnimationLayer to position floating text animations
@@ -64,7 +70,7 @@ export function StatBox() {
           {/* Game stat displays: Money currency (in dollars) */}
           <StatDisplay
             icon={<LiaMoneyBillWaveAltSolid color="green" size={24} />}
-            value={`$${displayMoney}`}
+            value={displayMoney}
           />
 
           {/* Game stat displays: Total employee count across all job levels */}
@@ -76,7 +82,7 @@ export function StatBox() {
                 size={24}
               />
             }
-            value={totalEmployees}
+            value={formatNumber(totalEmployees)}
           />
 
           {/* Game stat displays: Passive LOC generation per second (employees' production)
@@ -85,7 +91,7 @@ export function StatBox() {
           <StatDisplay
             ref={locPerSecondRef}
             icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
-            value={locPerSecond + "/s"}
+            value={`${formatNumber(locPerSecond)}/s`}
           />
         </div>
       </div>

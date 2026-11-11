@@ -2,17 +2,12 @@
  * Utility functions for handling currency in cents
  * All internal calculations use cents (integers) to avoid floating-point errors
  * This is critical for idle games that run for extended periods
+ *
+ * Display formatting lives in shared/formatNumber.js (the SSOT formatter,
+ * issue #42) — formatMoney there takes cents and returns the string with
+ * the "$" attached, abbreviated at $1000+. Import it from there; do not
+ * add a second money formatter here.
  */
-
-/**
- * Format cents as a currency string
- * @param {number} cents - Amount in cents (e.g., 1054 = $10.54)
- * @returns {string} Formatted currency (e.g., "10.54")
- */
-export function formatMoney(cents) {
-  const dollars = cents / 100;
-  return dollars.toFixed(2);
-}
 
 /**
  * Convert dollars to cents

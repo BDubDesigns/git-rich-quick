@@ -1,4 +1,10 @@
-import { formatMoney } from "../utils/currency";
+// Number abbreviation (issue #42) — the shared formatter. formatMoney
+// returns the string WITH the "$" attached, so the hire cost now shows
+// "($25.00)" where it previously showed "(25.00)" with no $ sign.
+import {
+  formatMoney,
+  formatNumber,
+} from "../../../shared/formatNumber.js";
 
 import { BouncyButton } from "./BouncyButton.jsx";
 
@@ -17,7 +23,7 @@ export function EmployeeCard({
         <span className="text-sm font-bold">{config.name}</span>{" "}
         <span className="text-xs comment-text">
           {`// `}
-          {config.locPerSecond} LOC per Sec
+          {formatNumber(config.locPerSecond)} LOC per Sec
         </span>
       </div>
 
@@ -26,7 +32,9 @@ export function EmployeeCard({
         {/* Left: Icon + Name + Count */}
         <div className="flex flex-col items-center gap-1 shrink-0">
           <config.Icon size={36} color={config.color} />
-          <div className="text-xs text-gray-400">x{ownedCount}</div>
+          <div className="text-xs text-gray-400">
+            x{formatNumber(ownedCount)}
+          </div>
         </div>
         {/* Center: Description */}
         <div className="flex-1">

@@ -1,4 +1,6 @@
 import { ActionButton } from "./ActionButton.jsx";
+// Number abbreviation (issue #42) — the shared formatter.
+import { formatNumber } from "../../../shared/formatNumber.js";
 import {
   STAR_CONFIG,
   starSpawnIntervalSeconds,
@@ -61,7 +63,7 @@ export function OpenSourceCard({
         : starNext.fasterSpawns
           ? "Faster stars!"
           : ""
-      : `+${nextBonus.value} ${nextBonus.type}`;
+      : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
 
   return (
     <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
@@ -86,7 +88,7 @@ export function OpenSourceCard({
               <span className="text-cyan-300"> {`{LOC}`}</span>
               <span className="text-gray-400">
                 {" "}
-                {locCost} LOC needed for v.{currentLevel + 1}.0
+                {formatNumber(locCost)} LOC needed for v.{currentLevel + 1}.0
               </span>
               <br />
 
@@ -113,8 +115,8 @@ export function OpenSourceCard({
                     </span>
                     <span className="text-green-400">
                       {" "}
-                      Earning {currentBonus.value} boost to {currentBonus.type}{" "}
-                      now
+                      Earning {formatNumber(currentBonus.value)} boost to{" "}
+                      {currentBonus.type} now
                     </span>
                     <br />
                   </>
@@ -146,7 +148,7 @@ export function OpenSourceCard({
                     <span className="text-cyan-300">{`{Bonus}`}</span>
                     <span className="text-green-400">
                       {" "}
-                      +{nextBonus.value} {nextBonus.type}
+                      +{formatNumber(nextBonus.value)} {nextBonus.type}
                     </span>
                   </div>
                 )
@@ -177,7 +179,7 @@ export function OpenSourceCard({
             {!isMaxed ? (
               <>
                 <div>Contribute!</div>
-                <div>({locCost} LOC)</div>
+                <div>({formatNumber(locCost)} LOC)</div>
               </>
             ) : (
               <div>Maxed Out</div>

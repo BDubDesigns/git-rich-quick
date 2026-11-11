@@ -1,4 +1,6 @@
 import { useGameContext } from "../context/useGameContext";
+// Number abbreviation (issue #42) — the shared formatter.
+import { formatNumber } from "../../../shared/formatNumber.js";
 
 const cpsColorClasses = {
   low: "text-green-500",
@@ -22,7 +24,9 @@ export function CPSMeter() {
   return (
     <div className="text-center font-mono text-sm text-gray-500">
       Clicks/sec:{" "}
-      <span className={`text-lg ${colorClass}`}>{state.currentCPS}</span>
+      <span className={`text-lg ${colorClass}`}>
+        {formatNumber(state.currentCPS)}
+      </span>
     </div>
   );
 }

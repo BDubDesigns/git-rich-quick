@@ -1,3 +1,7 @@
+// Number abbreviation (issue #42) — the shared formatter, so unlock
+// progress (current / target / remaining) abbreviates large LOC targets.
+import { formatNumber } from "../../../shared/formatNumber.js";
+
 export function ProgressBar({ current, target, label }) {
   const percentage = target > 0 ? Math.min((current / target) * 100, 100) : 0;
 
@@ -9,7 +13,7 @@ export function ProgressBar({ current, target, label }) {
           {current < target && (
             <span className="text-gray-400">
               {" "}
-              ({target - current} remaining)
+              ({formatNumber(target - current)} remaining)
             </span>
           )}
         </span>
@@ -28,7 +32,7 @@ export function ProgressBar({ current, target, label }) {
           style={{ width: `${percentage}%` }}
         />
         <span className="absolute inset-0 flex items-center justify-center text-xs text-white">
-          {current} / {target}
+          {formatNumber(current)} / {formatNumber(target)}
         </span>
       </div>
     </div>

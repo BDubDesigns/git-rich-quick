@@ -1,4 +1,6 @@
 import { ProgressBar } from "./ProgressBar.jsx";
+// Number abbreviation (issue #42) — the shared formatter.
+import { formatNumber } from "../../../shared/formatNumber.js";
 import { formatCondition } from "../utils/formatCondition.js";
 import { Button } from "./Button.jsx";
 
@@ -27,14 +29,14 @@ export function LockedOpenSourceCard({
               <span className="text-cyan-300"> {`{LOC}`}</span>
               <span className="text-gray-400">
                 {" "}
-                {locCost} LOC needed for v.1.0
+                {formatNumber(locCost)} LOC needed for v.1.0
               </span>
               <br />
               <span className="text-blue-400">@returns</span>
               <span className="text-cyan-300">{`{Bonus}`}</span>
               <span className="text-green-400">
                 {" "}
-                +{nextBonus.value} {nextBonus.type}
+                +{formatNumber(nextBonus.value)} {nextBonus.type}
               </span>
               <br />
 
@@ -62,7 +64,7 @@ export function LockedOpenSourceCard({
             grey disabled state is the LOCKED look. */}
         <Button disabled className="shrink-0">
           <div>LOCKED</div>
-          <div>({locCost} LOC)</div>
+          <div>({formatNumber(locCost)} LOC)</div>
         </Button>
       </div>
     </div>

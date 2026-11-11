@@ -21,6 +21,11 @@
  *     [{ effect, multiplier, expiresAtMs, employeeType }]
  */
 
+// Number abbreviation (issue #42) — the shared formatter, used by
+// starRewardDetail so star-reward text (floating text + email) abbreviates
+// large LOC/money the same way every other display does.
+import { formatMoney, formatNumber } from "./formatNumber.js";
+
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
     tickIntervalMs: 1000,
@@ -758,19 +763,19 @@ export const EMAIL_CONFIG = Object.freeze({
 
 /** The reward detail for a resolved star claim ("+500 LOC", "Production x7"). */
 export function starRewardDetail(claim, employeeTypeName) {
-  const formatMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
   switch (claim.effect) {
     case "lucky": {
       if (claim.locDelta !== 0) {
-        const sign = claim.locDelta > 0 ? "+" : "";
-        return `${sign}${claim.locDelta} LOC`;
+        const formatted = formatNumber(claim.locDelta);
+        return claim.locDelta > 0 ? `+${formatted} LOC` : `${formatted} LOC`;
       }
       const sign = claim.moneyDelta > 0 ? "+" : "-";
       return `${sign}${formatMoney(Math.abs(claim.moneyDelta))}`;
     }
     case "shootingStars": {
       const parts = [];
-      if (claim.locDelta !== 0) parts.push(`+${claim.locDelta} LOC`);
+      if (claim.locDelta !== 0)
+        parts.push(`+${formatNumber(claim.locDelta)} LOC`);
       if (claim.moneyDelta !== 0)
         parts.push(`+${formatMoney(claim.moneyDelta)}`);
       return parts.join(" ");
