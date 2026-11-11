@@ -26,6 +26,16 @@
 // large LOC/money the same way every other display does.
 import { formatMoney, formatNumber } from "./formatNumber.js";
 
+/**
+ * Constellation unlock threshold (star fix slice): golden stars require
+ * an unlock, like every other purchasable. Constellation unlocks at
+ * 500 lifetime LOC (TOTAL_LOC) — visible at 10% progress (50 LOC).
+ * A tuning value from the design discussion with Brandon; one line to
+ * change. A veteran who already bought Constellation levels is safe:
+ * L1 costs 1000 LOC, so their lifetime LOC is necessarily at/above it.
+ */
+export const CONSTELLATION_UNLOCK_TOTAL_LOC = 500;
+
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
     tickIntervalMs: 1000,
@@ -188,9 +198,16 @@ export const BALANCE = Object.freeze({
     // project, many tiers — each level unlocks a new star effect and,
     // every other level, makes stars spawn faster. It has no numeric
     // bonus (type STAR, value 0): no LOC formula reads it. The star
-    // mechanic itself lives in STAR_CONFIG below.
+    // mechanic itself lives in STAR_CONFIG below. Unlock (star fix
+    // slice): TOTAL_LOC >= CONSTELLATION_UNLOCK_TOTAL_LOC — stars
+    // require an unlock, like every other purchasable.
     constellation: Object.freeze({
-      unlockConditions: Object.freeze([]),
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "TOTAL_LOC",
+          target: CONSTELLATION_UNLOCK_TOTAL_LOC,
+        }),
+      ]),
       levels: Object.freeze([
         Object.freeze({
           locCost: 1000,
@@ -851,13 +868,22 @@ export function normalizeSaveState(state) {
   if (
     next.unlockedOpenSourceProjects &&
     typeof next.unlockedOpenSourceProjects === "object" &&
-    !Array.isArray(next.unlockedOpenSourceProjects) &&
-    next.unlockedOpenSourceProjects.constellation === undefined
+    !Array.isArray(next.unlockedOpenSourceProjects)
   ) {
-    // Constellation has no unlock conditions, so it starts unlocked.
+    // Constellation gained an unlock condition (TOTAL_LOC >= 500,
+    // star fix slice) after shipping unlocked. Saves from before the
+    // condition carry latch=true with lifetime LOC below the
+    // threshold, so the latch is re-derived from the save's own
+    // lifetime LOC here — a veteran at/above 500 LOC keeps the unlock,
+    // a veteran below it gets it locked (with progress shown) instead
+    // of having saves rejected by the UNLOCK rule. A veteran who
+    // already bought Constellation levels is safe: L1 costs 1000 LOC,
+    // so their lifetime LOC is necessarily at/above the threshold.
+    // Both the stored and the incoming state are normalized the same
+    // way, so this never flips a latch back for the MONOTONIC rule.
     next.unlockedOpenSourceProjects = {
       ...next.unlockedOpenSourceProjects,
-      constellation: true,
+      constellation: openSourceUnlockConditionsMet("constellation", next),
     };
   }
   if (!Array.isArray(next.activeStarEffects)) {

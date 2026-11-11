@@ -91,7 +91,9 @@ test("shared math matches the client formulas", () => {
   assert.deepEqual(fresh.unlockedOpenSourceProjects, {
     overReactFramework: true,
     blocker: false,
-    constellation: true,
+    // Constellation now requires TOTAL_LOC >= 500 (star fix slice), so
+    // a fresh player starts locked; it becomes visible at 50 LOC.
+    constellation: false,
   });
   // Freelance projects (issue #19): the To Do List App starts
   // unlocked; the Hobby Website and Blockchain Project are gated.
@@ -276,6 +278,89 @@ test("claimed unlock without meeting the conditions is rejected", () => {
   );
   assert.equal(r.ok, false);
   assert.equal(r.rule, "UNLOCK");
+});
+
+test("a Constellation level claimed without 500 lifetime LOC is rejected", () => {
+  // Constellation requires TOTAL_LOC >= 500 (star fix slice). A save
+  // claiming level 1 at 100 lifetime LOC is an UNLOCK violation — the
+  // level itself must satisfy the conditions, not just the latch (a
+  // save could claim the level with the latch false). The latch-only
+  // claim is corrected, not rejected: normalizeSaveState re-derives
+  // the latch from lifetime LOC (the pre-unlock migration), so a
+  // latch claim without the condition is normalized away — but it
+  // grants nothing, because the level is what gates stars.
+  const before = stateWith({
+    totalLinesOfCode: 100,
+    openSourceProjects: { constellation: 0 },
+  });
+  const cheater = stateWith({
+    totalLinesOfCode: 100,
+    openSourceProjects: { constellation: 1 },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(cheater, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "UNLOCK");
+});
+
+test("Constellation unlock at 500 lifetime LOC passes", () => {
+  const before = stateWith({
+    totalLinesOfCode: 500,
+    unlockedOpenSourceProjects: { constellation: false },
+  });
+  const after = stateWith({
+    totalLinesOfCode: 500,
+    unlockedOpenSourceProjects: { constellation: true },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("a pre-unlock save with the Constellation latch and under 500 lifetime LOC still validates", () => {
+  // Constellation shipped unlocked, so a veteran's stored save carries
+  // latch=true with lifetime LOC below the new 500 threshold. The
+  // latch is re-derived from lifetime LOC on both sides (star fix
+  // slice), so the save validates instead of failing UNLOCK — and the
+  // latch does not flip back for MONOTONIC, because both sides
+  // normalize to false.
+  const before = stateWith({
+    totalLinesOfCode: 100,
+    unlockedOpenSourceProjects: { constellation: true },
+  });
+  const after = stateWith({
+    totalLinesOfCode: 100,
+    unlockedOpenSourceProjects: { constellation: true },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
+test("a pre-unlock save at/above 500 lifetime LOC keeps the Constellation unlock", () => {
+  const before = stateWith({
+    totalLinesOfCode: 600,
+    unlockedOpenSourceProjects: { constellation: true },
+  });
+  const after = stateWith({
+    totalLinesOfCode: 600,
+    unlockedOpenSourceProjects: { constellation: true },
+  });
+  const r = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.deepEqual(r, { ok: true });
 });
 
 test("freelance unlock claimed without meeting the conditions is rejected", () => {
@@ -654,12 +739,23 @@ function starClaim(overrides) {
   };
 }
 
-/** A state with a Constellation level (and optional employees). */
+/**
+ * A state with a Constellation level (and optional employees). A player
+ * who owns Constellation levels necessarily met the TOTAL_LOC >= 500
+ * unlock (L1 costs 1000 LOC), so the fixture carries a realistic
+ * lifetime-LOC base of 1000 on top of the test's own value — the LOC
+ * deltas the star tests compute are unchanged (both sides shift by the
+ * same base), and the level now satisfies its unlock condition.
+ */
 function constellationState(level, overrides = {}) {
-  return stateWith({
+  const state = stateWith({
     openSourceProjects: { constellation: level },
     ...overrides,
   });
+  if (level > 0) {
+    state.totalLinesOfCode += 1000;
+  }
+  return state;
 }
 
 test("legit star play: lucky LOC gain, lucky money gain, lucky loss all pass", () => {
@@ -916,6 +1012,72 @@ test("legit star play: shooting stars burst", () => {
   assert.deepEqual(r, { ok: true });
 });
 
+test("an issued star outcome older than 30s is rejected, even if it matches exactly", () => {
+  // Star fix slice: an issued outcome expires 30s after issue (plus
+  // 5s grace). The claim below matches the issued outcome exactly and
+  // is unconsumed, but it was issued 60s before the save, so the save
+  // is a STAR rejection — a stale outcome cannot be claimed late by a
+  // tampered client. The store attaches issuedAtMs to the issued
+  // outcome (from star_issues.issued_at); the save's claim does not
+  // carry it, and sameStarClaim ignores it.
+  const before = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const after = constellationState(1, {
+    linesOfCode: 95, // 60 passive + 35 lucky
+    totalLinesOfCode: 95,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const claim = starClaim({ locDelta: 35 });
+  const issued = { ...claim, issuedAtMs: T0 };
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      starClaims: [claim],
+    }),
+    T0 + 60_000,
+    [issued]
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.rule, "STAR");
+});
+
+test("an issued star outcome inside its 30s window still saves", () => {
+  // Same claim as above, but issued 30s into the 60s window and saved
+  // at the window end — 30s after issue, inside the 30s + 5s grace —
+  // so it passes. This is the legitimate-play side of the expiry: the
+  // client saves a claim promptly (star-claim save), well inside it.
+  const before = constellationState(1, {
+    linesOfCode: 0,
+    totalLinesOfCode: 0,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const after = constellationState(1, {
+    linesOfCode: 95, // 60 passive + 35 lucky
+    totalLinesOfCode: 95,
+    money: 0,
+    employees: { intern: 1 },
+  });
+  const claim = starClaim({ locDelta: 35 });
+  const issued = { ...claim, issuedAtMs: T0 + 30_000 };
+  const r = validateSave(
+    prev(before, T0),
+    body(after, {
+      ...zeroActions(),
+      starClaims: [claim],
+    }),
+    T0 + 60_000,
+    [issued]
+  );
+  assert.deepEqual(r, { ok: true });
+});
+
 test("buying Constellation levels 4-5 and OverReact level 4 passes validation", () => {
   // Constellation L3 -> L5 costs 75000 + 250000 LOC.
   const beforeC = constellationState(3, {
@@ -1132,8 +1294,8 @@ test("a tampered star claim (same claimId, different content) is rejected", () =
 test("a save from before Constellation (no star fields) still validates", () => {
   // An old client / old stored save has no constellation key, no
   // activeStarEffects, and no starClaims. Normalization defaults them
-  // (constellation 0 / unlocked, no buffs, no claims) instead of
-  // failing the shape check.
+  // (constellation 0 / locked below 500 lifetime LOC, no buffs, no
+  // claims) instead of failing the shape check.
   const before = initialSaveState();
   delete before.openSourceProjects.constellation;
   delete before.unlockedOpenSourceProjects.constellation;

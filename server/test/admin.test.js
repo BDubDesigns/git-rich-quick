@@ -96,6 +96,15 @@ function seededState() {
     blocker: 0,
     constellation: 2,
   };
+  // Constellation level 2 with 2000 lifetime LOC: the unlock condition
+  // (TOTAL_LOC >= 500) is met, so the latch is true — a fixture that
+  // owns levels must be self-consistent, or the seed normalizer
+  // (validateSeedState) derives the latch and the stored state differs
+  // from the input.
+  state.unlockedOpenSourceProjects = {
+    ...state.unlockedOpenSourceProjects,
+    constellation: true,
+  };
   return state;
 }
 

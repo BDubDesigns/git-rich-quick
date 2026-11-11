@@ -383,6 +383,83 @@ test("completing a project (Ship) does not trigger a save", async () => {
   }
 });
 
+test("a recorded star claim triggers one prompt save via noteState", async () => {
+  // Star fix slice: the issued outcome expires 30s after issue, and a
+  // claim only reaches the server in a save — so recording a claim
+  // requests a prompt save (not the 60s heartbeat), and only once per
+  // claim (the flag prevents a save attempt on every tick while the
+  // claim is pending, e.g. while offline or rate-limited).
+  const srv = await startTestServer();
+  const storage = memoryStorage();
+  let clientState = makeClientState();
+  let saveStatus = "loading";
+  let playerId = null;
+  const engine = new SaveSync({
+    apiBaseUrl: srv.base,
+    getState: () => clientState,
+    restore: (saveState) => {
+      clientState = {
+        ...clientState,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
+      };
+    },
+    onStatus: (status) => {
+      saveStatus = status;
+    },
+    onPlayerId: (id) => {
+      playerId = id;
+    },
+    storage,
+  });
+  try {
+    await engine.init();
+    assert.equal(saveStatus, "saved");
+    // Count save requests without actually saving (the claim is a
+    // dummy — only the trigger is under test here; the server-side
+    // acceptance of a real claim is covered by star.test.js).
+    const requested = [];
+    engine.requestSave = (reason) => {
+      requested.push(reason);
+      return Promise.resolve(false);
+    };
+    // Record a claim, then note the state change: one prompt save.
+    engine.recordStarClaim({
+      claimId: "123e4567-e89b-42d3-a456-426614174000",
+      effect: "lucky",
+      good: true,
+      locDelta: 35,
+      moneyDelta: 0,
+      multiplier: null,
+      durationSeconds: null,
+      employeeType: null,
+    });
+    engine.noteState(clientState);
+    assert.deepEqual(requested, ["star-claim"]);
+    // The next ticks' noteState must not request another save.
+    engine.noteState(clientState);
+    engine.noteState(clientState);
+    assert.deepEqual(requested, ["star-claim"]);
+    // A second claim requests a second prompt save.
+    engine.recordStarClaim({
+      claimId: "123e4567-e89b-42d3-a456-426614174001",
+      effect: "lucky",
+      good: true,
+      locDelta: 10,
+      moneyDelta: 0,
+      multiplier: null,
+      durationSeconds: null,
+      employeeType: null,
+    });
+    engine.noteState(clientState);
+    assert.deepEqual(requested, ["star-claim", "star-claim"]);
+  } finally {
+    engine.stop();
+    await srv.stop();
+  }
+});
+
 test("tampered save is rejected with 409 and the client reverts", async () => {
   const srv = await startTestServer();
   const storage = memoryStorage();

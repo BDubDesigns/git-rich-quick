@@ -673,7 +673,9 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     if (result.status === "not-due") {
       sendJson(res, 409, {
         error: "star-not-due",
-        detail: "no golden star is due yet",
+        detail: result.expired
+          ? "the golden star already burned out — re-fetch for the next one"
+          : "no golden star is due yet",
         nextStarAtMs: result.nextStarAtMs,
       });
       return;

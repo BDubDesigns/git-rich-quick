@@ -54,12 +54,14 @@ function formatCountdown(seconds) {
 
 /**
  * One active star-effect duration bar: the effect name (plus the
- * employee type for Sprint/Meeting) and the seconds left, over a fill
- * that depletes as the effect runs out (remaining / total duration).
- * The total is derived from the config — the stored buff only carries
- * expiresAtMs, not its duration — and good is a multiplier above 1x
- * (the config only ever issues good 2-7x, bad 0.5x). Green fill for a
- * buff, red for a debuff.
+ * employee type for Sprint/Meeting), its production multiplier, and
+ * the seconds left, over a fill that depletes as the effect runs out
+ * (remaining / total duration). The total is derived from the config
+ * — the stored buff only carries expiresAtMs, not its duration — and
+ * good is a multiplier above 1x (the config only ever issues good
+ * 2-7x, bad 0.5x). The multiplier comes from the live buff data (the
+ * same value the email reports), never hardcoded per effect. Green
+ * fill for a buff, red for a debuff.
  */
 function StarEffectBar({ buff, nowMs }) {
   const good = buff.multiplier > 1;
@@ -78,6 +80,7 @@ function StarEffectBar({ buff, nowMs }) {
       ? EMPLOYEE_CONFIGS[buff.employeeType]?.name
       : null;
   const label = employeeTypeName ? `${name} (${employeeTypeName})` : name;
+  const text = `${label} · ${buff.multiplier}x · ${formatCountdown(remainingSeconds)}`;
   return (
     <div
       className="star-effect-bar"
@@ -85,7 +88,7 @@ function StarEffectBar({ buff, nowMs }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(fillPct)}
-      aria-label={`${label} — ${formatCountdown(remainingSeconds)} left`}
+      aria-label={`${label} ${buff.multiplier}x — ${formatCountdown(remainingSeconds)} left`}
     >
       <div
         className={`star-effect-bar-fill ${
@@ -93,9 +96,7 @@ function StarEffectBar({ buff, nowMs }) {
         }`}
         style={{ width: `${fillPct}%` }}
       />
-      <span className="star-effect-bar-text">
-        {label} · {formatCountdown(remainingSeconds)}
-      </span>
+      <span className="star-effect-bar-text">{text}</span>
     </div>
   );
 }
@@ -199,8 +200,14 @@ export function GoldenStar() {
   }, [savePlayerId, constellationLevel]);
 
   // (Re)fetch when the player or the Constellation level changes.
+  // The countdown is cleared alongside the star: while the next time
+  // is being fetched, no star is due, and the show-star effect must
+  // not re-spawn the cleared star from a stale secondsLeft of 0
+  // (the double-star bug).
   useEffect(() => {
     setStar(null);
+    setSecondsLeft(null);
+    setCountdownTotalSeconds(null);
     fetchNext();
   }, [fetchNext]);
 
@@ -235,7 +242,14 @@ export function GoldenStar() {
     return () => clearInterval(id);
   }, [liveEffects.length]);
 
-  // Show the star the moment the countdown hits zero.
+  // Show the star the moment the countdown hits zero. secondsLeft is
+  // null while no star is due (awaiting the next roll), so the guard
+  // below only fires on the countdown actually reaching 0 — never on
+  // a star that was just dismissed (click / despawn / refetch), which
+  // clears the countdown to null first. That clearing is what stops
+  // the double-star bug: without it, the effect re-fires while the
+  // claim is still in flight (secondsLeft still 0) and spawns a
+  // second star whose claim the server rejects (409 star-not-due).
   useEffect(() => {
     if (star !== null || secondsLeft !== 0) return undefined;
     setStar(randomStarPosition());
@@ -244,7 +258,10 @@ export function GoldenStar() {
 
   // Despawn an unclicked star after its lifetime, then re-fetch the
   // next star time (the server rolls a fresh one). The star starts
-  // fading starFadeSeconds before it despawns (issue #49).
+  // fading starFadeSeconds before it despawns (issue #49). The
+  // countdown is cleared alongside the star, so the show-star effect
+  // does not re-spawn it — without the clearing the star stayed up
+  // ~60s (two 30s windows) instead of its 30s lifetime.
   useEffect(() => {
     if (star === null) return undefined;
     setFading(false);
@@ -260,6 +277,8 @@ export function GoldenStar() {
     );
     const despawnId = setTimeout(() => {
       setStar(null);
+      setSecondsLeft(null);
+      setCountdownTotalSeconds(null);
       fetchNext();
     }, STAR_CONFIG.starLifetimeSeconds * 1000);
     return () => {
@@ -271,8 +290,15 @@ export function GoldenStar() {
   const handleStarClick = useCallback(async () => {
     if (!star || !savePlayerId) return;
     // Hide the star immediately so a double-click cannot claim twice;
-    // the server also only issues one outcome per due star.
+    // the server also only issues one outcome per due star. Clear the
+    // countdown too: while the claim is in flight, no star is due, and
+    // the show-star effect must not re-spawn a second star from the
+    // stale secondsLeft of 0 (the double-star bug — the second star's
+    // claim was rejected 409 star-not-due). The claim response arms
+    // the next countdown below; a failed claim re-fetches it.
     setStar(null);
+    setSecondsLeft(null);
+    setCountdownTotalSeconds(null);
     try {
       const { status, data } = await claimStar(SAVE_API_URL, savePlayerId);
       if (!mountedRef.current) return;
