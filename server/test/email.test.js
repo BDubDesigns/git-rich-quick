@@ -560,7 +560,7 @@ test("star reward email reports an employee effect as a production change", () =
     good: true,
     locDelta: 0,
     moneyDelta: 0,
-    multiplier: 2,
+    multiplier: 12,
     durationSeconds: 60,
     employeeType: "intern",
     claimId: "123e4567-e89b-42d3-a456-426614174009",
@@ -572,7 +572,7 @@ test("star reward email reports an employee effect as a production change", () =
   );
   assert.equal(sprintEmails.length, 1);
   assert.match(sprintEmails[0].body, /Sprint/);
-  assert.match(sprintEmails[0].body, /Interns 2x productivity/);
+  assert.match(sprintEmails[0].body, /Interns 12x productivity/);
 });
 
 test("save shape round-trips emails, and a new email is a big action", () => {
