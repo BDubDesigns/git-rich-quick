@@ -8,8 +8,8 @@
 // BouncyButton — it is a display preference, not a game action
 // (no bounce, no floating text).
 //
-// Placed at the bottom of the Shop tab, where the employee icons
-// live, so the effect of equipping is visible right above it.
+// Placed in the Settings tab, with the other display preferences,
+// so the Shop list stays focused on hiring.
 
 import { useGameContext } from "../context/useGameContext.js";
 import {

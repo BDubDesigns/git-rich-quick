@@ -13,7 +13,6 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
-import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -117,9 +116,6 @@ export function Shop() {
           </div>
         );
       })}
-      {/* Cosmetics (issue #11): the equip UI, below the employee
-          list so the effect of equipping is visible right above it. */}
-      <CosmeticsPanel />
     </SectionLayout>
   );
 }

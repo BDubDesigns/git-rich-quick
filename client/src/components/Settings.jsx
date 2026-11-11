@@ -24,6 +24,7 @@ import {
 import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
+import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 import {
   getSoundVolume,
   setSoundVolume,
@@ -375,6 +376,11 @@ export function Settings() {
           </Button>
         </div>
       </section>
+
+      {/* Cosmetics (issue #11): the equip UI. Moved here from the
+          bottom of Shop so the Shop list stays focused on hiring, and
+          the skins live with the other display preferences. */}
+      <CosmeticsPanel />
     </SectionLayout>
   );
 }
