@@ -496,10 +496,10 @@ export const OPEN_SOURCE_IDS = Object.freeze([
  * assigned manager per interval: every `shipIntervalSeconds`, each
  * manager assigned to a project ships one of it, if the player has
  * enough LOC for that project's cost at that moment. A manager with
- * no assignment does nothing. The interval is a tuning value (60s:
- * one ship per manager per minute — the managers do the hammering
+ * no assignment does nothing. The interval is a tuning value (1s:
+ * one ship per manager per second — the managers do the hammering
  * for you, so parking them on the efficient small project pays off
- * over time). The server enforces the rate (see
+ * fast). The server enforces the rate (see
  * maxReleaseManagerShips) so a hacked client cannot claim ships
  * faster than the interval allows. Auto-ships only happen while the
  * game is open — the client tick drives them, like passive LOC
@@ -507,7 +507,7 @@ export const OPEN_SOURCE_IDS = Object.freeze([
  */
 export const RELEASE_MANAGER_CONFIG = Object.freeze({
   /** Seconds between auto-ships for one assigned manager. Tuning value. */
-  shipIntervalSeconds: 60,
+  shipIntervalSeconds: 1,
 });
 
 /**
