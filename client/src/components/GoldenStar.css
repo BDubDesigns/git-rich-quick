@@ -44,3 +44,22 @@
     filter: drop-shadow(0 0 22px rgba(255, 215, 0, 1));
   }
 }
+
+/* Next-star countdown (issue #29): a small fixed pill above the
+   footer, shown only once the countdown is unlocked. Subtle gold on
+   dark, so it reads as a star timer rather than a button. */
+.star-countdown {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: 118px;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-radius: 999px;
+  background: rgba(24, 24, 24, 0.85);
+  color: #ffd700;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}

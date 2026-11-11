@@ -26,25 +26,27 @@
  *    returns the rule; the HTTP layer maps SHAPE -> 400, RATE_LIMIT -> 429,
  *    everything else -> 409.
  *
- * 3. GOLDEN STARS (issue #33) are client-rolled, server-validated. The
- *    client rolls the outcome at click time and reports it as a star
- *    claim in `actionsSinceLastSave.starClaims`; the server validates
- *    plausibility + accounting (see `validateStarClaims`): the effect
- *    must be unlocked at the Constellation level, each claimed amount
- *    must be within the possible range for that effect at the player's
- *    rate/cash, timed buffs must carry the exact multiplier/duration
- *    for the effect, and the number of claims in the window is capped
- *    by the spawn rate (at most ceil(window / min interval) + 1). The
- *    LOC and money rules then credit the claimed star gains (and debit
- *    the claimed losses) and add the buff allowance to the max earnable,
- *    so a legitimate star reward never false-rejects. This is the
- *    strongest validation that fits the save model without a
- *    server-rolled outcome endpoint; that endpoint is a follow-up slice
- *    paired with the leaderboard (#29), and until it lands a player
- *    could in principle claim the maximum star reward on every spawn.
- *    The bound keeps that to the spawn-capped maximum, and the claim
- *    must still match the snapshot deltas exactly (rules 6-8), so the
- *    exposure is a bounded over-credit, not an open faucet.
+ * 3. GOLDEN STARS (issue #33, server-rolled in issue #29) are decided
+ *    by the SERVER, not the client. The client asks the server for a
+ *    star outcome (POST /api/star/claim); the server rolls the effect,
+ *    good/bad, and reward from the player's stored state, records the
+ *    issued outcome (with a claimId) in `star_issues`, and returns it.
+ *    The client applies exactly that claim and reports it in
+ *    `actionsSinceLastSave.starClaims`. The server validates each claim
+ *    against the issued outcomes (see `matchIssuedStarClaims`): the
+ *    claimId must match an unconsumed issued outcome and the content
+ *    must be identical — a forged or inflated claim has no issued row
+ *    and is rejected. The server also rolls the next spawn time and
+ *    tells the client, so the client never picks its own spawn time.
+ *    The LOC and money rules then credit the claimed star gains (and
+ *    debit the claimed losses) and add the buff allowance to the max
+ *    earnable, so a legitimate star reward never false-rejects. A
+ *    hacked client can no longer claim the maximum reward on every
+ *    spawn: it can only claim what the server actually issued, once.
+ *    The claim shape carries a claimId (a UUID); a claim without one
+ *    is malformed (an old client bundle that predates the server roll
+ *    will 400 on a star claim until it reloads — the save itself is
+ *    not lost, and the next heartbeat retries with fresh state).
  *
  * Star-era fields are backward-compatible: a save (or client) from
  * before Constellation shipped lacks `constellation` in the
@@ -66,7 +68,6 @@ import {
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
-  STAR_CONFIG,
   STAR_EFFECT_IDS,
   baseLocPerSecond,
   employeePurchaseCosts,
@@ -78,8 +79,6 @@ import {
   openSourceLevelCosts,
   openSourceUnlockConditionsMet,
   passiveBonus,
-  starSpawnIntervalSeconds,
-  unlockedStarEffects,
 } from "../../shared/game-balance.js";
 
 /** Max plausible sustained click rate: 10 clicks/second. */
@@ -311,21 +310,6 @@ function starBuffMultiplierValid(effect, multiplier) {
   }
 }
 
-function starBuffDurationValid(effect, good, durationSeconds) {
-  if (!isInt(durationSeconds)) return false;
-  const key = good ? "good" : "bad";
-  switch (effect) {
-    case "frenzy":
-      return durationSeconds === STAR_CONFIG.frenzyDurationSeconds[key];
-    case "click":
-      return durationSeconds === STAR_CONFIG.clickDurationSeconds[key];
-    case "employee":
-      return durationSeconds === STAR_CONFIG.employeeDurationSeconds[key];
-    default:
-      return false;
-  }
-}
-
 /** One activeStarEffects entry (a timed buff in the save state). */
 function activeStarEffectError(entry) {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
@@ -355,7 +339,7 @@ function activeStarEffectError(entry) {
   return null;
 }
 
-/** Shape of one starClaims entry. Semantic checks live in validateStarClaims. */
+/** Shape of one starClaims entry. Semantic checks live in matchIssuedStarClaims. */
 function starClaimShapeError(claim) {
   if (claim === null || typeof claim !== "object" || Array.isArray(claim)) {
     return "starClaims entries must be objects";
@@ -369,6 +353,7 @@ function starClaimShapeError(claim) {
       "multiplier",
       "durationSeconds",
       "employeeType",
+      "claimId",
     ])
   ) {
     return "starClaims entries have unknown or missing keys";
@@ -378,6 +363,12 @@ function starClaimShapeError(claim) {
   }
   if (typeof claim.good !== "boolean") {
     return "starClaims good must be a boolean";
+  }
+  // The claimId ties the claim to the server-issued outcome (issue
+  // #29). Without it the server cannot tell a real claim from a
+  // forged one, so a missing or malformed claimId is a shape error.
+  if (typeof claim.claimId !== "string" || !UUID_RE.test(claim.claimId)) {
+    return "starClaims claimId must be a UUID string";
   }
   if (!isInt(claim.locDelta) || !isInt(claim.moneyDelta)) {
     return "starClaims locDelta and moneyDelta must be integers";
@@ -409,132 +400,58 @@ function starClaimShapeError(claim) {
 }
 
 /**
- * Validate the star claims in one window. Returns an error string, or
- * null when every claim is plausible. Checks, in order:
- * - the effect is unlocked at the Constellation level (max of prev/new,
- *   since a level bought mid-window unlocks stars clicked after it);
- * - instant amounts are within the possible range for the effect at the
- *   player's rate/cash (max of prev/new, the most generous bound, so a
- *   claim made just after a purchase is never false-rejected);
- * - a Lucky roll gives LOC or cash, never both (a claim with both is a
- *   double-dip);
- * - timed buffs carry the exact multiplier/duration for the effect and
- *   good/bad roll;
- * - Shooting Stars is always a good burst (five good Lucky rolls);
- * - the claim count is capped by the spawn rate (see MAX_STAR_WINDOW_SECONDS).
- *
- * Amounts are bounded above only: under-claiming is harmless (it only
- * makes the LOC/money rules stricter), so the lower bound is the max
- * loss for a bad roll, not the min gain. A +1 covers float rounding
- * (the client floors its amounts).
+ * Whether two star claims are the same outcome: the effect, good/bad
+ * roll, instant deltas, and (for timed buffs) multiplier, duration,
+ * and employee type must all match. The claimId is compared by the
+ * caller, not here.
  */
-const MAX_STAR_WINDOW_SECONDS = 900; // 15 min: the spawn cap uses the window, capped here. Stars only spawn while the tab is open, and the 60s heartbeat means a longer gap is almost always a closed tab; without the cap an 8h offline window would allow hundreds of claims. 15 min covers a long network outage without opening that hole.
-
-function validateStarClaims(prevState, newState, claims, elapsedSeconds) {
-  const prevLevel = prevState.openSourceProjects.constellation ?? 0;
-  const newLevel = newState.openSourceProjects.constellation ?? 0;
-  const level = Math.max(prevLevel, newLevel);
-  if (claims.length > 0 && level === 0) {
-    return "star claims without any Constellation level (level 0 = no stars)";
-  }
-  const unlocked = unlockedStarEffects(level);
-  // Most generous bounds: the claim could have happened at either
-  // snapshot's rate/cash (e.g. just after a purchase mid-window).
-  const maxRate = Math.max(
-    locPerSecond(prevState.employees, prevState.openSourceProjects),
-    locPerSecond(newState.employees, newState.openSourceProjects)
+function sameStarClaim(a, b) {
+  return (
+    a.effect === b.effect &&
+    a.good === b.good &&
+    a.locDelta === b.locDelta &&
+    a.moneyDelta === b.moneyDelta &&
+    a.multiplier === b.multiplier &&
+    a.durationSeconds === b.durationSeconds &&
+    a.employeeType === b.employeeType
   );
-  const maxMoney = Math.max(prevState.money, newState.money);
-  const maxLuckyLoc = STAR_CONFIG.luckyLocMultiplier.good.max * maxRate;
-  const maxLuckyLocLoss = STAR_CONFIG.luckyLocMultiplier.bad.max * maxRate;
-  const maxLuckyMoney = STAR_CONFIG.luckyMoneyFraction.good.max * maxMoney;
-  const maxLuckyMoneyLoss =
-    STAR_CONFIG.luckyMoneyFraction.bad.max * maxMoney;
+}
 
+/**
+ * Match a save's star claims against the server-issued outcomes
+ * (issue #29). `issued` is the player's unconsumed issued outcomes
+ * (each carrying its claimId), as the store read them. Returns
+ * `{ ok: true, claimIds }` (the issued claimIds this save consumes),
+ * or `{ ok: false, detail }` when a claim has no matching issued
+ * outcome. Each claim must match exactly one distinct issued outcome
+ * — same claimId and identical content — so a forged, inflated, or
+ * replayed claim (an already-consumed outcome) is rejected. The
+ * issued outcome is, by construction, an effect the server rolled
+ * from the unlocked pool with in-range amounts and the exact
+ * multiplier/duration, so matching it implies all of those checks;
+ * there is no separate plausibility pass anymore. The spawn cap is
+ * enforced at issuance (the server only issues a star when one is
+ * due), not here.
+ */
+export function matchIssuedStarClaims(claims, issued) {
+  const unused = [...issued];
+  const claimIds = [];
   for (const claim of claims) {
-    if (!unlocked.includes(claim.effect)) {
-      return `star effect ${claim.effect} is not unlocked at Constellation level ${level}`;
+    const index = unused.findIndex(
+      (issuedClaim) =>
+        issuedClaim.claimId === claim.claimId &&
+        sameStarClaim(issuedClaim, claim)
+    );
+    if (index === -1) {
+      return {
+        ok: false,
+        detail: `star claim ${claim.claimId} does not match a server-issued outcome`,
+      };
     }
-    switch (claim.effect) {
-      case "lucky": {
-        // One roll gives LOC or cash, never both.
-        if (claim.locDelta !== 0 && claim.moneyDelta !== 0) {
-          return "lucky star claims give LOC or cash, not both";
-        }
-        if (claim.good) {
-          if (claim.locDelta < 0 || claim.moneyDelta < 0) {
-            return "good lucky star claims never lose LOC or money";
-          }
-          if (claim.locDelta > maxLuckyLoc + 1) {
-            return `lucky LOC gain ${claim.locDelta} exceeds the maximum ${maxLuckyLoc.toFixed(1)}`;
-          }
-          if (claim.moneyDelta > maxLuckyMoney + 1) {
-            return `lucky money gain ${claim.moneyDelta} exceeds the maximum ${maxLuckyMoney.toFixed(1)}`;
-          }
-        } else {
-          if (claim.locDelta > 0 || claim.moneyDelta > 0) {
-            return "bad lucky star claims never gain LOC or money";
-          }
-          if (claim.locDelta < -maxLuckyLocLoss - 1) {
-            return `lucky LOC loss ${claim.locDelta} exceeds the maximum ${maxLuckyLocLoss.toFixed(1)}`;
-          }
-          if (claim.moneyDelta < -maxLuckyMoneyLoss - 1) {
-            return `lucky money loss ${claim.moneyDelta} exceeds the maximum ${maxLuckyMoneyLoss.toFixed(1)}`;
-          }
-        }
-        break;
-      }
-      case "shootingStars": {
-        // A burst of five good Lucky rolls: always a gain, bounded by 5x Lucky.
-        if (!claim.good) {
-          return "shooting stars is always a good burst";
-        }
-        if (claim.locDelta < 0 || claim.moneyDelta < 0) {
-          return "shooting stars never loses LOC or money";
-        }
-        const burst = STAR_CONFIG.shootingStarsCount;
-        if (claim.locDelta > burst * maxLuckyLoc + 1) {
-          return `shooting stars LOC gain ${claim.locDelta} exceeds the maximum ${(burst * maxLuckyLoc).toFixed(1)}`;
-        }
-        if (claim.moneyDelta > burst * maxLuckyMoney + 1) {
-          return `shooting stars money gain ${claim.moneyDelta} exceeds the maximum ${(burst * maxLuckyMoney).toFixed(1)}`;
-        }
-        break;
-      }
-      case "frenzy":
-      case "click":
-      case "employee": {
-        if (claim.locDelta !== 0 || claim.moneyDelta !== 0) {
-          return `${claim.effect} star claims give no instant LOC or money`;
-        }
-        if (!starBuffMultiplierValid(claim.effect, claim.multiplier)) {
-          return `${claim.effect} multiplier ${claim.multiplier} is not valid`;
-        }
-        if (
-          !starBuffDurationValid(claim.effect, claim.good, claim.durationSeconds)
-        ) {
-          return `${claim.effect} duration ${claim.durationSeconds}s is not valid for a ${claim.good ? "good" : "bad"} roll`;
-        }
-        break;
-      }
-      default:
-        return `unknown star effect: ${claim.effect}`;
-    }
+    claimIds.push(unused[index].claimId);
+    unused.splice(index, 1);
   }
-
-  // Spawn cap: at most one star per min interval in the window, plus one
-  // for a star spawned just before the window that was clicked inside it.
-  // The window is capped at MAX_STAR_WINDOW_SECONDS (see the note above).
-  const interval = starSpawnIntervalSeconds(level);
-  if (interval) {
-    const effectiveSeconds = Math.min(elapsedSeconds, MAX_STAR_WINDOW_SECONDS);
-    const maxClaims =
-      Math.ceil(effectiveSeconds / interval.min) + 1;
-    if (claims.length > maxClaims) {
-      return `${claims.length} star claims in ${elapsedSeconds.toFixed(1)}s exceeds the spawn cap of ${maxClaims}`;
-    }
-  }
-  return null;
+  return { ok: true, claimIds };
 }
 
 /** Sum of the instant LOC/money deltas across star claims, plus the LOC gains alone. */
@@ -702,8 +619,11 @@ function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowM
 /**
  * Validate one save attempt against the last accepted snapshot.
  * Returns `{ ok: true }` or `{ ok: false, rule, detail }`.
+ * `issuedStarClaims` is the player's unconsumed server-issued star
+ * outcomes (issue #29); a save's star claims must match them exactly.
+ * Defaults to [] (no issued outcomes — any star claim is rejected).
  */
-export function validateSave(prev, body, nowMs) {
+export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   // Star-era fields are backward-compatible: default them on states and
   // actions that predate Constellation, so old saves keep validating.
   // normalizeSaveState / normalizeStarActions return non-objects
@@ -810,17 +730,13 @@ export function validateSave(prev, body, nowMs) {
     );
   }
 
-  // Star claims (issue #33): validate plausibility and accounting
-  // bounds before they are credited in the LOC/money rules below.
-  // A failed claim is a STAR rejection (409 with the last good state).
+  // Star claims (issue #29): each claim must match a server-issued,
+  // unconsumed outcome exactly, before the claimed gains are credited
+  // in the LOC/money rules below. A failed claim is a STAR rejection
+  // (409 with the last good state).
   const starClaims = actions.starClaims ?? [];
-  const starError = validateStarClaims(
-    prevState,
-    newState,
-    starClaims,
-    elapsedSeconds
-  );
-  if (starError) return fail("STAR", starError);
+  const starMatch = matchIssuedStarClaims(starClaims, issuedStarClaims);
+  if (!starMatch.ok) return fail("STAR", starMatch.detail);
   const {
     locNet: starLocNet,
     locGains: starLocGains,

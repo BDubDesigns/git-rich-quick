@@ -1,27 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FaStar } from "react-icons/fa";
 import { useGameContext } from "../context/useGameContext";
 import { useFloatingText } from "../hooks/useFloatingText";
 import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
+import { getConstellationLevel } from "../context/gameLogic";
+import { STAR_CONFIG, starEffectName } from "../../../shared/game-balance.js";
 import {
-  calculateLOCPerSecond,
-  flatEmployeeCounts,
-  getConstellationLevel,
-} from "../context/gameLogic";
-import {
-  STAR_CONFIG,
-  rollStarEffect,
-  rollStarGood,
-  resolveStarClaim,
-  starEffectName,
-  starSpawnIntervalSeconds,
-} from "../../../shared/game-balance.js";
+  SAVE_API_URL,
+  getNextStar,
+  claimStar,
+} from "../save/api.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
 import { FloatingText } from "./FloatingText.jsx";
 import "./GoldenStar.css";
 
 /** The star's rendered size in px; spawn positions keep it fully on-screen. */
 const STAR_SIZE_PX = 64;
+/** Retry delay (seconds) after a failed next-star / claim request. */
+const STAR_FETCH_RETRY_SECONDS = 30;
 
 /**
  * A random position fully inside the viewport. The star is fixed-positioned,
@@ -41,6 +37,13 @@ function randomStarPosition() {
 
 function formatMoney(cents) {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** "90s" or "1m 30s" for the next-star countdown. */
+function formatCountdown(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
 }
 
 /** The floating label for a resolved claim (effect name + what it did). */
@@ -76,74 +79,164 @@ function starRewardLabel(claim) {
   }
 }
 
+/**
+ * Golden star (GitNub Constellation, issue #29): fully server-driven.
+ *
+ * The SERVER owns the schedule and the outcome. The client fetches the
+ * next star time (GET /api/star/next) and arms a countdown from the
+ * duration the server returns — it never picks its own spawn time, so
+ * client/server clock skew cannot shift it. When the countdown hits
+ * zero the star appears; clicking it asks the server for the outcome
+ * (POST /api/star/claim) and applies exactly the claim the server
+ * returns (with its claimId), so a hacked client cannot claim a reward
+ * the server never issued. An unclicked star despawns after its
+ * lifetime and the client re-fetches (the server rolls a fresh time —
+ * the missed window has passed).
+ *
+ * The countdown display ("Next star in 1m 23s") is an unlockable: the
+ * server reports `countdownUnlocked` and the client only shows the
+ * timer once the player reaches that Constellation level. The star
+ * itself still spawns on schedule before then; only the timer is gated.
+ */
 export function GoldenStar() {
-  const { state, dispatch, recordStarClaim } = useGameContext();
+  const { state, dispatch, recordStarClaim, savePlayerId } =
+    useGameContext();
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
     useFloatingText();
   const [star, setStar] = useState(null);
+  // Whether the next-star countdown may be shown (server-gated unlock).
+  const [countdownUnlocked, setCountdownUnlocked] = useState(false);
+  // Seconds until the next star appears (null = no star scheduled).
+  const [secondsLeft, setSecondsLeft] = useState(null);
   const constellationLevel = getConstellationLevel(state);
+  const mountedRef = useRef(true);
+  const retryTimerRef = useRef(null);
 
-  // Spawn / despawn scheduling. One star at a time: when none is
-  // showing, schedule the next spawn after a random interval for the
-  // level; when one is showing, schedule its despawn. Clearing the
-  // star (click or timeout) re-arms the next spawn via this effect.
   useEffect(() => {
-    if (constellationLevel < 1) {
-      setStar(null);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
+
+  // Fetch the server's next star time and arm the countdown from the
+  // duration it returns. A failed fetch (offline) retries after a
+  // delay instead of spinning.
+  const fetchNext = useCallback(async () => {
+    if (!savePlayerId || constellationLevel < 1) {
+      setCountdownUnlocked(false);
+      setSecondsLeft(null);
+      return;
+    }
+    try {
+      const { status, data } = await getNextStar(SAVE_API_URL, savePlayerId);
+      if (!mountedRef.current) return;
+      if (status !== 200 || !data || data.secondsUntilStar === null) {
+        retryTimerRef.current = setTimeout(
+          () => fetchNext(),
+          STAR_FETCH_RETRY_SECONDS * 1000
+        );
+        return;
+      }
+      setCountdownUnlocked(data.countdownUnlocked);
+      setSecondsLeft(data.secondsUntilStar);
+    } catch {
+      if (!mountedRef.current) return;
+      retryTimerRef.current = setTimeout(
+        () => fetchNext(),
+        STAR_FETCH_RETRY_SECONDS * 1000
+      );
+    }
+  }, [savePlayerId, constellationLevel]);
+
+  // (Re)fetch when the player or the Constellation level changes.
+  useEffect(() => {
+    setStar(null);
+    fetchNext();
+  }, [fetchNext]);
+
+  // Tick the countdown once a second while a star is awaited.
+  useEffect(() => {
+    if (star !== null || secondsLeft === null || secondsLeft <= 0) {
       return undefined;
     }
-    let timer;
-    if (star === null) {
-      const interval = starSpawnIntervalSeconds(constellationLevel);
-      const delayMs =
-        (interval.min + Math.random() * (interval.max - interval.min)) * 1000;
-      timer = setTimeout(() => {
-        setStar(randomStarPosition());
-        playStarSpawnSound();
-      }, delayMs);
-    } else {
-      timer = setTimeout(() => {
-        setStar(null);
-      }, STAR_CONFIG.starLifetimeSeconds * 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [star, constellationLevel]);
+    const id = setInterval(() => {
+      setSecondsLeft((prev) =>
+        prev === null ? null : Math.max(0, prev - 1)
+      );
+    }, 1000);
+    return () => clearInterval(id);
+  }, [star, secondsLeft]);
 
-  const handleStarClick = useCallback(() => {
-    if (!star) return;
-    const effect = rollStarEffect(constellationLevel);
-    if (!effect) return;
-    // Shooting Stars is always a good burst (five good Lucky rolls).
-    const good = effect === "shootingStars" ? true : rollStarGood();
-    const claim = resolveStarClaim({
-      effect,
-      good,
-      locPerSecond: calculateLOCPerSecond(state),
-      money: state.money,
-      linesOfCode: state.linesOfCode,
-      employeeCounts: flatEmployeeCounts(state),
-    });
-    // Apply the reward and record the claim in the same handler, with
-    // the exact deltas applied, so the claim and the state change can
-    // never disagree (the server validates the claim against them).
-    dispatch({ type: "APPLY_STAR_REWARD", payload: { claim } });
-    recordStarClaim(claim);
-    playStarClickSound(good);
-    triggerFloatingText(
-      star.x + STAR_SIZE_PX / 2,
-      star.y,
-      starRewardLabel(claim),
-      <FaStar size={20} color="#ffd700" />
-    );
+  // Show the star the moment the countdown hits zero.
+  useEffect(() => {
+    if (star !== null || secondsLeft !== 0) return undefined;
+    setStar(randomStarPosition());
+    playStarSpawnSound();
+  }, [star, secondsLeft]);
+
+  // Despawn an unclicked star after its lifetime, then re-fetch the
+  // next star time (the server rolls a fresh one).
+  useEffect(() => {
+    if (star === null) return undefined;
+    const id = setTimeout(() => {
+      setStar(null);
+      fetchNext();
+    }, STAR_CONFIG.starLifetimeSeconds * 1000);
+    return () => clearTimeout(id);
+  }, [star, fetchNext]);
+
+  const handleStarClick = useCallback(async () => {
+    if (!star || !savePlayerId) return;
+    // Hide the star immediately so a double-click cannot claim twice;
+    // the server also only issues one outcome per due star.
     setStar(null);
+    try {
+      const { status, data } = await claimStar(SAVE_API_URL, savePlayerId);
+      if (!mountedRef.current) return;
+      if (status !== 200 || !data?.claim) {
+        // Not due (or no stars): re-fetch the schedule.
+        fetchNext();
+        return;
+      }
+      const claim = data.claim;
+      // Apply the server's claim and record it in the same handler,
+      // with the exact deltas applied, so the claim and the state
+      // change can never disagree (the server validates the claim
+      // against the outcome it issued).
+      dispatch({ type: "APPLY_STAR_REWARD", payload: { claim } });
+      recordStarClaim(claim);
+      playStarClickSound(claim.good);
+      triggerFloatingText(
+        star.x + STAR_SIZE_PX / 2,
+        star.y,
+        starRewardLabel(claim),
+        <FaStar size={20} color="#ffd700" />
+      );
+      // Arm the next star from the server's returned time.
+      setSecondsLeft(data.secondsUntilStar);
+    } catch {
+      // Network failure: the claim may or may not have landed, but the
+      // reward is only applied when the server answers, so nothing is
+      // lost — re-fetch the schedule and the star comes again.
+      if (!mountedRef.current) return;
+      fetchNext();
+    }
   }, [
     star,
-    constellationLevel,
-    state,
+    savePlayerId,
     dispatch,
     recordStarClaim,
     triggerFloatingText,
+    fetchNext,
   ]);
+
+  const showCountdown =
+    countdownUnlocked &&
+    star === null &&
+    secondsLeft !== null &&
+    secondsLeft > 0;
 
   return (
     <>
@@ -157,6 +250,11 @@ export function GoldenStar() {
         >
           <FaStar size={STAR_SIZE_PX} color="#ffd700" />
         </button>
+      )}
+      {showCountdown && (
+        <div className="star-countdown" aria-live="off">
+          Next star in {formatCountdown(secondsLeft)}
+        </div>
       )}
       {floatingTexts.map((ft) => (
         <FloatingText

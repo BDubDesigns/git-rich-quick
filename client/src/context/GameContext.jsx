@@ -113,6 +113,7 @@ const initialState = {
       projects: { isDescriptionVisible: true },
       openSource: { isDescriptionVisible: true },
       settings: { isDescriptionVisible: true },
+      leaderboard: { isDescriptionVisible: true },
     },
   },
 };

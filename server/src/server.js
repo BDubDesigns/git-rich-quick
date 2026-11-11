@@ -15,6 +15,14 @@
  *   the ONE test player's saved state, bypassing save validation. Bearer
  *   token (ADMIN_TOKEN) required, test-player-only — see admin.js.
  *   Disabled (501) when ADMIN_TOKEN is unset.
+ * - GET  /api/leaderboard — leaderboard (issue #29): top 10 accounts
+ *   only, by lifetime LOC (default), current LOC, or cash. Public read.
+ * - GET  /api/star/next — next golden star (issue #29): when the
+ *   player's next star may spawn, rolled server-side; the client
+ *   schedules from it and shows a countdown when unlocked.
+ * - POST /api/star/claim — claim the due star (issue #29): the server
+ *   rolls the outcome, records it as an issued outcome, and rolls the
+ *   next spawn time. The client applies exactly the returned claim.
  *
  * Status mapping: malformed bodies are 400, unknown players are 404,
  * validation failures are 409 with the last good state, and a save that
@@ -50,6 +58,7 @@ import { createAuth } from "./auth.js";
 import { createStore } from "./store.js";
 import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
 import { TEST_ACCOUNT_EMAIL, isAdminAuthorized } from "./admin.js";
+import { normalizeLeaderboardSort } from "./leaderboard.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -424,6 +433,120 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     sendJson(res, 200, snapshotBody(snapshot));
   }
 
+  /**
+   * Leaderboard (issue #29): GET /api/leaderboard?sort=lifetime|current|cash.
+   * Public read — no auth. Returns the top 10 accounts only, ranked by
+   * the requested sort (default lifetime LOC). The response carries
+   * rank, display name, and the three score fields — never a save or
+   * an email. Unknown sort values fall back to lifetime.
+   */
+  async function handleLeaderboard(req, res, url) {
+    const sort = normalizeLeaderboardSort(
+      url.searchParams.get("sort") ?? "lifetime"
+    );
+    const entries = await store.getLeaderboard(sort, 10);
+    sendJson(res, 200, { sort, entries });
+  }
+
+  /**
+   * Next star (issue #29): GET /api/star/next?playerId=... — when the
+   * player's next golden star may spawn. The server rolls the time
+   * (see getOrRollNextStarAt); the client schedules the star from
+   * `secondsUntilStar` (a duration, so client/server clock skew cannot
+   * shift it) and shows a countdown only when `countdownUnlocked` is
+   * true. 400 for a malformed id, 404 for an unknown player.
+   */
+  async function handleStarNext(req, res, url) {
+    const playerId = url.searchParams.get("playerId");
+    if (!playerId || !UUID_RE.test(playerId)) {
+      sendJson(res, 400, { error: "invalid-player-id" });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.getOrRollNextStarAt(playerId, nowMs);
+    if (!result) {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    const secondsUntilStar =
+      result.nextStarAtMs === null
+        ? null
+        : Math.max(0, Math.ceil((result.nextStarAtMs - nowMs) / 1000));
+    sendJson(res, 200, {
+      nextStarAtMs: result.nextStarAtMs,
+      secondsUntilStar,
+      constellationLevel: result.constellationLevel,
+      countdownUnlocked: result.countdownUnlocked,
+    });
+  }
+
+  /**
+   * Claim the due star (issue #29): POST /api/star/claim, body
+   * `{ playerId }`. The server rolls the outcome, records it as an
+   * issued outcome, and rolls the next spawn time — all atomically
+   * (see store.claimStar). The client applies exactly the returned
+   * claim and reports it in the next save; the save is only valid if
+   * the claim matches the issued outcome. 400 for a malformed body,
+   * 404 for an unknown player, 409 when there are no stars (level 0)
+   * or no star is due yet.
+   */
+  async function handleStarClaim(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-star-claim",
+        detail: "playerId must be a UUID string",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.claimStar(body.playerId, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "no-stars") {
+      sendJson(res, 409, {
+        error: "no-stars",
+        detail: "Constellation level 0 has no golden stars",
+      });
+      return;
+    }
+    if (result.status === "not-due") {
+      sendJson(res, 409, {
+        error: "star-not-due",
+        detail: "no golden star is due yet",
+        nextStarAtMs: result.nextStarAtMs,
+      });
+      return;
+    }
+    const secondsUntilStar = Math.max(
+      0,
+      Math.ceil((result.nextStarAtMs - nowMs) / 1000)
+    );
+    sendJson(res, 200, {
+      claim: result.claim,
+      nextStarAtMs: result.nextStarAtMs,
+      secondsUntilStar,
+    });
+  }
+
   const server = http.createServer(async (req, res) => {
     const started = Date.now();
     applyCors(req, res);
@@ -439,6 +562,12 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleLoad(req, res, url);
       } else if (req.method === "POST" && url.pathname === "/api/save") {
         await handleSave(req, res);
+      } else if (req.method === "GET" && url.pathname === "/api/leaderboard") {
+        await handleLeaderboard(req, res, url);
+      } else if (req.method === "GET" && url.pathname === "/api/star/next") {
+        await handleStarNext(req, res, url);
+      } else if (req.method === "POST" && url.pathname === "/api/star/claim") {
+        await handleStarClaim(req, res);
       } else if (req.method === "GET" && url.pathname === "/healthz") {
         sendJson(res, 200, { ok: true });
       } else if (url.pathname === "/api/account/link" && req.method === "POST") {

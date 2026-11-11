@@ -197,6 +197,16 @@ export const STAR_CONFIG = Object.freeze({
   starLifetimeSeconds: 30,
   /** Chance a clicked star is a good outcome (vs bad). */
   goodChance: 0.75,
+  /**
+   * Constellation level that unlocks the next-star countdown display
+   * (issue #29). The server tells the client when the next star is
+   * coming; the client only SHOWS that countdown once the player
+   * reaches this level. Default 2 (early enough to be reachable, late
+   * enough to be a reward) — adjustable, NOT a locked decision.
+   * The star itself still spawns on schedule before this level; only
+   * the timer display is gated.
+   */
+  countdownUnlockLevel: 2,
   /** Spawn interval range (seconds) per Constellation level, index level-1. */
   spawnIntervalSeconds: Object.freeze([
     Object.freeze({ min: 90, max: 180 }), // L1
@@ -275,6 +285,21 @@ export function starSpawnIntervalSeconds(constellationLevel) {
     STAR_CONFIG.spawnIntervalSeconds.length
   ) - 1;
   return STAR_CONFIG.spawnIntervalSeconds[index];
+}
+
+/**
+ * Roll the next star spawn time (ms since epoch) for a Constellation
+ * level, from the level's spawn interval. Pure; `rng` is injectable.
+ * Returns null at level 0 (no stars). The server owns this roll
+ * (issue #29): it decides when the next star appears and tells the
+ * client, so the client never picks its own spawn time.
+ */
+export function rollNextStarAtMs(constellationLevel, nowMs, rng = Math.random) {
+  const interval = starSpawnIntervalSeconds(constellationLevel);
+  if (!interval) return null;
+  const delaySeconds =
+    interval.min + rng() * (interval.max - interval.min);
+  return nowMs + Math.floor(delaySeconds * 1000);
 }
 
 /**

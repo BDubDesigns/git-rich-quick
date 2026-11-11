@@ -21,6 +21,7 @@ import { MdEmail } from "react-icons/md";
 import { FaGithub } from "react-icons/fa";
 import { IoSettings } from "react-icons/io5";
 import { MdRocketLaunch } from "react-icons/md";
+import { FaTrophy } from "react-icons/fa";
 
 // import icons for projects
 import { BsClipboard2CheckFill } from "react-icons/bs"; // to-do list app
@@ -78,6 +79,7 @@ export const NAV_TABS = Object.freeze([
   { id: "shop", label: "Shop", Icon: FaPeopleGroup },
   { id: "projects", label: "Projects", Icon: MdRocketLaunch },
   { id: "openSource", label: "Open Source", Icon: FaGithub },
+  { id: "leaderboard", label: "Leaderboard", Icon: FaTrophy },
   { id: "settings", label: "Settings", Icon: IoSettings },
 ]);
 
@@ -105,6 +107,12 @@ export const SECTIONS_CONFIG = Object.freeze({
     displayName: "Settings",
     description:
       "Account and game settings — link a save to your account so it survives clearing browser data.",
+  },
+  leaderboard: {
+    id: "leaderboard",
+    displayName: "Leaderboard",
+    description:
+      "The top 10 accounts, ranked by lifetime LOC. Guests do not make the board — link a save to an account to claim a spot.",
   },
 });
 
