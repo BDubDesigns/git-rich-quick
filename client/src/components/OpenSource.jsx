@@ -1,10 +1,11 @@
 import { useGameContext } from "../context/useGameContext";
 import { OPEN_SOURCE_PROJECTS_CONFIG } from "../context/gameConfig";
+import { isOpenSourceProjectUnlocked } from "../context/gameLogic";
 import {
-  isOpenSourceProjectUnlocked,
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
-} from "../context/gameLogic";
+  sortOpenSourceProjectIds,
+} from "../utils/unlockProgress.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { OpenSourceCard } from "./OpenSourceCard.jsx";
 import { LockedOpenSourceCard } from "./LockedOpenSourceCard.jsx";
@@ -16,9 +17,17 @@ export function OpenSource() {
     dispatch({ type: "CONTRIBUTE_TO_PROJECT", payload: { projectId } });
   };
 
+  // Maxed-out projects sink to the bottom; projects that still have
+  // levels to buy stay higher (stable within each group).
+  const sortedIds = sortOpenSourceProjectIds(
+    Object.keys(OPEN_SOURCE_PROJECTS_CONFIG),
+    state
+  );
+
   return (
     <SectionLayout sectionId="openSource">
-      {Object.entries(OPEN_SOURCE_PROJECTS_CONFIG).map(([id, config]) => {
+      {sortedIds.map((id) => {
+        const config = OPEN_SOURCE_PROJECTS_CONFIG[id];
         const projectState = state.openSourceProjects[id];
         const isUnlocked = isOpenSourceProjectUnlocked(id, state);
 

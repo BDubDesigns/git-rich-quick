@@ -185,3 +185,25 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
   console.warn(`Unknown unlock type: ${unlockType}`);
   return false;
 }
+
+/**
+ * Sort open-source project ids so maxed-out projects sink to the
+ * bottom of the GitNub list and projects that still have levels to
+ * buy stay higher. Stable: the relative order within each group is
+ * unchanged. A project is maxed when its level reaches the number of
+ * levels in the shared balance config. Locked projects (level 0) are
+ * not maxed, so they stay in the higher group. `state` is the client
+ * reducer state (openSourceProjects maps id -> { level }).
+ */
+export function sortOpenSourceProjectIds(projectIds, state) {
+  const maxed = new Set();
+  for (const id of projectIds) {
+    const level = state.openSourceProjects?.[id]?.level ?? 0;
+    const levelCount = BALANCE.openSource[id]?.levels?.length ?? 0;
+    if (levelCount > 0 && level >= levelCount) maxed.add(id);
+  }
+  return [
+    ...projectIds.filter((id) => !maxed.has(id)),
+    ...projectIds.filter((id) => maxed.has(id)),
+  ];
+}

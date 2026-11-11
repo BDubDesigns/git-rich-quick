@@ -143,6 +143,18 @@ export function GoldenStar() {
   // this total — it is set from the same server value as secondsLeft,
   // so the fill and the text can never disagree.
   const [countdownTotalSeconds, setCountdownTotalSeconds] = useState(null);
+  // Client wall-clock time (Date.now()) when the current countdown was
+  // armed. The countdown is derived from this + the total (see the tick
+  // effect), NOT from counting setInterval ticks — counting ticks drifts
+  // behind real time (render time per tick, and background throttling
+  // on mobile freezes timers), so a star shown from a drifted countdown
+  // can already be past the server's 30s claim window and the click is
+  // rejected with no reward (the PR #64 regression). The wall clock is
+  // the authority; the interval only triggers re-renders. Elapsed time
+  // is a difference of two client readings, so this is clock-skew
+  // independent (the server's absolute nextStarAtMs is never compared
+  // to the client clock).
+  const [countdownStartedAtMs, setCountdownStartedAtMs] = useState(null);
   // The header slot the countdown bar portals into (see Header.jsx):
   // the bar sits directly beneath the stats bar instead of floating
   // above the Commit button. Grabbed after mount — the header is in
@@ -175,6 +187,7 @@ export function GoldenStar() {
       setCountdownUnlocked(false);
       setSecondsLeft(null);
       setCountdownTotalSeconds(null);
+      setCountdownStartedAtMs(null);
       return;
     }
     try {
@@ -190,6 +203,7 @@ export function GoldenStar() {
       setCountdownUnlocked(data.countdownUnlocked);
       setSecondsLeft(data.secondsUntilStar);
       setCountdownTotalSeconds(data.secondsUntilStar);
+      setCountdownStartedAtMs(Date.now());
     } catch {
       if (!mountedRef.current) return;
       retryTimerRef.current = setTimeout(
@@ -208,21 +222,49 @@ export function GoldenStar() {
     setStar(null);
     setSecondsLeft(null);
     setCountdownTotalSeconds(null);
+    setCountdownStartedAtMs(null);
     fetchNext();
   }, [fetchNext]);
 
-  // Tick the countdown once a second while a star is awaited.
+  // Tick once a second while a countdown is armed (a star awaited or
+  // shown). The countdown is derived from the wall clock — elapsed time
+  // since the countdown was armed — NOT from counting setInterval
+  // ticks. Counting ticks drifts behind real time (render time per
+  // tick, and background throttling on mobile freezes timers), so a
+  // star shown from a drifted countdown can already be past the
+  // server's 30s claim window and the click is rejected with no reward
+  // (the PR #64 regression: the star just disappears). The wall clock
+  // is the authority; the interval only triggers re-renders. While a
+  // star is shown, the same tick hides it once its window passes (the
+  // despawn timer freezes in the background, so a stale star would
+  // otherwise stay up and eat the click).
   useEffect(() => {
-    if (star !== null || secondsLeft === null || secondsLeft <= 0) {
+    if (countdownStartedAtMs === null || countdownTotalSeconds === null) {
       return undefined;
     }
     const id = setInterval(() => {
-      setSecondsLeft((prev) =>
-        prev === null ? null : Math.max(0, prev - 1)
+      const now = Date.now();
+      const windowEndMs =
+        countdownStartedAtMs +
+        (countdownTotalSeconds + STAR_CONFIG.starLifetimeSeconds) * 1000;
+      if (star !== null) {
+        // A shown star whose window passed: hide it and re-fetch.
+        if (now > windowEndMs) {
+          setStar(null);
+          setSecondsLeft(null);
+          setCountdownTotalSeconds(null);
+          setCountdownStartedAtMs(null);
+          fetchNext();
+        }
+        return;
+      }
+      const elapsedSeconds = (now - countdownStartedAtMs) / 1000;
+      setSecondsLeft(
+        Math.max(0, Math.ceil(countdownTotalSeconds - elapsedSeconds))
       );
     }, 1000);
     return () => clearInterval(id);
-  }, [star, secondsLeft]);
+  }, [countdownStartedAtMs, countdownTotalSeconds, star, fetchNext]);
 
   // Live timed buffs (frenzy / click / employee) with their expiry
   // still ahead. GAME_TICK drops expired entries from state, but the
@@ -250,11 +292,28 @@ export function GoldenStar() {
   // the double-star bug: without it, the effect re-fires while the
   // claim is still in flight (secondsLeft still 0) and spawns a
   // second star whose claim the server rejects (409 star-not-due).
+  // Wall-clock backstop: if the star's 30s window already passed
+  // (the tab was backgrounded so long the countdown only just caught
+  // up), do NOT show a star the server will reject — re-fetch for the
+  // next one instead.
   useEffect(() => {
-    if (star !== null || secondsLeft !== 0) return undefined;
+    if (
+      star !== null ||
+      secondsLeft !== 0 ||
+      countdownStartedAtMs === null ||
+      countdownTotalSeconds === null
+    )
+      return undefined;
+    const windowEndMs =
+      countdownStartedAtMs +
+      (countdownTotalSeconds + STAR_CONFIG.starLifetimeSeconds) * 1000;
+    if (Date.now() > windowEndMs) {
+      fetchNext();
+      return undefined;
+    }
     setStar(randomStarPosition());
     playStarSpawnSound();
-  }, [star, secondsLeft]);
+  }, [star, secondsLeft, countdownStartedAtMs, countdownTotalSeconds, fetchNext]);
 
   // Despawn an unclicked star after its lifetime, then re-fetch the
   // next star time (the server rolls a fresh one). The star starts
@@ -279,6 +338,7 @@ export function GoldenStar() {
       setStar(null);
       setSecondsLeft(null);
       setCountdownTotalSeconds(null);
+      setCountdownStartedAtMs(null);
       fetchNext();
     }, STAR_CONFIG.starLifetimeSeconds * 1000);
     return () => {
@@ -299,6 +359,7 @@ export function GoldenStar() {
     setStar(null);
     setSecondsLeft(null);
     setCountdownTotalSeconds(null);
+    setCountdownStartedAtMs(null);
     try {
       const { status, data } = await claimStar(SAVE_API_URL, savePlayerId);
       if (!mountedRef.current) return;
@@ -324,6 +385,7 @@ export function GoldenStar() {
       // Arm the next star from the server's returned time.
       setSecondsLeft(data.secondsUntilStar);
       setCountdownTotalSeconds(data.secondsUntilStar);
+      setCountdownStartedAtMs(Date.now());
     } catch {
       // Network failure: the claim may or may not have landed, but the
       // reward is only applied when the server answers, so nothing is
