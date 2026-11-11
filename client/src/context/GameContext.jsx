@@ -91,6 +91,34 @@ const initialState = {
     },
     {}
   ),
+  // Release Manager assignments (issue: auto-ships). A count per
+  // freelance project: how many Release Managers are assigned to
+  // ship that project. The sum is at most the owned Release Manager
+  // count; the rest are unassigned and do nothing. Saved with the
+  // game state. The cumulative auto-ship counts (how many of each
+  // project the managers have shipped) are saved too — the save
+  // engine derives actions.autoShips from their delta, so the server
+  // can rate-cap auto-ships.
+  releaseManagerAssignments: Object.keys(FREELANCE_PROJECTS_CONFIG).reduce(
+    (acc, key) => {
+      acc[key] = 0;
+      return acc;
+    },
+    {}
+  ),
+  autoShipsCompleted: Object.keys(FREELANCE_PROJECTS_CONFIG).reduce(
+    (acc, key) => {
+      acc[key] = 0;
+      return acc;
+    },
+    {}
+  ),
+  // Transient auto-ship clock (not saved): counts GAME_TICKs toward
+  // the next auto-ship, which runs every
+  // RELEASE_MANAGER_CONFIG.shipIntervalSeconds ticks. Resets on load
+  // (like farmBreedTicks) — the first ship after a load is a full
+  // interval away, never instant.
+  releaseManagerShipTicks: 0,
   openSourceProjects: Object.keys(OPEN_SOURCE_PROJECTS_CONFIG).reduce(
     (acc, key) => {
       acc[key] = { level: 0 };
@@ -281,6 +309,45 @@ function gameReducer(state, action) {
       }
 
       return state;
+    }
+
+    // Assign Release Managers to a freelance project (auto-ships).
+    // Payload: { projectKey, count } — the NEW count of managers
+    // assigned to that project (not a delta). The assignment is a
+    // strategy choice: park managers on the efficient small project
+    // and they hammer it on a timer. Rules, enforced here and by the
+    // server: the project must exist and be unlocked (the UI only
+    // offers unlocked projects); the count must be a non-negative
+    // integer; and the total assigned across all projects cannot
+    // exceed the managers owned — the rest are unassigned and do
+    // nothing. Assignments change freely, so there is no monotonic
+    // constraint. An assignment change is a big-action save trigger
+    // (see serialize.js), so it persists promptly. An invalid
+    // assignment is ignored here; the server rejects it too.
+    case "SET_RELEASE_MANAGER_ASSIGNMENT": {
+      const { projectKey, count } = action.payload ?? {};
+      const project = FREELANCE_PROJECTS_CONFIG[projectKey];
+      if (!project) return state;
+      if (!isFreelanceProjectUnlocked(projectKey, state)) return state;
+      if (
+        typeof count !== "number" ||
+        !Number.isInteger(count) ||
+        count < 0
+      ) {
+        return state;
+      }
+      const assignments = {
+        ...(state.releaseManagerAssignments ?? {}),
+      };
+      const oldCount = assignments[projectKey] ?? 0;
+      const totalAssigned = Object.values(assignments).reduce(
+        (sum, n) => sum + (n ?? 0),
+        0
+      );
+      const owned = state.employees.releaseManager?.count ?? 0;
+      if (totalAssigned - oldCount + count > owned) return state;
+      assignments[projectKey] = count;
+      return { ...state, releaseManagerAssignments: assignments };
     }
 
     // Equip (or unequip) a cosmetic in a slot (issue #11).
@@ -545,17 +612,64 @@ function gameReducer(state, action) {
         farmBreedDue = true;
       }
 
+      // Release Manager auto-ships: every
+      // RELEASE_MANAGER_CONFIG.shipIntervalSeconds ticks, each manager
+      // assigned to a project ships one of it — if the player has
+      // enough LOC for that project's cost at that moment. Managers
+      // are processed in project-key order, one at a time, so the LOC
+      // check sees each prior ship's deduction: if LOC runs out
+      // mid-way, the remaining managers wait for the next interval.
+      // A ship follows the same rules as a manual ship
+      // (COMPLETE_PROJECT): the project must be unlocked, the LOC
+      // cost is deducted, the money reward is credited, and both the
+      // shipped count and the cumulative auto-ship count increase
+      // (the save engine derives actions.autoShips from the
+      // auto-ship delta, so the server can rate-cap them). The clock
+      // resets on load (releaseManagerShipTicks starts at 0), so the
+      // first ship after a load is a full interval away, never
+      // instant. Star buffs do not change the timer.
+      const shipTicks = (state.releaseManagerShipTicks ?? 0) + 1;
+      let nextShipTicks = shipTicks;
+      let shipLinesOfCode = state.linesOfCode + totalPassiveLOC;
+      let shipMoney = state.money;
+      let shipCompleted = { ...state.freelanceProjectsCompleted };
+      let shipAuto = { ...(state.autoShipsCompleted ?? {}) };
+      if (
+        shipTicks >= shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds
+      ) {
+        nextShipTicks = 0;
+        for (const projectKey of Object.keys(FREELANCE_PROJECTS_CONFIG)) {
+          const assigned =
+            state.releaseManagerAssignments?.[projectKey] ?? 0;
+          if (assigned <= 0) continue;
+          if (!isFreelanceProjectUnlocked(projectKey, state)) continue;
+          const project = FREELANCE_PROJECTS_CONFIG[projectKey];
+          for (let i = 0; i < assigned; i++) {
+            if (shipLinesOfCode < project.loc) break;
+            shipLinesOfCode -= project.loc;
+            shipMoney += project.reward;
+            shipCompleted[projectKey] =
+              (shipCompleted[projectKey] ?? 0) + 1;
+            shipAuto[projectKey] = (shipAuto[projectKey] ?? 0) + 1;
+          }
+        }
+      }
+
       // Build newState with all changes from this action
       const newState = {
         ...state,
-        linesOfCode: state.linesOfCode + totalPassiveLOC,
+        linesOfCode: shipLinesOfCode,
         totalLinesOfCode: state.totalLinesOfCode + totalPassiveLOC,
+        money: shipMoney,
+        freelanceProjectsCompleted: shipCompleted,
+        autoShipsCompleted: shipAuto,
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
         activeStarEffects,
         farm,
         farmBreedTicks: nextBreedTicks,
         farmBreedDue,
+        releaseManagerShipTicks: nextShipTicks,
       };
 
       // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)

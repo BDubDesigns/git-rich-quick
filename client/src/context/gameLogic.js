@@ -262,6 +262,14 @@ export function employeeReturnsLine(config, effectMultiplier = 1) {
     type = "CLICK";
     value = `+${formatNumber(config.clickBonusPerEmployee)} LOC per Click`;
     boostedValue = `+${formatNumber(config.clickBonusPerEmployee * effectMultiplier)} LOC per Click`;
+  } else if (config.autoShip) {
+    // Release Manager: no LOC/s rate and no click bonus — its value
+    // is the auto-ship. One ship per assigned manager per interval
+    // (see RELEASE_MANAGER_CONFIG); star buffs do not change the
+    // timer, so there is no boosted value — the suffix stays empty.
+    type = "SHIP";
+    value = `Ships 1 project per ${shared.formatCooldownSeconds(shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds)}`;
+    boostedValue = value;
   } else {
     type = "LOC";
     value = `${formatNumber(config.locPerSecond)} LOC per Sec`;

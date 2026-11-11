@@ -101,10 +101,12 @@ import {
   freelanceProjectUnlockConditionsMet,
   locPerClick,
   locPerSecond,
+  maxReleaseManagerShips,
   normalizeSaveState,
   normalizeStarActions,
   openSourceLevelCosts,
   openSourceUnlockConditionsMet,
+  releaseManagerAssignedCount,
 } from "../../shared/game-balance.js";
 
 /** Max plausible sustained click rate: 10 clicks/second. */
@@ -170,6 +172,8 @@ function checkStateShape(state) {
       "employees",
       "aiAssistants",
       "freelanceProjectsCompleted",
+      "releaseManagerAssignments",
+      "autoShipsCompleted",
       "openSourceProjects",
       "unlockedEmployees",
       "unlockedOpenSourceProjects",
@@ -209,6 +213,18 @@ function checkStateShape(state) {
     !isCountMap(state.freelanceProjectsCompleted, FREELANCE_PROJECT_KEYS)
   ) {
     return "freelanceProjectsCompleted must be non-negative integer counts";
+  }
+  // Release Manager (auto-ships): the per-project assignment counts
+  // and the cumulative auto-ship counts. Both are count maps over the
+  // freelance keys; the assignment sum bound (<= owned managers) and
+  // the auto-ship rate cap live in validateSave, not the shape.
+  if (
+    !isCountMap(state.releaseManagerAssignments, FREELANCE_PROJECT_KEYS)
+  ) {
+    return "releaseManagerAssignments must be non-negative integer counts";
+  }
+  if (!isCountMap(state.autoShipsCompleted, FREELANCE_PROJECT_KEYS)) {
+    return "autoShipsCompleted must be non-negative integer counts";
   }
   if (!isCountMap(state.openSourceProjects, OPEN_SOURCE_IDS)) {
     return "openSourceProjects must be non-negative integer levels";
@@ -393,6 +409,7 @@ function checkActionsShape(actions) {
       "clicks",
       "employeesBought",
       "projectsCompleted",
+      "autoShips",
       "openSourceLevelsBought",
       "starClaims",
       "farmBreedClaims",
@@ -410,6 +427,12 @@ function checkActionsShape(actions) {
     !isCountMap(actions.projectsCompleted, FREELANCE_PROJECT_KEYS)
   ) {
     return "actions.projectsCompleted must be non-negative integer counts";
+  }
+  // Release Manager auto-ships this window, per project. A subset of
+  // projectsCompleted (the auto-shipped ones); the rate cap lives in
+  // validateSave, not the shape.
+  if (!isCountMap(actions.autoShips, FREELANCE_PROJECT_KEYS)) {
+    return "actions.autoShips must be non-negative integer counts";
   }
   if (
     !isCountMap(actions.openSourceLevelsBought, OPEN_SOURCE_IDS)
@@ -1117,6 +1140,13 @@ export function validateSave(
     ) {
       return fail("MONOTONIC", `project completions decreased: ${key}`);
     }
+    // Release Manager: the cumulative auto-ship counts only grow —
+    // a manager's shipped projects are never un-shipped.
+    if (
+      newState.autoShipsCompleted[key] < prevState.autoShipsCompleted[key]
+    ) {
+      return fail("MONOTONIC", `auto-ship completions decreased: ${key}`);
+    }
   }
   for (const projectId of OPEN_SOURCE_IDS) {
     if (
@@ -1367,6 +1397,52 @@ export function validateSave(
     }
   }
 
+  // Release Manager (auto-ships freelance projects). A failure here is
+  // a RELEASE_MANAGER rejection (409 with the last good state).
+  //
+  // Assignments are a strategy choice, not a security boundary: the
+  // player assigns each manager to a project, and the sum of the
+  // per-project counts cannot exceed the managers owned (the rest are
+  // unassigned and do nothing). Assignments change freely — there is
+  // no monotonic constraint on them.
+  //
+  // Auto-ships are a subset of all completions: every auto-ship is a
+  // real completion (it costs LOC and pays money through the LOC and
+  // money rules, which already account for projectsCompleted), so the
+  // auto-ship count for a project can never exceed that project's
+  // completions in the window. And a manager can only auto-ship a
+  // project the player has unlocked — the assignment UI only offers
+  // unlocked projects, and a locked auto-ship here is tampered, not
+  // gameplay. The RATE cap (one ship per manager per interval) needs
+  // the elapsed window, so it lives below, next to the CLICKS rule.
+  const assignedManagers = releaseManagerAssignedCount(
+    newState.releaseManagerAssignments
+  );
+  if (assignedManagers > newState.employees.releaseManager) {
+    return fail(
+      "RELEASE_MANAGER",
+      `${assignedManagers} managers assigned but only ${newState.employees.releaseManager} owned`
+    );
+  }
+  const autoShips = actions.autoShips ?? {};
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    if (autoShips[key] > actions.projectsCompleted[key]) {
+      return fail(
+        "RELEASE_MANAGER",
+        `auto-ships for ${key} (${autoShips[key]}) exceed completions (${actions.projectsCompleted[key]})`
+      );
+    }
+    if (
+      autoShips[key] > 0 &&
+      !newState.unlockedFreelanceProjects[key]
+    ) {
+      return fail(
+        "RELEASE_MANAGER",
+        `auto-ship claimed for locked project: ${key}`
+      );
+    }
+  }
+
   // Time window. Elapsed is clamped at zero (clock skew) and passive
   // accrual is capped at 8 hours; the click-count cap uses uncapped elapsed.
   const elapsedSeconds = Math.max(0, (nowMs - prev.savedAtMs) / 1000);
@@ -1409,6 +1485,30 @@ export function validateSave(
     return fail(
       "CLICKS",
       `${actions.clicks} clicks in ${elapsedSeconds.toFixed(1)}s exceeds the plausible maximum`
+    );
+  }
+
+  // Release Manager rate cap: one ship per manager per interval, plus
+  // one grace ship for a ship event landing on a window boundary (see
+  // maxReleaseManagerShips). The manager count is the max of the
+  // previous and new snapshots, so a manager hired mid-window is not
+  // under-counted and a legitimate ship is never rejected for a hire
+  // that landed after it. A hacked client cannot claim ships faster
+  // than the interval allows — and each claimed ship still costs LOC
+  // through the LOC rule, so even a max-rate claim is paid for.
+  const totalAutoShips = FREELANCE_PROJECT_KEYS.reduce(
+    (sum, key) => sum + (autoShips[key] ?? 0),
+    0
+  );
+  const maxManagers = Math.max(
+    prevState.employees.releaseManager,
+    newState.employees.releaseManager
+  );
+  const maxAutoShips = maxReleaseManagerShips(maxManagers, elapsedSeconds);
+  if (totalAutoShips > maxAutoShips) {
+    return fail(
+      "RELEASE_MANAGER",
+      `${totalAutoShips} auto-ships in ${elapsedSeconds.toFixed(1)}s exceeds the maximum ${maxAutoShips} for ${maxManagers} managers`
     );
   }
 
@@ -1571,6 +1671,18 @@ export function validateSave(
       return fail(
         "DELTA",
         `project delta disagrees with claimed completions: ${key}`
+      );
+    }
+    // Release Manager: the cumulative auto-ship delta must match the
+    // claimed auto-ships, same as the completions above.
+    if (
+      newState.autoShipsCompleted[key] -
+        prevState.autoShipsCompleted[key] !==
+      (autoShips[key] ?? 0)
+    ) {
+      return fail(
+        "DELTA",
+        `auto-ship delta disagrees with claimed auto-ships: ${key}`
       );
     }
   }

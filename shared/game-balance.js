@@ -191,6 +191,34 @@ export const BALANCE = Object.freeze({
         }),
       ]),
     }),
+    // Release Manager (auto-ships freelance projects). Each manager is
+    // assigned to one freelance project and automatically ships one of
+    // it per ship interval (see RELEASE_MANAGER_CONFIG), as long as the
+    // player has enough LOC to cover that project's cost at that
+    // moment; if not, it waits for the next interval. A manager with
+    // no assignment does nothing. This is the assignment strategy:
+    // park managers on the efficient small project (To Do List App)
+    // and let them hammer it while you do other things. The manager
+    // contributes nothing to passive LOC or clicks — its value is the
+    // auto-ship. `autoShip` marks the type for the client card
+    // (employeeReturnsLine shows the ship rate, not a LOC/s rate).
+    releaseManager: Object.freeze({
+      baseCost: 500000,
+      locPerSecond: 0,
+      costMultiplier: 1.2,
+      autoShip: true,
+      unlockConditions: Object.freeze([
+        Object.freeze({ type: "TOTAL_LOC", target: 100000 }),
+        Object.freeze({ type: "TOTAL_EMPLOYEE_COUNT", target: 30 }),
+      ]),
+      cosmeticSlot: "employeeIcon_releaseManager",
+      cosmeticUnlocks: Object.freeze([
+        Object.freeze({
+          triggerCount: 25,
+          cosmeticId: "releaseManager-icon-ruby",
+        }),
+      ]),
+    }),
   }),
 
   aiAssistants: Object.freeze({
@@ -445,6 +473,7 @@ export const EMPLOYEE_TYPES = Object.freeze([
   "senior",
   "projectManager",
   "commitSpecialist",
+  "releaseManager",
 ]);
 export const FREELANCE_PROJECT_KEYS = Object.freeze([
   "toDoListApp",
@@ -461,6 +490,55 @@ export const OPEN_SOURCE_IDS = Object.freeze([
   "constellation",
   "starBroker",
 ]);
+
+/**
+ * Release Manager (auto-ships freelance projects). One ship per
+ * assigned manager per interval: every `shipIntervalSeconds`, each
+ * manager assigned to a project ships one of it, if the player has
+ * enough LOC for that project's cost at that moment. A manager with
+ * no assignment does nothing. The interval is a tuning value (60s:
+ * one ship per manager per minute — the managers do the hammering
+ * for you, so parking them on the efficient small project pays off
+ * over time). The server enforces the rate (see
+ * maxReleaseManagerShips) so a hacked client cannot claim ships
+ * faster than the interval allows. Auto-ships only happen while the
+ * game is open — the client tick drives them, like passive LOC
+ * ticks; there is no offline auto-shipping in v1.
+ */
+export const RELEASE_MANAGER_CONFIG = Object.freeze({
+  /** Seconds between auto-ships for one assigned manager. Tuning value. */
+  shipIntervalSeconds: 60,
+});
+
+/**
+ * How many Release Managers are assigned across all projects (the sum
+ * of the per-project assignment counts). Must be <= the owned Release
+ * Manager count; the rest are unassigned and do nothing.
+ */
+export function releaseManagerAssignedCount(assignments) {
+  if (!assignments || typeof assignments !== "object") return 0;
+  return FREELANCE_PROJECT_KEYS.reduce(
+    (sum, key) => sum + (assignments[key] ?? 0),
+    0
+  );
+}
+
+/**
+ * The most auto-ships `managerCount` Release Managers could have made
+ * in a window of `elapsedSeconds`: one ship per manager per interval,
+ * plus one grace ship for a ship event landing exactly on a window
+ * boundary (the client's ship clock and the save window are not
+ * aligned, so a window can straddle two ship events). The server
+ * uses this as the rate cap for actions.autoShips.
+ */
+export function maxReleaseManagerShips(managerCount, elapsedSeconds) {
+  if (managerCount <= 0 || elapsedSeconds < 0) return 0;
+  return (
+    managerCount *
+    (Math.floor(elapsedSeconds / RELEASE_MANAGER_CONFIG.shipIntervalSeconds) +
+      1)
+  );
+}
 
 /**
  * Llama farm mini-game (issue #79). A business you buy with pure money,
@@ -1497,6 +1575,19 @@ export function initialSaveState() {
   for (const projectKey of FREELANCE_PROJECT_KEYS) {
     freelanceProjectsCompleted[projectKey] = 0;
   }
+  // Release Manager assignments (which project each manager is
+  // assigned to, as a count per project) and the cumulative auto-ship
+  // counts (how many of each project the managers have shipped).
+  // Assignments sum to at most the owned Release Manager count; the
+  // rest are unassigned and do nothing. autoShipsCompleted is the
+  // cumulative counter the save engine derives actions.autoShips
+  // from (new - baseline), so the server can rate-cap auto-ships.
+  const releaseManagerAssignments = {};
+  const autoShipsCompleted = {};
+  for (const projectKey of FREELANCE_PROJECT_KEYS) {
+    releaseManagerAssignments[projectKey] = 0;
+    autoShipsCompleted[projectKey] = 0;
+  }
   return {
     linesOfCode: BALANCE.mechanics.startingLoc,
     totalLinesOfCode: 0,
@@ -1504,6 +1595,8 @@ export function initialSaveState() {
     employees,
     aiAssistants: { noPilot: 0 },
     freelanceProjectsCompleted,
+    releaseManagerAssignments,
+    autoShipsCompleted,
     openSourceProjects,
     unlockedEmployees,
     unlockedOpenSourceProjects,
@@ -1639,6 +1732,61 @@ export function normalizeSaveState(state) {
       }
     }
     if (changed) next.freelanceProjectsCompleted = completed;
+  }
+  if (
+    next.releaseManagerAssignments === undefined ||
+    next.releaseManagerAssignments === null ||
+    typeof next.releaseManagerAssignments !== "object" ||
+    Array.isArray(next.releaseManagerAssignments)
+  ) {
+    // A save from before the Release Manager shipped has no
+    // assignments at all. Default them to all-zero (no manager
+    // assigned) instead of failing the shape check, same pattern as
+    // the freelance migration above.
+    const assignments = {};
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      assignments[projectKey] = 0;
+    }
+    next.releaseManagerAssignments = assignments;
+  } else {
+    // The assignments exist: only fill in keys that are genuinely
+    // missing (a save from before the big projects lacks their keys).
+    // A present-but-wrong value is left alone so the shape check
+    // rejects it.
+    let changed = false;
+    const assignments = { ...next.releaseManagerAssignments };
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      if (assignments[projectKey] === undefined) {
+        assignments[projectKey] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.releaseManagerAssignments = assignments;
+  }
+  if (
+    next.autoShipsCompleted === undefined ||
+    next.autoShipsCompleted === null ||
+    typeof next.autoShipsCompleted !== "object" ||
+    Array.isArray(next.autoShipsCompleted)
+  ) {
+    // Same migration for the cumulative auto-ship counts: a save
+    // from before the Release Manager shipped has none. Default them
+    // to all-zero — no manager has auto-shipped anything yet.
+    const autoShips = {};
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      autoShips[projectKey] = 0;
+    }
+    next.autoShipsCompleted = autoShips;
+  } else {
+    let changed = false;
+    const autoShips = { ...next.autoShipsCompleted };
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      if (autoShips[projectKey] === undefined) {
+        autoShips[projectKey] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.autoShipsCompleted = autoShips;
   }
   if (
     next.unlockedFreelanceProjects &&
@@ -1814,6 +1962,28 @@ export function normalizeStarActions(actions) {
     };
   }
   if (
+    next.employeesBought &&
+    typeof next.employeesBought === "object" &&
+    !Array.isArray(next.employeesBought)
+  ) {
+    // A new employee type shipped after the client (or test fixture)
+    // was built: an action from an older client lacks that key.
+    // Default the missing counts to 0 instead of failing the shape
+    // check — an old client cannot have hired a type it does not
+    // know about, so 0 is the correct count. Same pattern as the
+    // projectsCompleted migration above. A present-but-wrong value is
+    // left alone so the shape check rejects it.
+    let changed = false;
+    const bought = { ...next.employeesBought };
+    for (const type of EMPLOYEE_TYPES) {
+      if (bought[type] === undefined) {
+        bought[type] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.employeesBought = bought;
+  }
+  if (
     next.projectsCompleted &&
     typeof next.projectsCompleted === "object" &&
     !Array.isArray(next.projectsCompleted)
@@ -1831,6 +2001,36 @@ export function normalizeStarActions(actions) {
       }
     }
     if (changed) next.projectsCompleted = completed;
+  }
+  if (
+    next.autoShips === undefined ||
+    next.autoShips === null ||
+    typeof next.autoShips !== "object" ||
+    Array.isArray(next.autoShips)
+  ) {
+    // Release Manager auto-ships (per project, this window): a client
+    // from before the Release Manager shipped has no autoShips key.
+    // Default it to all-zero instead of failing the shape check, same
+    // pattern as the starClaims default above.
+    const autoShips = {};
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      autoShips[projectKey] = 0;
+    }
+    next.autoShips = autoShips;
+  } else {
+    // The autoShips map exists: only fill in keys that are genuinely
+    // missing (an action from an older client lacks the big-project
+    // keys). A present-but-wrong value is left alone so the shape
+    // check rejects it.
+    let changed = false;
+    const autoShips = { ...next.autoShips };
+    for (const projectKey of FREELANCE_PROJECT_KEYS) {
+      if (autoShips[projectKey] === undefined) {
+        autoShips[projectKey] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.autoShips = autoShips;
   }
   return next;
 }
@@ -1859,6 +2059,7 @@ export const EMPLOYEE_DISPLAY_NAMES = Object.freeze({
   senior: "Senior Developer",
   projectManager: "Project Manager",
   commitSpecialist: "Commit Specialist",
+  releaseManager: "Release Manager",
 });
 
 export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({

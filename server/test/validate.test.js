@@ -89,6 +89,7 @@ test("shared math matches the client formulas", () => {
     senior: false,
     projectManager: false,
     commitSpecialist: false,
+    releaseManager: false,
   });
   assert.deepEqual(fresh.unlockedOpenSourceProjects, {
     overReactFramework: true,
