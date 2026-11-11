@@ -602,9 +602,8 @@ test("star reward email fires once per claim, keyed by claimId", () => {
   assert.equal(emails.length, 1);
   assert.equal(emails[0].triggerKey, `star-reward:${CLAIM_ID}`);
   assert.equal(emails[0].sender, "GitNub");
-  assert.equal(emails[0].subject, "A star fell on your repo!");
-  assert.match(emails[0].body, /Airdrop/);
-  assert.match(emails[0].body, /\+500 LOC/);
+  assert.equal(emails[0].subject, "Airdrop: +500 LOC");
+  assert.match(emails[0].body, /The GitNub sky provides/);
   // Same claim again: dedup by claimId.
   const again = collectTriggerEmails(state, { ...state, emails }, claim);
   assert.equal(again.emails.length, 1);
@@ -624,8 +623,8 @@ test("star reward email reports a bad outcome with its locked name", () => {
   };
   const { emails } = collectTriggerEmails(gameState(), gameState(), claim);
   assert.equal(emails.length, 1);
-  assert.match(emails[0].body, /Throttling/);
-  assert.match(emails[0].body, /Production 0\.5x/);
+  assert.equal(emails[0].subject, "Throttling: Production 0.5x");
+  assert.match(emails[0].body, /The GitNub sky giveth/);
 });
 
 test("star reward email reports an employee effect as a production change", () => {
@@ -648,11 +647,11 @@ test("star reward email reports an employee effect as a production change", () =
     meeting
   );
   assert.equal(meetingEmails.length, 1);
-  assert.match(meetingEmails[0].body, /Meeting/);
-  assert.match(
-    meetingEmails[0].body,
-    /Senior Developers 0\.5x productivity/
+  assert.equal(
+    meetingEmails[0].subject,
+    "Meeting: Senior Developers 0.5x productivity"
   );
+  assert.match(meetingEmails[0].body, /The GitNub sky giveth/);
   const sprint = {
     effect: "employee",
     good: true,
@@ -669,8 +668,11 @@ test("star reward email reports an employee effect as a production change", () =
     sprint
   );
   assert.equal(sprintEmails.length, 1);
-  assert.match(sprintEmails[0].body, /Sprint/);
-  assert.match(sprintEmails[0].body, /Interns 12x productivity/);
+  assert.equal(
+    sprintEmails[0].subject,
+    "Sprint: Interns 12x productivity"
+  );
+  assert.match(sprintEmails[0].body, /The GitNub sky provides/);
 });
 
 test("save shape round-trips emails, and a new email is a big action", () => {

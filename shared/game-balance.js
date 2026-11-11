@@ -2313,19 +2313,19 @@ export function buildOpenSourceLevelEmail({ projectName, level }) {
 }
 
 /**
- * A golden star was claimed. `effectName` is the locked pun name
- * (Airdrop, Rug Pull, ...), `rewardText` is the starRewardDetail
- * string, and `good` picks the sign-off.
+ * A golden star was claimed. The subject is the benefit or debuff
+ * (`effectName: rewardText`, e.g. "Airdrop: +500 LOC"), so the inbox
+ * list shows what the star did at a glance. `effectName` is the
+ * locked pun name (Airdrop, Rug Pull, ...), `rewardText` is the
+ * starRewardDetail string, and `good` picks the sign-off.
  */
 export function buildStarRewardEmail({ effectName, rewardText, good }) {
   return {
     sender: "GitNub",
-    subject: "A star fell on your repo!",
-    body:
-      `${effectName}: ${rewardText}.\n\n` +
-      (good
-        ? "The GitNub sky provides. Mostly."
-        : "The GitNub sky giveth, and the GitNub sky taketh away."),
+    subject: `${effectName}: ${rewardText}`,
+    body: good
+      ? "The GitNub sky provides. Mostly."
+      : "The GitNub sky giveth, and the GitNub sky taketh away.",
   };
 }
 
