@@ -87,7 +87,7 @@ export function EmailNotificationBar() {
         <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-blue-400" />
         <span className="flex-1 min-w-0 truncate text-sm">
           <span className="font-bold">{email.sender}</span>
-          {` — ${email.subject}`}
+          {`: ${email.subject}`}
         </span>
         <button
           type="button"
