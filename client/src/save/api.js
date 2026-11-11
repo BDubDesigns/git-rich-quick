@@ -240,3 +240,24 @@ export async function claimBoughtStar(baseUrl, playerId) {
     body: { playerId },
   });
 }
+
+/**
+ * Roll one farm breeding tick server-side (issue #79 feedback): the
+ * server rolls the breeding outcome from the sent farm (same
+ * mood/lighting odds) and records it as an issued outcome. Returns
+ * `{ status, data }`:
+ * - 200 `{ breedId, kids }` — kids is the list of `{ stallIndex, type }`
+ *   born this tick (empty when nothing was born; breedId is null then).
+ *   Apply exactly these kids and record the claim for the next save.
+ * - 409 `{ error: "farm-not-owned" | "farm-breed-cooldown" }` — no
+ *   farm yet, or the breed was rolled too recently.
+ * - 404 `{ error: "unknown-player" }`.
+ * - 400 `{ error: "invalid-farm-breed" }` — malformed farm.
+ * Throws on network failure.
+ */
+export async function breedFarm(baseUrl, playerId, farm) {
+  return request(baseUrl, "/api/farm/breed", {
+    method: "POST",
+    body: { playerId, farm },
+  });
+}

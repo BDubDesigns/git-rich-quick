@@ -18,9 +18,13 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  FARM_CONFIG,
+  FARM_LIGHTING_COLORS,
+  LLAMA_TYPES,
   initialSaveState,
   locPerSecond,
   resolveStarClaim,
+  rollFarmBreeding,
   rollNextStarAtMs,
   rollStarEffect,
   rollStarGood,
@@ -28,7 +32,11 @@ import {
   starBrokerBuyCost,
   starBrokerCooldownSeconds,
 } from "../../shared/game-balance.js";
-import { validateSave, matchIssuedStarClaims } from "./validate.js";
+import {
+  validateSave,
+  matchIssuedStarClaims,
+  matchIssuedFarmBreeds,
+} from "./validate.js";
 import {
   displayNameForUser,
   normalizeLeaderboardSort,
@@ -115,6 +123,79 @@ function rowToSnapshot(row) {
   };
 }
 
+/**
+ * Shape-check a farm object sent to POST /api/farm/breed (issue #79
+ * feedback). Mirrors the farm shape rules in validate.js's
+ * checkStateShape, for a bare farm instead of a full save state.
+ * Returns an error string, or null when the farm is well-formed.
+ * Whether the llamas are plausible is the save validator's job, not
+ * this endpoint's — the breed roll reads the sent farm, and the save
+ * re-checks every kid against the issued outcome and the neighbours.
+ */
+function farmShapeError(farm) {
+  if (
+    farm === null ||
+    typeof farm !== "object" ||
+    Array.isArray(farm) ||
+    Object.keys(farm).sort().join(",") !== "owned,stalls,unlockedTypes"
+  ) {
+    return "farm must be an object with owned, stalls, and unlockedTypes";
+  }
+  if (typeof farm.owned !== "boolean") {
+    return "farm.owned must be a boolean";
+  }
+  if (
+    !Array.isArray(farm.stalls) ||
+    farm.stalls.length !== FARM_CONFIG.stallCount
+  ) {
+    return `farm.stalls must be an array of ${FARM_CONFIG.stallCount} stalls`;
+  }
+  for (const stall of farm.stalls) {
+    if (
+      stall === null ||
+      typeof stall !== "object" ||
+      Array.isArray(stall) ||
+      Object.keys(stall).sort().join(",") !== "lighting,llama"
+    ) {
+      return "farm stalls must be objects with llama and lighting";
+    }
+    if (stall.llama !== null && !LLAMA_TYPES.includes(stall.llama)) {
+      return `farm stall has an unknown llama type: ${stall.llama}`;
+    }
+    if (!FARM_LIGHTING_COLORS.includes(stall.lighting)) {
+      return `farm stall has an unknown lighting color: ${stall.lighting}`;
+    }
+  }
+  if (!Array.isArray(farm.unlockedTypes)) {
+    return "farm.unlockedTypes must be an array";
+  }
+  for (const type of farm.unlockedTypes) {
+    if (!LLAMA_TYPES.includes(type)) {
+      return `farm.unlockedTypes has an unknown llama type: ${type}`;
+    }
+  }
+  if (new Set(farm.unlockedTypes).size !== farm.unlockedTypes.length) {
+    return "farm.unlockedTypes must not contain duplicates";
+  }
+  if (!farm.owned) {
+    if (farm.stalls.some((stall) => stall.llama !== null)) {
+      return "farm has llamas but is not owned";
+    }
+    if (farm.unlockedTypes.length > 0) {
+      return "farm has unlocked types but is not owned";
+    }
+  }
+  for (const stall of farm.stalls) {
+    if (
+      stall.llama !== null &&
+      !farm.unlockedTypes.includes(stall.llama)
+    ) {
+      return `farm stall holds a llama type that is not unlocked: ${stall.llama}`;
+    }
+  }
+  return null;
+}
+
 export function createStore(pool) {
   return {
     async ensureSchema() {
@@ -172,6 +253,36 @@ export function createStore(pool) {
       await pool.query(`
         CREATE INDEX IF NOT EXISTS star_issues_player_unconsumed
           ON star_issues (player_id) WHERE consumed_at IS NULL
+      `);
+      // Server-rolled farm breeding (issue #79 feedback): when the
+      // player last called POST /api/farm/breed (the breed cooldown
+      // runs from it — one roll per breedingTickSeconds, so the client
+      // cannot spam the endpoint to re-roll for a new type).
+      await pool.query(`
+        ALTER TABLE git_saves
+          ADD COLUMN IF NOT EXISTS last_farm_breed_at_ms BIGINT
+      `);
+      // Server-issued breed outcomes (issue #79 feedback). The server
+      // rolls each breeding tick's outcome and records it here; a
+      // save's farm breed claim is only valid if its kids match an
+      // unconsumed issued outcome (see matchIssuedFarmBreeds in
+      // validate.js). An issued outcome is consumed by the accepted
+      // save that carries its claim. Orphaned rows (kids rolled but
+      // never saved, e.g. the tab closed first) linger harmlessly:
+      // they can only ever authorize the exact outcome that was
+      // legitimately rolled.
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS farm_breed_issues (
+          breed_id UUID PRIMARY KEY,
+          player_id UUID NOT NULL,
+          outcome JSONB NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          consumed_at TIMESTAMPTZ
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS farm_breed_issues_player_unconsumed
+          ON farm_breed_issues (player_id) WHERE consumed_at IS NULL
       `);
     },
 
@@ -783,6 +894,147 @@ export function createStore(pool) {
     },
 
     /**
+     * The player's unconsumed server-issued breed outcomes (issue #79
+     * feedback), as `{ breedId, kids, issuedAtMs }` (kids is the list of
+     * `{ stallIndex, type }` the server rolled). A save's farm breed
+     * claims are only valid if their kids match these. Each entry also
+     * carries `issuedAtMs` (from farm_breed_issues.issued_at), so the
+     * validator can expire outcomes issuedBreedValidSeconds after issue.
+     */
+    async getIssuedFarmBreeds(playerId) {
+      const res = await pool.query(
+        `SELECT breed_id, outcome, issued_at FROM farm_breed_issues
+         WHERE player_id = $1 AND consumed_at IS NULL
+         ORDER BY issued_at ASC`,
+        [playerId]
+      );
+      return res.rows.map((row) => ({
+        breedId: row.breed_id,
+        kids: row.outcome?.kids ?? [],
+        issuedAtMs: new Date(row.issued_at).getTime(),
+      }));
+    },
+
+    /**
+     * Roll one farm breeding tick server-side (issue #79 feedback).
+     * The client calls POST /api/farm/breed on the breeding interval
+     * with its current farm; the server rolls (using the shared
+     * rollFarmBreeding, same mood/lighting odds) and records the
+     * outcome as issued, so the save is only valid if the kids match
+     * what the server rolled. The client applies exactly the returned
+     * kids and reports them in the next save.
+     *
+     * The roll reads the farm the client sent (which can include llamas
+     * bought since the last save — a purchase saves promptly, but the
+     * breed tick can fire before the heartbeat lands it). The save
+     * validation is the final gate: a kid is only accepted if it
+     * matches an issued outcome AND sits between two llamas in the
+     * saved state, so a farm the client faked for the roll cannot
+     * produce a kid the save will accept without the neighbours
+     * actually being there (bought and paid for).
+     *
+     * One roll per breedingTickSeconds per player (the cooldown runs
+     * from last_farm_breed_at_ms, 5s grace for timer jitter): the
+     * client cannot spam the endpoint to re-roll for a new type. The
+     * cooldown updates on every call, even a no-kid one.
+     *
+     * Returns one of:
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "invalid-farm", detail }` (malformed farm)
+     * - `{ status: "not-owned" }` (the farm has not been bought)
+     * - `{ status: "cooldown", secondsRemaining }`
+     * - `{ status: "ok", breedId, kids }` (breedId is null when no kid
+     *   was born — nothing to record, nothing to claim)
+     */
+    async breedFarm(playerId, farm, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT state, last_farm_breed_at_ms FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const farmError = farmShapeError(farm);
+        if (farmError) {
+          await client.query("ROLLBACK");
+          return { status: "invalid-farm", detail: farmError };
+        }
+        if (!farm.owned) {
+          await client.query("ROLLBACK");
+          return { status: "not-owned" };
+        }
+        const lastBreedAtMs = res.rows[0].last_farm_breed_at_ms;
+        const cooldownMs = FARM_CONFIG.breedingTickSeconds * 1000;
+        const BREED_GRACE_MS = 5000;
+        if (
+          lastBreedAtMs !== null &&
+          nowMs < Number(lastBreedAtMs) + cooldownMs - BREED_GRACE_MS
+        ) {
+          await client.query("ROLLBACK");
+          return {
+            status: "cooldown",
+            secondsRemaining: Math.max(
+              0,
+              Math.ceil(
+                (Number(lastBreedAtMs) + cooldownMs - nowMs) / 1000
+              )
+            ),
+          };
+        }
+        // Roll the breeding tick server-side from the sent farm.
+        const { stalls } = rollFarmBreeding(
+          farm.stalls,
+          farm.unlockedTypes ?? []
+        );
+        // Diff the rolled stalls against the sent farm to find which
+        // stalls gained a kid and what type. The shared helper returns
+        // only the kid types, not their stalls, so the diff is the
+        // source of the stall indices.
+        const kids = [];
+        for (let i = 0; i < stalls.length; i++) {
+          if (!farm.stalls[i].llama && stalls[i].llama) {
+            kids.push({ stallIndex: i, type: stalls[i].llama });
+          }
+        }
+        // Record the cooldown on every call, even a no-kid one, so the
+        // client cannot spam no-kid rolls to fish for a new type.
+        await client.query(
+          `UPDATE git_saves SET last_farm_breed_at_ms = $1 WHERE player_id = $2`,
+          [nowMs, playerId]
+        );
+        let breedId = null;
+        if (kids.length > 0) {
+          breedId = randomUUID();
+          await client.query(
+            `INSERT INTO farm_breed_issues (breed_id, player_id, outcome, issued_at)
+             VALUES ($1, $2, $3, $4)`,
+            [
+              breedId,
+              playerId,
+              JSON.stringify({ kids }),
+              new Date(nowMs).toISOString(),
+            ]
+          );
+        }
+        await client.query("COMMIT");
+        return { status: "ok", breedId, kids };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
      * Validate and store a save, atomically. `body` is the parsed save
      * request (`{ playerId, state, actionsSinceLastSave }`).
      * Returns one of:
@@ -820,7 +1072,28 @@ export function createStore(pool) {
           ...row.claim,
           issuedAtMs: new Date(row.issued_at).getTime(),
         }));
-        const verdict = validateSave(prev, body, nowMs, issuedClaims);
+        // Server-rolled farm breeding (issue #79 feedback): a save's
+        // farm breed claims are only valid if their kids match a
+        // server-issued, unconsumed breed outcome. Same transaction
+        // and same lock as the star claims above.
+        const issuedBreedRows = await client.query(
+          `SELECT breed_id, outcome, issued_at FROM farm_breed_issues
+           WHERE player_id = $1 AND consumed_at IS NULL
+           ORDER BY issued_at ASC`,
+          [playerId]
+        );
+        const issuedBreeds = issuedBreedRows.rows.map((row) => ({
+          breedId: row.breed_id,
+          kids: row.outcome?.kids ?? [],
+          issuedAtMs: new Date(row.issued_at).getTime(),
+        }));
+        const verdict = validateSave(
+          prev,
+          body,
+          nowMs,
+          issuedClaims,
+          issuedBreeds
+        );
         if (!verdict.ok) {
           await client.query("ROLLBACK");
           return {
@@ -854,6 +1127,21 @@ export function createStore(pool) {
             [new Date(nowMs).toISOString(), claimId, playerId]
           );
         }
+        // Consume the issued breed outcomes this save carried, same
+        // pattern as the star claims above (one UPDATE per breedId).
+        const sentBreeds = body.actionsSinceLastSave?.farmBreedClaims ?? [];
+        const breedMatch = matchIssuedFarmBreeds(
+          sentBreeds,
+          issuedBreeds,
+          nowMs
+        );
+        for (const breedId of breedMatch.breedIds) {
+          await client.query(
+            `UPDATE farm_breed_issues SET consumed_at = $1
+             WHERE breed_id = $2 AND player_id = $3`,
+            [new Date(nowMs).toISOString(), breedId, playerId]
+          );
+        }
         await client.query("COMMIT");
         return { status: "ok", state: body.state, savedAtMs: nowMs };
       } catch (err) {
@@ -871,8 +1159,9 @@ export function createStore(pool) {
     /**
      * Reset a player's progress (Danger Zone): overwrite their save row
      * with the fresh initial state and clear all server-side star state
-     * (next spawn time, bought-star cooldown/pending star), and consume
-     * any unconsumed issued star outcomes so a pre-reset claim can
+     * (next spawn time, bought-star cooldown/pending star) and farm
+     * breed state (last breed time), and consume any unconsumed issued
+     * star outcomes and farm breed outcomes so a pre-reset claim can
      * never be replayed against the fresh save. The account link
      * (user_id) is untouched — the player keeps the same playerId and
      * the same link; only the progress goes to 0. A normal save can
@@ -904,12 +1193,18 @@ export function createStore(pool) {
            SET state = $1, saved_at = $2,
                next_star_at_ms = NULL,
                last_star_buy_at_ms = NULL,
-               bought_star_at_ms = NULL
+               bought_star_at_ms = NULL,
+               last_farm_breed_at_ms = NULL
            WHERE player_id = $3`,
           [JSON.stringify(state), new Date(nowMs).toISOString(), playerId]
         );
         await client.query(
           `UPDATE star_issues SET consumed_at = $1
+           WHERE player_id = $2 AND consumed_at IS NULL`,
+          [new Date(nowMs).toISOString(), playerId]
+        );
+        await client.query(
+          `UPDATE farm_breed_issues SET consumed_at = $1
            WHERE player_id = $2 AND consumed_at IS NULL`,
           [new Date(nowMs).toISOString(), playerId]
         );

@@ -1,19 +1,23 @@
 /**
- * Tests for the llama farm mini-game (issue #79): the purchase, the
- * breeding rules, and the old-save migration that backfills the farm.
+ * Tests for the llama farm mini-game (issue #79): the purchase, llama
+ * buying, and the server-rolled breeding rules, plus the old-save
+ * migration that backfills the farm.
  *
- * Key numbers: farm costs 25000c ($250); 9 stalls in a 3x3 grid;
- * breeding check every 5s; the starting barn holds 5 llamas (3 Classic,
- * 2 Drama) in a checkerboard, so all 4 empty stalls sit between llamas
- * and can breed from the start. A kid can only be born in a stall with
- * at least two llama neighbours, and no more kids can be born in a
- * window than there were empty stalls when the window started (each kid
- * fills a distinct empty stall).
+ * Key numbers (issue #79 feedback): farm costs 1000000c ($10,000); 9
+ * stalls in a 3x3 grid; breeding check every 60s, rolled on the SERVER
+ * (POST /api/farm/breed) — the client never rolls breeding. The barn
+ * arrives EMPTY (no free llamas); base llamas cost 50000c ($500) each
+ * in the shop, and bred types come only from breeding. A kid can only
+ * be born in a stall with at least two llama neighbours, and no more
+ * kids can be born in a window than there were empty stalls when the
+ * window started (each kid fills a distinct empty stall). A save only
+ * accepts a kid that matches a server-issued breed outcome — a
+ * client-injected kid is rejected.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateSave } from "../src/validate.js";
+import { validateSave, matchIssuedFarmBreeds } from "../src/validate.js";
 import {
   FARM_CONFIG,
   LLAMA_BASE_TYPES,
@@ -22,7 +26,6 @@ import {
   farmLlamaCount,
   farmMaxKidsPerWindow,
   farmStallNeighbours,
-  farmStartingStalls,
   initialFarmState,
   initialSaveState,
   normalizeSaveState,
@@ -32,6 +35,8 @@ import {
 
 const T0 = 1_700_000_000_000;
 const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
+const BREED_ID = "123e4567-e89b-42d3-a456-426614174001";
+const BREED_ID_2 = "123e4567-e89b-42d3-a456-426614174002";
 
 function zeroActions() {
   return {
@@ -59,6 +64,7 @@ function zeroActions() {
       starBroker: 0,
     },
     starClaims: [],
+    farmBreedClaims: [],
   };
 }
 
@@ -82,8 +88,37 @@ function stateWith(overrides) {
   return state;
 }
 
-/** A farm-owned state: the starting barn, with the given money. */
+/**
+ * A stocked barn: 5 bought llamas (3 Classic, 2 Drama) in a
+ * checkerboard (stalls 0, 2, 4, 6, 8), so all four empty stalls sit
+ * between llamas and can breed. This is a player who bought the farm
+ * and then bought 5 llamas — the barn never starts stocked anymore.
+ */
+function stockedFarm() {
+  const placed = {
+    0: "classic",
+    2: "drama",
+    4: "classic",
+    6: "drama",
+    8: "classic",
+  };
+  return {
+    owned: true,
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, (_, i) => ({
+      llama: placed[i] ?? null,
+      lighting: "warm",
+    })),
+    unlockedTypes: [...LLAMA_BASE_TYPES],
+  };
+}
+
+/** A farm-owned state: the stocked barn, with the given money. */
 function ownedFarmState(money) {
+  return stateWith({ money, farm: stockedFarm() });
+}
+
+/** An owned but EMPTY barn (just bought, no llamas yet). */
+function emptyOwnedFarmState(money) {
   return stateWith({ money, farm: initialFarmState() });
 }
 
@@ -93,6 +128,27 @@ function withStall(farm, index, stall) {
     i === index ? { ...entry, ...stall } : { ...entry }
   );
   return { ...farm, stalls };
+}
+
+/** One issued breed outcome, as the store would read it. */
+function issuedBreed(breedId, kids, issuedAtMs = T0) {
+  return { breedId, kids, issuedAtMs };
+}
+
+/** One farm breed claim, as the client would send it. */
+function breedClaim(breedId, kids) {
+  return { breedId, kids };
+}
+
+/** validateSave with the given issued farm breeds (no star claims). */
+function validateWithBreeds(before, after, actions, issuedBreeds, nowMs) {
+  return validateSave(
+    prev(before, T0),
+    body(after, actions),
+    nowMs,
+    [],
+    issuedBreeds
+  );
 }
 
 // ---- Shared breeding helpers ----
@@ -108,18 +164,28 @@ test("farmStallNeighbours returns the orthogonal neighbours", () => {
   assert.deepEqual(farmStallNeighbours(8), [7, 5]);
 });
 
-test("the starting barn leaves all four empty stalls breed-eligible", () => {
-  const stalls = farmStartingStalls();
+test("the stocked barn leaves all four empty stalls breed-eligible", () => {
+  const stalls = stockedFarm().stalls;
   assert.equal(farmLlamaCount(stalls), 5);
   assert.deepEqual(farmEligibleBreedingStalls(stalls), [1, 3, 5, 7]);
   // The cap is the empty-stall count: each kid fills a distinct stall.
   assert.equal(farmMaxKidsPerWindow(stalls), 4);
 });
 
+test("the farm starts empty: no free llamas, no unlocked types", () => {
+  const farm = initialFarmState();
+  assert.equal(farm.owned, true);
+  assert.equal(farmLlamaCount(farm.stalls), 0);
+  assert.deepEqual(farm.unlockedTypes, []);
+  assert.equal(FARM_CONFIG.purchaseCostCents, 1000000);
+  assert.equal(FARM_CONFIG.llamaPriceCents, 50000);
+  assert.equal(FARM_CONFIG.breedingTickSeconds, 60);
+});
+
 test("rollFarmBreeding with a rigged rng fills every eligible stall", () => {
   // rng() always returns 0: every kid roll succeeds, and every kid is
   // the first undiscovered type (spaghetti — the base types are taken).
-  const stalls = farmStartingStalls();
+  const stalls = stockedFarm().stalls;
   const { stalls: next, kidsBorn } = rollFarmBreeding(
     stalls,
     [...LLAMA_BASE_TYPES],
@@ -134,7 +200,7 @@ test("rollFarmBreeding with a rigged rng fills every eligible stall", () => {
 });
 
 test("rollFarmKid returns null for an occupied stall or a lone neighbour", () => {
-  const stalls = farmStartingStalls();
+  const stalls = stockedFarm().stalls;
   // Occupied stall 0 never breeds.
   assert.equal(rollFarmKid(0, stalls, [...LLAMA_BASE_TYPES], () => 0), null);
   // A stall with only one llama neighbour never breeds, even with a
@@ -150,7 +216,7 @@ test("rollFarmKid picks a parent type when the new-type roll fails", () => {
   const calls = [0.1, 0.9, 0];
   let i = 0;
   const rng = () => calls[i++];
-  const stalls = farmStartingStalls();
+  const stalls = stockedFarm().stalls;
   stalls[1] = { llama: null, lighting: "red" };
   const type = rollFarmKid(1, stalls, [...LLAMA_BASE_TYPES], rng);
   // Stall 1's parents are classic (0), drama (2), classic (4).
@@ -159,10 +225,10 @@ test("rollFarmKid picks a parent type when the new-type roll fails", () => {
 
 // ---- Farm purchase ----
 
-test("buying the farm deducts the cost and places the 5 starting llamas", () => {
-  const before = stateWith({ money: 100000, farm: emptyFarmState() });
+test("buying the farm deducts $10,000 and leaves the barn empty", () => {
+  const before = stateWith({ money: 2000000, farm: emptyFarmState() });
   const after = stateWith({
-    money: 100000 - FARM_CONFIG.purchaseCostCents,
+    money: 2000000 - FARM_CONFIG.purchaseCostCents,
     farm: initialFarmState(),
   });
   const result = validateSave(
@@ -174,10 +240,10 @@ test("buying the farm deducts the cost and places the 5 starting llamas", () => 
 });
 
 test("buying the farm without enough money is rejected", () => {
-  // 10000c is less than the 25000c farm cost, and the new money does
+  // 500000c is less than the 1000000c farm cost, and the new money does
   // not deduct it — the MONEY rule catches the unpaid purchase.
-  const before = stateWith({ money: 10000, farm: emptyFarmState() });
-  const after = stateWith({ money: 10000, farm: initialFarmState() });
+  const before = stateWith({ money: 500000, farm: emptyFarmState() });
+  const after = stateWith({ money: 500000, farm: initialFarmState() });
   const result = validateSave(
     prev(before, T0),
     body(after, zeroActions()),
@@ -187,55 +253,23 @@ test("buying the farm without enough money is rejected", () => {
   assert.equal(result.rule, "MONEY");
 });
 
-test("buying the farm with the wrong llama count is rejected", () => {
-  const before = stateWith({ money: 100000, farm: emptyFarmState() });
-  const farm = initialFarmState();
-  // Drop the llama in stall 8: only 4 llamas placed.
-  farm.stalls = farm.stalls.map((stall, i) =>
-    i === 8 ? { ...stall, llama: null } : stall
-  );
+test("buying the farm and two llamas in one window is accepted", () => {
+  // The farm and the llamas can be bought in the same 60s window: the
+  // barn holds the two bought base llamas, the unlocked list is
+  // exactly their types, and the money deducts the farm plus both
+  // llamas.
+  const before = stateWith({ money: 2000000, farm: emptyFarmState() });
+  let farm = initialFarmState();
+  farm = withStall(farm, 0, { llama: "classic" });
+  farm = withStall(farm, 4, { llama: "drama" });
+  farm.unlockedTypes = ["classic", "drama"];
   const after = stateWith({
-    money: 100000 - FARM_CONFIG.purchaseCostCents,
+    money:
+      2000000 -
+      FARM_CONFIG.purchaseCostCents -
+      2 * FARM_CONFIG.llamaPriceCents,
     farm,
   });
-  const result = validateSave(
-    prev(before, T0),
-    body(after, zeroActions()),
-    T0 + 60_000
-  );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
-});
-
-test("buying the farm with a non-base llama type is rejected", () => {
-  const before = stateWith({ money: 100000, farm: emptyFarmState() });
-  const farm = initialFarmState();
-  // Swap the classic in stall 8 for a quantum llama: a new type cannot
-  // be sitting in the barn before any breeding has happened.
-  farm.stalls = farm.stalls.map((stall, i) =>
-    i === 8 ? { ...stall, llama: "quantum" } : stall
-  );
-  farm.unlockedTypes = [...LLAMA_BASE_TYPES, "quantum"];
-  const after = stateWith({
-    money: 100000 - FARM_CONFIG.purchaseCostCents,
-    farm,
-  });
-  const result = validateSave(
-    prev(before, T0),
-    body(after, zeroActions()),
-    T0 + 60_000
-  );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
-});
-
-// ---- Breeding ----
-
-test("a kid born in an eligible stall is accepted", () => {
-  const before = ownedFarmState(75000);
-  // A classic kid in stall 1: its neighbours (0, 2, 4) are all llamas.
-  const farm = withStall(before.farm, 1, { llama: "classic" });
-  const after = stateWith({ money: 75000, farm });
   const result = validateSave(
     prev(before, T0),
     body(after, zeroActions()),
@@ -244,9 +278,172 @@ test("a kid born in an eligible stall is accepted", () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a kid of a brand-new type is accepted and unlocks the type", () => {
+test("buying the farm with a non-base llama is rejected", () => {
+  const before = stateWith({ money: 2000000, farm: emptyFarmState() });
+  let farm = initialFarmState();
+  farm = withStall(farm, 0, { llama: "quantum" });
+  farm.unlockedTypes = ["quantum"];
+  const after = stateWith({
+    money:
+      2000000 -
+      FARM_CONFIG.purchaseCostCents -
+      FARM_CONFIG.llamaPriceCents,
+    farm,
+  });
+  const result = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
+});
+
+test("buying the farm while claiming an unlocked type with no llama is rejected", () => {
+  // The unlocked list at purchase must be exactly the types of the
+  // llamas in the barn — no type is unlocked for free.
+  const before = stateWith({ money: 2000000, farm: emptyFarmState() });
+  const farm = initialFarmState();
+  farm.unlockedTypes = ["classic"];
+  const after = stateWith({
+    money: 2000000 - FARM_CONFIG.purchaseCostCents,
+    farm,
+  });
+  const result = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
+});
+
+// ---- Buying llamas ----
+
+test("buying a base llama deducts the price and places it", () => {
+  const before = emptyOwnedFarmState(100000);
+  const farm = withStall(before.farm, 0, { llama: "classic" });
+  farm.unlockedTypes = ["classic"];
+  const after = stateWith({
+    money: 100000 - FARM_CONFIG.llamaPriceCents,
+    farm,
+  });
+  const result = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test("buying a llama without enough money is rejected", () => {
+  // 10000c is less than the 50000c llama price, and the new money does
+  // not deduct it — the MONEY rule catches the unpaid llama.
+  const before = emptyOwnedFarmState(10000);
+  const farm = withStall(before.farm, 0, { llama: "classic" });
+  farm.unlockedTypes = ["classic"];
+  const after = stateWith({ money: 10000, farm });
+  const result = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "MONEY");
+});
+
+test("buying a non-base llama is rejected", () => {
+  // Bred types are never for sale — a quantum llama that was "bought"
+  // (not bred, no issued outcome) is tampered, not purchased.
+  const before = emptyOwnedFarmState(100000);
+  const farm = withStall(before.farm, 0, { llama: "quantum" });
+  farm.unlockedTypes = ["quantum"];
+  const after = stateWith({
+    money: 100000 - FARM_CONFIG.llamaPriceCents,
+    farm,
+  });
+  const result = validateSave(
+    prev(before, T0),
+    body(after, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
+});
+
+// ---- Breeding (server-rolled) ----
+
+test("a server-rolled kid born in an eligible stall is accepted", () => {
+  const before = ownedFarmState(75000);
+  // A classic kid in stall 1: its neighbours (0, 2, 4) are all llamas.
+  const farm = withStall(before.farm, 1, { llama: "classic" });
+  const after = stateWith({ money: 75000, farm });
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
+  ];
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test("a server-rolled kid of a brand-new type is accepted and unlocks the type", () => {
   const before = ownedFarmState(75000);
   // A spaghetti kid in stall 1: a new type, so the unlocked list grows.
+  const farm = withStall(before.farm, 1, { llama: "spaghetti" });
+  farm.unlockedTypes = [...LLAMA_BASE_TYPES, "spaghetti"];
+  const after = stateWith({ money: 75000, farm });
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 1, type: "spaghetti" }]),
+  ];
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "spaghetti" }])],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test("filling all four empty stalls in one server-rolled tick is accepted", () => {
+  // 4 kids, 4 empty stalls, one breed tick: exactly at the cap.
+  const before = ownedFarmState(75000);
+  let farm = before.farm;
+  for (const index of [1, 3, 5, 7]) {
+    farm = withStall(farm, index, { llama: "classic" });
+  }
+  const after = stateWith({ money: 75000, farm });
+  const kids = [1, 3, 5, 7].map((stallIndex) => ({
+    stallIndex,
+    type: "classic",
+  }));
+  const actions = zeroActions();
+  actions.farmBreedClaims = [breedClaim(BREED_ID, kids)];
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, kids)],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test("a client-injected kid with no issued outcome is rejected", () => {
+  // A spaghetti kid sits in an eligible stall and looks plausible —
+  // but the server never rolled it, so there is no breed claim and no
+  // issued outcome. A bred type cannot appear without a server roll.
+  // (A base-type kid without payment is caught by the money rule
+  // instead: it looks exactly like a bought llama the player did not
+  // pay for.)
+  const before = ownedFarmState(75000);
   const farm = withStall(before.farm, 1, { llama: "spaghetti" });
   farm.unlockedTypes = [...LLAMA_BASE_TYPES, "spaghetti"];
   const after = stateWith({ money: 75000, farm });
@@ -255,32 +452,81 @@ test("a kid of a brand-new type is accepted and unlocks the type", () => {
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
 });
 
-test("filling all four empty stalls in one window is accepted", () => {
-  // 4 kids, 4 empty stalls: exactly at the cap, so it validates.
+test("a breed claim that matches no issued outcome is rejected", () => {
   const before = ownedFarmState(75000);
-  let farm = before.farm;
-  for (const index of [1, 3, 5, 7]) {
-    farm = withStall(farm, index, { llama: "classic" });
-  }
+  const farm = withStall(before.farm, 1, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const result = validateSave(
-    prev(before, T0),
-    body(after, zeroActions()),
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
+  ];
+  // The issued outcome is a DIFFERENT breedId: the claim is forged.
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID_2, [{ stallIndex: 1, type: "classic" }])],
     T0 + 60_000
   );
-  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
+});
+
+test("a breed claim for a kid the server did not roll is rejected", () => {
+  const before = ownedFarmState(75000);
+  const farm = withStall(before.farm, 1, { llama: "classic" });
+  const after = stateWith({ money: 75000, farm });
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
+  ];
+  // The issued outcome rolled a DIFFERENT kid (stall 3, drama): the
+  // claim's kid is not one the server rolled.
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, [{ stallIndex: 3, type: "drama" }])],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
+});
+
+test("a breed claim for an expired issued outcome is rejected", () => {
+  const before = ownedFarmState(75000);
+  const farm = withStall(before.farm, 1, { llama: "classic" });
+  const after = stateWith({ money: 75000, farm });
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
+  ];
+  // Issued at T0, saved at T0 + 400s: past the 300s validity + 5s
+  // grace, so the outcome is stale even though it matches exactly.
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }], T0)],
+    T0 + 400_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "FARM");
 });
 
 test("a kid in a stall without two llama neighbours is rejected", () => {
   // A barn with llamas only at stalls 0 and 4: stall 6 has neighbours
   // 3 and 7, both empty, so a kid there was never between two llamas.
+  // Even with a matching issued outcome, the plausibility backstop
+  // rejects it.
   const before = ownedFarmState(75000);
   const sparse = {
     owned: true,
-    stalls: farmStartingStalls().map((stall, i) => ({
+    stalls: stockedFarm().stalls.map((stall, i) => ({
       ...stall,
       llama: i === 0 || i === 4 ? stall.llama : null,
     })),
@@ -289,13 +535,84 @@ test("a kid in a stall without two llama neighbours is rejected", () => {
   const beforeSparse = stateWith({ money: 75000, farm: sparse });
   const farm = withStall(sparse, 6, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const result = validateSave(
-    prev(beforeSparse, T0),
-    body(after, zeroActions()),
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 6, type: "classic" }]),
+  ];
+  const result = validateWithBreeds(
+    beforeSparse,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, [{ stallIndex: 6, type: "classic" }])],
     T0 + 60_000
   );
   assert.equal(result.ok, false);
   assert.equal(result.rule, "FARM");
+});
+
+test("a bought llama and a bred kid in one window are both accepted", () => {
+  // Stall 1 gets a bred classic kid (issued), stall 5 gets a bought
+  // drama llama (base type, paid for). The money deducts the llama.
+  const before = ownedFarmState(75000);
+  let farm = withStall(before.farm, 1, { llama: "classic" });
+  farm = withStall(farm, 5, { llama: "drama" });
+  const after = stateWith({
+    money: 75000 - FARM_CONFIG.llamaPriceCents,
+    farm,
+  });
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
+  ];
+  const result = validateWithBreeds(
+    before,
+    after,
+    actions,
+    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+// ---- Breed matcher ----
+
+test("matchIssuedFarmBreeds accepts an exact claim and returns its kids", () => {
+  const result = matchIssuedFarmBreeds(
+    [breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
+    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.breedIds, [BREED_ID]);
+  assert.deepEqual(result.kids, [{ stallIndex: 1, type: "classic" }]);
+});
+
+test("matchIssuedFarmBreeds accepts a claim that applies fewer kids than issued", () => {
+  // The server rolled two kids; the client only applied one (the
+  // other's stall was filled by a purchase). The claim is valid for
+  // the kid it applied.
+  const issued = [
+    issuedBreed(BREED_ID, [
+      { stallIndex: 1, type: "classic" },
+      { stallIndex: 3, type: "drama" },
+    ]),
+  ];
+  const result = matchIssuedFarmBreeds(
+    [breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
+    issued,
+    T0 + 60_000
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.kids, [{ stallIndex: 1, type: "classic" }]);
+});
+
+test("matchIssuedFarmBreeds rejects a claim with no matching outcome", () => {
+  const result = matchIssuedFarmBreeds(
+    [breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
+    [issuedBreed(BREED_ID_2, [{ stallIndex: 1, type: "classic" }])],
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
 });
 
 // ---- Monotonic farm rules ----
@@ -419,6 +736,22 @@ test("an unbought farm holding llamas is a shape error", () => {
   assert.equal(result.rule, "SHAPE");
 });
 
+test("a farm breed claim with a malformed breedId is a shape error", () => {
+  const before = ownedFarmState(75000);
+  const after = stateWith({ money: 75000, farm: before.farm });
+  const actions = zeroActions();
+  actions.farmBreedClaims = [
+    { breedId: "not-a-uuid", kids: [{ stallIndex: 1, type: "classic" }] },
+  ];
+  const result = validateSave(
+    prev(before, T0),
+    body(after, actions),
+    T0 + 60_000
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.rule, "SHAPE");
+});
+
 // ---- Old-save migration ----
 
 test("a save from before the farm shipped backfills to an empty farm", () => {
@@ -445,7 +778,7 @@ test("a save with a partial farm gets its missing pieces defaulted", () => {
   // llamas actually in the stalls.
   before.farm = {
     owned: true,
-    stalls: farmStartingStalls(),
+    stalls: stockedFarm().stalls,
     unlockedTypes: undefined,
   };
   const normalized = normalizeSaveState(before);
@@ -454,7 +787,7 @@ test("a save with a partial farm gets its missing pieces defaulted", () => {
     [...LLAMA_BASE_TYPES].sort()
   );
   const after = initialSaveState();
-  after.farm = initialFarmState();
+  after.farm = stockedFarm();
   after.money = 0;
   const result = validateSave(
     prev(normalized, T0),

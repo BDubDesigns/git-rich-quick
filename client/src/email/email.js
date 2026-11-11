@@ -362,9 +362,9 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
   const newTypes = newState.farm?.unlockedTypes ?? [];
   for (const type of newTypes) {
     if (prevTypes.includes(type)) continue;
-    // The base types are the starting llamas, not a discovery — the
-    // purchase email already covers them, so they never get a
-    // new-type email of their own.
+    // The base types are bought llamas, not a discovery — buying one
+    // is a routine purchase, not a new type, so they never get a
+    // new-type email of their own. Only bred types get one.
     if (LLAMA_BASE_TYPES.includes(type)) continue;
     send(
       buildFarmNewTypeEmail({

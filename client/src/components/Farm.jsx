@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
@@ -5,6 +6,7 @@ import {
   FARM_CONFIG,
   FARM_LIGHTING,
   FARM_LIGHTING_COLORS,
+  LLAMA_BASE_TYPES,
   LLAMA_TYPES,
   LLAMA_TYPE_DESCRIPTIONS,
   LLAMA_TYPE_NAMES,
@@ -17,11 +19,15 @@ import { formatMoney } from "../../../shared/formatNumber.js";
  * Llama Farm tab (issue #79). A business you buy with pure money, and
  * a breeding mini-game. No soil — the farm uses MOOD and STALLS.
  *
- * Each tile is a barn stall. Click a stall to cycle its lighting color
- * (the mood); the empty stall's own lighting sets the breeding odds for
- * a kid appearing there. An empty stall with two llamas beside it can
- * produce a kid, usually one of the parents' types, sometimes a
- * brand-new type. Llamas have no genders — any two can breed.
+ * Each tile is a barn stall. Click a stall with a llama to cycle its
+ * lighting color (the mood); the empty stall's own lighting sets the
+ * breeding odds for a kid appearing there. Click an empty stall to
+ * select it, then buy a base llama into it — no llamas come free with
+ * the barn. An empty stall with two llamas beside it can produce a
+ * kid, usually one of the parents' types, sometimes a brand-new type.
+ * Llamas have no genders — any two can breed. Breeding is rolled on
+ * the server (POST /api/farm/breed) every breedingTickSeconds, not on
+ * the client.
  *
  * There is no llama icon in react-icons, so the stalls render the
  * llama emoji. It is a game about llamas; the emoji is the point.
@@ -29,6 +35,8 @@ import { formatMoney } from "../../../shared/formatNumber.js";
 export function Farm() {
   const { state, dispatch } = useGameContext();
   const farm = state.farm ?? { owned: false, stalls: [], unlockedTypes: [] };
+  // The empty stall selected for buying a llama (null when none).
+  const [selectedStall, setSelectedStall] = useState(null);
 
   const handleBuyFarm = () => {
     dispatch({ type: "BUY_FARM" });
@@ -48,6 +56,30 @@ export function Farm() {
     });
   };
 
+  const handleStallClick = (stallIndex) => {
+    const stall = farm.stalls[stallIndex];
+    if (!stall) return;
+    if (stall.llama) {
+      // A stall with a llama: cycle its lighting (the mood).
+      setSelectedStall(null);
+      handleCycleLighting(stallIndex);
+      return;
+    }
+    // An empty stall: select it for buying (click again to deselect).
+    setSelectedStall((current) =>
+      current === stallIndex ? null : stallIndex
+    );
+  };
+
+  const handleBuyLlama = (type) => {
+    if (selectedStall === null) return;
+    dispatch({
+      type: "BUY_LLAMA",
+      payload: { stallIndex: selectedStall, type },
+    });
+    setSelectedStall(null);
+  };
+
   if (!farm.owned) {
     const canAfford = state.money >= FARM_CONFIG.purchaseCostCents;
     return (
@@ -60,10 +92,11 @@ export function Farm() {
             unionizing. The barn has mood lighting. This is fine.
           </p>
           <p className="m-0">
-            Buy the barn and 5 llamas move in — 3 Classics, 2 Dramas.
-            Set the lights, let them breed, and discover new types. The
-            farm generates no cash yet (that is the next slice); for now
-            it generates llamas, which is arguably better.
+            Buy the barn and it arrives empty — no llamas come with it.
+            Buy base llamas, move them in, set the lights, and let them
+            breed to discover new types. The farm generates no cash yet
+            (that is the next slice); for now it generates llamas, which
+            is arguably better.
           </p>
           <Button onClick={handleBuyFarm} disabled={!canAfford}>
             Buy the Llama Farm — {formatMoney(FARM_CONFIG.purchaseCostCents)}
@@ -81,19 +114,29 @@ export function Farm() {
 
   const eligible = farmEligibleBreedingStalls(farm.stalls);
   const llamaCount = farmLlamaCount(farm.stalls);
+  const canAffordLlama = state.money >= FARM_CONFIG.llamaPriceCents;
+  const selectedStallState =
+    selectedStall !== null ? farm.stalls[selectedStall] : null;
+  const selectedStallEmpty =
+    selectedStallState !== null && selectedStallState.llama === null;
 
   return (
     <SectionLayout sectionId="farm">
       <p className="m-0 text-sm">
         {llamaCount} {llamaCount === 1 ? "llama" : "llamas"} in the barn.{" "}
-        {eligible.length > 0
-          ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now — a kid appears about every few breeding ticks.`
-          : "No empty stall sits between two llamas right now, so nothing can breed."}{" "}
-        Click a stall to cycle its lighting (the mood).
+        {llamaCount === 0
+          ? "The barn is empty — buy your first llamas below to start breeding."
+          : eligible.length > 0
+            ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now — a kid appears about every few breeding ticks (one tick every ${FARM_CONFIG.breedingTickSeconds}s).`
+            : "No empty stall sits between two llamas right now, so nothing can breed."}{" "}
+        Click a llama's stall to cycle its lighting (the mood); click an
+        empty stall to buy a llama into it.
       </p>
 
       {/* Barn stalls: a 3x3 grid. Each stall shows its llama (or Empty)
-          and its lighting color as a tint. Clicking cycles the mood. */}
+          and its lighting color as a tint. Clicking a llama's stall
+          cycles the mood; clicking an empty stall selects it for
+          buying. */}
       <div
         className="grid grid-cols-3 gap-2"
         role="group"
@@ -102,24 +145,33 @@ export function Farm() {
         {farm.stalls.map((stall, index) => {
           const lighting = FARM_LIGHTING[stall.lighting] ?? FARM_LIGHTING.warm;
           const isEligible = eligible.includes(index);
+          const isSelected = selectedStall === index;
           return (
             <button
               key={index}
               type="button"
-              onClick={() => handleCycleLighting(index)}
+              onClick={() => handleStallClick(index)}
               className="flex flex-col items-center gap-1 p-2 border rounded min-h-[84px] cursor-pointer"
               style={{
                 backgroundColor: `${lighting.color}22`,
-                borderColor: isEligible ? lighting.color : "#3a3a3a",
-                borderWidth: isEligible ? 2 : 1,
+                borderColor: isSelected
+                  ? "#ffffff"
+                  : isEligible
+                    ? lighting.color
+                    : "#3a3a3a",
+                borderWidth: isSelected || isEligible ? 2 : 1,
               }}
-              title={`${lighting.label}: ${lighting.description} Click to change the lighting.`}
+              title={
+                stall.llama
+                  ? `${lighting.label}: ${lighting.description} Click to change the lighting.`
+                  : `${lighting.label}: ${lighting.description} Click to buy a llama into this stall.`
+              }
               aria-label={
                 stall.llama
                   ? `Stall ${index + 1}: ${LLAMA_TYPE_NAMES[stall.llama]}, ${lighting.label} lighting`
                   : `Stall ${index + 1}: empty, ${lighting.label} lighting${
                       isEligible ? ", can breed" : ""
-                    }`
+                    }${isSelected ? ", selected for buying" : ""}`
               }
             >
               <span className="text-2xl" aria-hidden="true">
@@ -131,11 +183,41 @@ export function Farm() {
               <span className="text-xs" style={{ color: lighting.color }}>
                 {lighting.label}
                 {isEligible ? " · can breed" : ""}
+                {isSelected ? " · selected" : ""}
               </span>
             </button>
           );
         })}
       </div>
+
+      {/* Buy a llama into the selected empty stall. */}
+      {selectedStallEmpty && (
+        <div className="flex flex-col gap-2 p-3 border border-[#3a3a3a] rounded bg-[#1e1e1e]">
+          <p className="m-0 text-sm">
+            Buy a llama for stall {selectedStall + 1} —{" "}
+            {formatMoney(FARM_CONFIG.llamaPriceCents)} each. Only the base
+            types are for sale; new types come only from breeding.
+          </p>
+          <div className="flex gap-2">
+            {LLAMA_BASE_TYPES.map((type) => (
+              <Button
+                key={type}
+                onClick={() => handleBuyLlama(type)}
+                disabled={!canAffordLlama}
+              >
+                Buy {LLAMA_TYPE_NAMES[type]} —{" "}
+                {formatMoney(FARM_CONFIG.llamaPriceCents)}
+              </Button>
+            ))}
+          </div>
+          {!canAffordLlama && (
+            <p className="m-0 text-sm">
+              You need {formatMoney(FARM_CONFIG.llamaPriceCents)} — ship
+              some projects first.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Lighting legend: what each mood does. */}
       <div className="flex flex-col gap-1 text-sm">

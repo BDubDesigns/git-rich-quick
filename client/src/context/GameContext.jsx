@@ -11,6 +11,7 @@ import {
 // the engine reads and restores.
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
+import { SAVE_API_URL, breedFarm } from "../save/api.js";
 
 // Shared balance numbers — the reducer uses them for bulk pricing
 // (BUY_EMPLOYEE). Display configs live in gameConfig.js.
@@ -136,11 +137,16 @@ const initialState = {
   unlockedCosmetics: [],
   equippedCosmetics: {},
   // Llama farm (issue #79). The farm state (owned, stalls, unlocked
-  // types) is saved with the game state; farmBreedTicks is transient
-  // (not saved) — it counts GAME_TICKs toward the next breeding check,
-  // which runs every FARM_CONFIG.breedingTickSeconds.
+  // types) is saved with the game state; farmBreedTicks and
+  // farmBreedDue are transient (not saved) — farmBreedTicks counts
+  // GAME_TICKs toward the next breeding check, which runs every
+  // FARM_CONFIG.breedingTickSeconds, and farmBreedDue is set when a
+  // check is due so the provider's breed effect calls the server
+  // (POST /api/farm/breed) and dispatches FARM_BREED_RESULT. The roll
+  // is server-side (issue #79 feedback), never in the reducer.
   farm: shared.emptyFarmState(),
   farmBreedTicks: 0,
+  farmBreedDue: false,
   // The email currently open in the Email tab (transient UI state, not saved).
   selectedEmailId: null,
   // The email the notification bar is showing (transient UI state, not saved).
@@ -309,12 +315,12 @@ function gameReducer(state, action) {
 
     // Buy the llama farm (issue #79). A one-time money purchase: the
     // money is the gate, the farm has no unlock condition in v1. The
-    // purchase places the 5 starting llamas (3 Classic, 2 Drama) and
-    // unlocks the two base types. It is a big-action save trigger (see
-    // serialize.js), so the purchase persists promptly. A second buy
-    // (already owned) or an unaffordable buy is ignored here; the
-    // server rejects it too, so a tampered save cannot buy the farm
-    // twice or for free.
+    // barn arrives EMPTY — no free llamas (issue #79 feedback); buy
+    // base llamas with BUY_LLAMA to move in. It is a big-action save
+    // trigger (see serialize.js), so the purchase persists promptly. A
+    // second buy (already owned) or an unaffordable buy is ignored
+    // here; the server rejects it too, so a tampered save cannot buy
+    // the farm twice or for free.
     case "BUY_FARM": {
       const farm = state.farm ?? shared.emptyFarmState();
       if (farm.owned) return state;
@@ -356,6 +362,104 @@ function gameReducer(state, action) {
         i === stallIndex ? { ...stall, lighting } : stall
       );
       return { ...state, farm: { ...farm, stalls } };
+    }
+
+    // Buy one base llama into an empty stall (issue #79 feedback — no
+    // free llamas, each base llama is bought separately). Payload:
+    // { stallIndex, type }. Only the two base types are for sale; bred
+    // types come only from breeding, never from the shop. The farm must
+    // be owned, the stall must be empty, and the player must afford
+    // FARM_CONFIG.llamaPriceCents. Buying unlocks the type (a bought
+    // Classic unlocks Classic) and is a big-action save trigger (the
+    // farm llama count changes, see serialize.js), so it persists
+    // promptly. An invalid buy is ignored here; the server rejects it
+    // too, so a tampered save cannot buy a llama for free, into an
+    // occupied stall, or of a bred type.
+    case "BUY_LLAMA": {
+      const { stallIndex, type } = action.payload ?? {};
+      const farm = state.farm ?? shared.emptyFarmState();
+      if (!farm.owned) return state;
+      if (
+        typeof stallIndex !== "number" ||
+        stallIndex < 0 ||
+        stallIndex >= shared.FARM_CONFIG.stallCount ||
+        !shared.LLAMA_BASE_TYPES.includes(type)
+      ) {
+        return state;
+      }
+      const stall = farm.stalls[stallIndex];
+      if (!stall || stall.llama !== null) return state;
+      if (state.money < shared.FARM_CONFIG.llamaPriceCents) return state;
+      const stalls = farm.stalls.map((entry, i) =>
+        i === stallIndex ? { ...entry, llama: type } : entry
+      );
+      const unlockedTypes = (farm.unlockedTypes ?? []).includes(type)
+        ? [...(farm.unlockedTypes ?? [])]
+        : [...(farm.unlockedTypes ?? []), type];
+      const newState = {
+        ...state,
+        money: state.money - shared.FARM_CONFIG.llamaPriceCents,
+        farm: { ...farm, stalls, unlockedTypes },
+      };
+      const latched = {
+        ...newState,
+        unlockedEmployees: updateUnlockLatch(newState),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+        unlockedFreelanceProjects:
+          updateFreelanceProjectUnlockLatch(newState),
+      };
+      return withEmailTriggers(state, latched);
+    }
+
+    // Apply a server-rolled breeding result (issue #79 feedback).
+    // Payload: { kids } — the list of { stallIndex, type } the server
+    // rolled in POST /api/farm/breed. A kid is placed only if its stall
+    // is still empty (a llama bought into that stall after the breed
+    // call wins — the kid is then never born, and its issued outcome
+    // simply goes unconsumed). New types join the unlocked list. The
+    // breed claim itself is recorded with the save engine by the
+    // provider's breed effect, in the same handler that dispatches
+    // this, so the claim and the state change can never disagree. The
+    // farmBreedDue flag is cleared here: the next breeding check is
+    // due after another breedingTickSeconds ticks. A payload with no
+    // kids (a no-birth tick) just clears the flag.
+    case "FARM_BREED_RESULT": {
+      const { kids } = action.payload ?? {};
+      const farm = state.farm ?? shared.emptyFarmState();
+      if (!farm.owned) return { ...state, farmBreedDue: false };
+      const stalls = farm.stalls.map((stall) => ({ ...stall }));
+      const unlockedTypes = [...(farm.unlockedTypes ?? [])];
+      for (const kid of kids ?? []) {
+        if (
+          typeof kid?.stallIndex !== "number" ||
+          kid.stallIndex < 0 ||
+          kid.stallIndex >= shared.FARM_CONFIG.stallCount ||
+          !shared.LLAMA_TYPES.includes(kid.type)
+        ) {
+          continue;
+        }
+        if (stalls[kid.stallIndex].llama !== null) continue;
+        stalls[kid.stallIndex] = {
+          ...stalls[kid.stallIndex],
+          llama: kid.type,
+        };
+        if (!unlockedTypes.includes(kid.type)) {
+          unlockedTypes.push(kid.type);
+        }
+      }
+      const newState = {
+        ...state,
+        farm: { ...farm, stalls, unlockedTypes },
+        farmBreedDue: false,
+      };
+      const latched = {
+        ...newState,
+        unlockedEmployees: updateUnlockLatch(newState),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+        unlockedFreelanceProjects:
+          updateFreelanceProjectUnlockLatch(newState),
+      };
+      return withEmailTriggers(state, latched);
     }
 
     // Handle freelance project completion
@@ -420,32 +524,25 @@ function gameReducer(state, action) {
         (buff) => buff.expiresAtMs > now
       );
 
-      // Llama farm breeding (issue #79): every
-      // FARM_CONFIG.breedingTickSeconds ticks, each eligible empty
-      // stall (empty, with two llama neighbours) rolls for a kid. A
-      // kid is usually one of the neighbouring parents' types,
-      // sometimes a brand-new type, and a new type joins the unlocked
-      // list. The roll is pure (shared.rollFarmBreeding) — the reducer
-      // only supplies Math.random. The server validates each birth
-      // (neighbour rule + empty-stall cap), so a tampered client
-      // cannot invent llamas.
+      // Llama farm breeding (issue #79 feedback): every
+      // FARM_CONFIG.breedingTickSeconds ticks, a breeding check is due.
+      // The ROLL is server-side (POST /api/farm/breed) — the reducer
+      // only counts the ticks and raises the farmBreedDue flag, and the
+      // provider's breed effect calls the server and dispatches
+      // FARM_BREED_RESULT with the kids the server rolled. Nothing is
+      // rolled here, so a tampered client cannot invent llamas: the
+      // save only accepts kids that match a server-issued outcome.
       const farm = state.farm ?? shared.emptyFarmState();
       const breedTicks = (state.farmBreedTicks ?? 0) + 1;
-      let nextFarm = farm;
       let nextBreedTicks = breedTicks;
-      if (farm.owned && breedTicks >= shared.FARM_CONFIG.breedingTickSeconds) {
+      let farmBreedDue = state.farmBreedDue ?? false;
+      if (
+        farm.owned &&
+        !farmBreedDue &&
+        breedTicks >= shared.FARM_CONFIG.breedingTickSeconds
+      ) {
         nextBreedTicks = 0;
-        const { stalls, kidsBorn } = shared.rollFarmBreeding(
-          farm.stalls,
-          farm.unlockedTypes ?? []
-        );
-        if (kidsBorn.length > 0) {
-          const unlockedTypes = [...(farm.unlockedTypes ?? [])];
-          for (const type of kidsBorn) {
-            if (!unlockedTypes.includes(type)) unlockedTypes.push(type);
-          }
-          nextFarm = { ...farm, stalls, unlockedTypes };
-        }
+        farmBreedDue = true;
       }
 
       // Build newState with all changes from this action
@@ -456,8 +553,9 @@ function gameReducer(state, action) {
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
         activeStarEffects,
-        farm: nextFarm,
+        farm,
         farmBreedTicks: nextBreedTicks,
+        farmBreedDue,
       };
 
       // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)
@@ -1026,6 +1124,14 @@ export function GameProvider({ children }) {
     saveSyncRef.current.recordStarClaim(claim);
   }, []);
 
+  // Record one farm breed claim with the save engine (issue #79
+  // feedback). The breed effect calls this in the same handler that
+  // dispatches FARM_BREED_RESULT, with the exact kids applied, so the
+  // claim and the state change can never disagree.
+  const recordFarmBreed = useCallback((claim) => {
+    saveSyncRef.current.recordFarmBreed(claim);
+  }, []);
+
   // Wrap dispatch so clicks are counted exactly. WRITE_CODE always applies
   // (it unconditionally adds LOC), so counting it here is exact; hires,
   // projects, and open-source levels are derived from state deltas by the
@@ -1059,6 +1165,68 @@ export function GameProvider({ children }) {
     saveSyncRef.current.noteState(state);
   }, [state]);
 
+  // Farm breeding (issue #79 feedback): when the reducer raises
+  // farmBreedDue (one breeding interval has passed), call the server
+  // (POST /api/farm/breed) and apply exactly the kids it rolled. The
+  // roll is server-side — the client never rolls breeding locally.
+  // A no-kid tick (breedId null) just clears the flag. A failed call
+  // (network, or a 409 cooldown) also clears the flag: the next
+  // breeding interval raises it again, so breeding is delayed, not
+  // lost. The effect runs on every farmBreedDue change and on every
+  // state change while it is due, so a breed due before the playerId
+  // is known (fresh session, still minting) fires once the playerId
+  // lands. A guard ref keeps two overlapping calls from racing.
+  const breedInFlightRef = useRef(false);
+  useEffect(() => {
+    if (!state.farmBreedDue || !savePlayerId || breedInFlightRef.current) {
+      return;
+    }
+    breedInFlightRef.current = true;
+    const farm = state.farm ?? shared.emptyFarmState();
+    breedFarm(SAVE_API_URL, savePlayerId, farm)
+      .then(({ status, data }) => {
+        breedInFlightRef.current = false;
+        if (status !== 200 || !data) {
+          // Not owned, cooldown, or a bad request: clear the flag so
+          // the next interval tries again.
+          dispatch({ type: "FARM_BREED_RESULT", payload: { kids: [] } });
+          return;
+        }
+        const kids = Array.isArray(data.kids) ? data.kids : [];
+        // Only record a claim when kids were actually born (and a
+        // breedId was issued). Which kids apply is decided against the
+        // LATEST farm (stateRef, not the farm the effect closed over):
+        // the reducer applies a kid only if its stall is still empty,
+        // and the claim must list exactly the kids that will be
+        // applied — a kid whose stall was filled after the breed call
+        // is never born and is never claimed. Reading stateRef here
+        // (at response time) and dispatching immediately keeps the
+        // claim and the reducer's state in agreement.
+        const latestFarm = stateRef.current.farm ?? shared.emptyFarmState();
+        const appliedKids = kids.filter((kid) => {
+          const stall = latestFarm.stalls[kid?.stallIndex];
+          return (
+            stall &&
+            stall.llama === null &&
+            typeof kid?.stallIndex === "number" &&
+            shared.LLAMA_TYPES.includes(kid.type)
+          );
+        });
+        if (data.breedId && appliedKids.length > 0) {
+          recordFarmBreed({ breedId: data.breedId, kids: appliedKids });
+        }
+        dispatch({ type: "FARM_BREED_RESULT", payload: { kids } });
+      })
+      .catch(() => {
+        breedInFlightRef.current = false;
+        // Network failure: the roll may or may not have landed, but
+        // nothing is applied when the server does not answer, so
+        // nothing is lost — clear the flag and the next interval
+        // tries again.
+        dispatch({ type: "FARM_BREED_RESULT", payload: { kids: [] } });
+      });
+  }, [state.farmBreedDue, state.farm, savePlayerId, recordFarmBreed]);
+
   return (
     <GameContext.Provider
       value={{
@@ -1071,6 +1239,7 @@ export function GameProvider({ children }) {
         saveNow,
         resetProgress,
         recordStarClaim,
+        recordFarmBreed,
       }}
     >
       {children}

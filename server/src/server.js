@@ -52,6 +52,13 @@
  *   the player clicked the star they bought. The server rolls the
  *   outcome (at click time, like the natural star) and clears the
  *   pending bought star. See store.claimBoughtStar.
+ * - POST /api/farm/breed — roll one farm breeding tick server-side
+ *   (issue #79 feedback): the client sends its current farm, the
+ *   server rolls the breeding outcome (same mood/lighting odds) and
+ *   records it as an issued outcome. The client applies exactly the
+ *   returned kids and reports them in the next save. One roll per
+ *   breedingTickSeconds (cooldown), so the client cannot spam the
+ *   endpoint to re-roll for a new type. See store.breedFarm.
  *
  * Status mapping: malformed bodies are 400, unknown players are 404,
  * validation failures are 409 with the last good state, and a save that
@@ -914,6 +921,74 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     sendJson(res, 200, { claim: result.claim });
   }
 
+  /**
+   * Roll one farm breeding tick server-side (issue #79 feedback):
+   * POST /api/farm/breed, body `{ playerId, farm }`. The server rolls
+   * the breeding outcome from the sent farm (same mood/lighting odds
+   * as the old client-side roll) and records it as an issued outcome;
+   * the client applies exactly the returned kids and reports them in
+   * the next save. 400 for a malformed body, 404 for an unknown
+   * player, 409 when the farm is not owned or the breed cooldown has
+   * not elapsed. A 200 with no kids (breedId null) is a normal
+   * no-birth tick, not an error.
+   */
+  async function handleFarmBreed(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId) ||
+      body.farm === undefined
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-farm-breed",
+        detail: "playerId must be a UUID string and farm is required",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.breedFarm(body.playerId, body.farm, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "invalid-farm") {
+      sendJson(res, 400, {
+        error: "invalid-farm-breed",
+        detail: result.detail,
+      });
+      return;
+    }
+    if (result.status === "not-owned") {
+      sendJson(res, 409, {
+        error: "farm-not-owned",
+        detail: "buy the llama farm before breeding",
+      });
+      return;
+    }
+    if (result.status === "cooldown") {
+      sendJson(res, 409, {
+        error: "farm-breed-cooldown",
+        detail: "breeding was rolled too recently — wait for the next tick",
+        secondsRemaining: result.secondsRemaining,
+      });
+      return;
+    }
+    sendJson(res, 200, { breedId: result.breedId, kids: result.kids });
+  }
+
   const server = http.createServer(async (req, res) => {
     const started = Date.now();
     applyCors(req, res);
@@ -941,6 +1016,8 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleStarBuy(req, res);
       } else if (req.method === "POST" && url.pathname === "/api/star/claim-bought") {
         await handleClaimBoughtStar(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/farm/breed") {
+        await handleFarmBreed(req, res);
       } else if (req.method === "GET" && url.pathname === "/healthz") {
         sendJson(res, 200, { ok: true });
       } else if (url.pathname === "/api/account/link" && req.method === "POST") {

@@ -95,7 +95,6 @@ import {
   employeeBuffTypeRate,
   employeePurchaseCosts,
   employeeUnlockConditionsMet,
-  farmLlamaCount,
   farmMaxKidsPerWindow,
   farmStallNeighbours,
   findCosmetic,
@@ -396,6 +395,7 @@ function checkActionsShape(actions) {
       "projectsCompleted",
       "openSourceLevelsBought",
       "starClaims",
+      "farmBreedClaims",
     ])
   ) {
     return "actionsSinceLastSave has unknown or missing keys";
@@ -421,6 +421,13 @@ function checkActionsShape(actions) {
   }
   for (const claim of actions.starClaims) {
     const claimError = starClaimShapeError(claim);
+    if (claimError) return claimError;
+  }
+  if (!Array.isArray(actions.farmBreedClaims)) {
+    return "actions.farmBreedClaims must be an array";
+  }
+  for (const claim of actions.farmBreedClaims) {
+    const claimError = farmBreedClaimShapeError(claim);
     if (claimError) return claimError;
   }
   return null;
@@ -638,6 +645,129 @@ function sameStarClaim(a, b) {
     a.durationSeconds === b.durationSeconds &&
     a.employeeType === b.employeeType
   );
+}
+
+/**
+ * Shape of one farmBreedClaims entry. Semantic checks live in
+ * matchIssuedFarmBreeds. A claim is one server-rolled breeding tick:
+ * the breedId that ties it to the issued outcome, and the kids the
+ * client actually applied (each a stall index + a llama type).
+ */
+function farmBreedClaimShapeError(claim) {
+  if (claim === null || typeof claim !== "object" || Array.isArray(claim)) {
+    return "farmBreedClaims entries must be objects";
+  }
+  if (!hasExactKeys(claim, ["breedId", "kids"])) {
+    return "farmBreedClaims entries have unknown or missing keys";
+  }
+  // The breedId ties the claim to the server-issued outcome (issue
+  // #79 feedback). Without it the server cannot tell a real breed
+  // from a forged one, so a missing or malformed breedId is a shape
+  // error.
+  if (typeof claim.breedId !== "string" || !UUID_RE.test(claim.breedId)) {
+    return "farmBreedClaims breedId must be a UUID string";
+  }
+  if (!Array.isArray(claim.kids)) {
+    return "farmBreedClaims kids must be an array";
+  }
+  for (const kid of claim.kids) {
+    if (kid === null || typeof kid !== "object" || Array.isArray(kid)) {
+      return "farmBreedClaims kids must be objects";
+    }
+    if (!hasExactKeys(kid, ["stallIndex", "type"])) {
+      return "farmBreedClaims kids have unknown or missing keys";
+    }
+    if (
+      !isInt(kid.stallIndex) ||
+      kid.stallIndex < 0 ||
+      kid.stallIndex >= FARM_CONFIG.stallCount
+    ) {
+      return "farmBreedClaims kid stallIndex must be a stall index";
+    }
+    if (!LLAMA_TYPES.includes(kid.type)) {
+      return `farmBreedClaims kid has an unknown llama type: ${kid.type}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a claimed kid matches an issued kid: same stall, same type.
+ * The breedId is compared by the caller, not here.
+ */
+function sameFarmKid(a, b) {
+  return a.stallIndex === b.stallIndex && a.type === b.type;
+}
+
+/**
+ * Match a save's farm breed claims against the server-issued outcomes
+ * (issue #79 feedback). `issued` is the player's unconsumed issued
+ * breed outcomes (each carrying its breedId and its kids list), as the
+ * store read them. Returns `{ ok: true, breedIds, kids }` (the issued
+ * breedIds this save consumes, and the kids it applied), or
+ * `{ ok: false, detail }` when a claim has no matching issued outcome.
+ *
+ * Each claim must match exactly one distinct issued outcome — same
+ * breedId — and every kid in the claim must be one of the kids the
+ * server rolled in that outcome (same stall, same type). A claim may
+ * apply FEWER kids than were issued (a kid's stall can be filled by a
+ * llama purchase in the same window, so that kid is never born), but
+ * never more, and never a kid the server did not roll — so a forged,
+ * inflated, or replayed breed is rejected. The whole issued outcome
+ * is consumed when the save is accepted, even for the kids that were
+ * never applied: those kids are gone, their stall is occupied now.
+ *
+ * An issued outcome EXPIRES issuedBreedValidSeconds after it was
+ * issued (same reasoning as the star-claim-expiry fix: a prompt save
+ * delayed by a deploy restart, a network failure, or rate-limit
+ * retries still lands inside the window): a claim for an outcome older
+ * than that is rejected even if it matches exactly and is unconsumed.
+ * The store attaches `issuedAtMs` to each issued entry (from
+ * farm_breed_issues.issued_at); entries without one — synthetic test
+ * data that does not model issue time — skip the expiry check. `nowMs`
+ * is the save time; when it is null the expiry check is skipped too.
+ */
+export function matchIssuedFarmBreeds(claims, issued, nowMs = null) {
+  const unused = [...issued];
+  const breedIds = [];
+  const kids = [];
+  for (const claim of claims) {
+    const index = unused.findIndex(
+      (issuedOutcome) => issuedOutcome.breedId === claim.breedId
+    );
+    if (index === -1) {
+      return {
+        ok: false,
+        detail: `farm breed ${claim.breedId} does not match a server-issued outcome`,
+      };
+    }
+    const issuedOutcome = unused[index];
+    if (
+      nowMs !== null &&
+      typeof issuedOutcome.issuedAtMs === "number" &&
+      nowMs >
+        issuedOutcome.issuedAtMs +
+          FARM_CONFIG.issuedBreedValidSeconds * 1000 +
+          STAR_CLOCK_SKEW_GRACE_MS
+    ) {
+      return {
+        ok: false,
+        detail: `farm breed ${claim.breedId} expired: an issued outcome is only valid for ${FARM_CONFIG.issuedBreedValidSeconds}s after issue`,
+      };
+    }
+    for (const kid of claim.kids) {
+      if (!issuedOutcome.kids.some((issuedKid) => sameFarmKid(issuedKid, kid))) {
+        return {
+          ok: false,
+          detail: `farm breed ${claim.breedId} has a kid the server did not roll: stall ${kid.stallIndex} ${kid.type}`,
+        };
+      }
+      kids.push({ stallIndex: kid.stallIndex, type: kid.type });
+    }
+    breedIds.push(unused[index].breedId);
+    unused.splice(index, 1);
+  }
+  return { ok: true, breedIds, kids };
 }
 
 /**
@@ -927,8 +1057,19 @@ function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowM
  * `issuedStarClaims` is the player's unconsumed server-issued star
  * outcomes (issue #29); a save's star claims must match them exactly.
  * Defaults to [] (no issued outcomes — any star claim is rejected).
+ * `issuedFarmBreeds` is the player's unconsumed server-issued breed
+ * outcomes (issue #79 feedback); a save's farm breed claims must
+ * match them, and any new llama that is not a matched breed kid must
+ * be a bought base llama. Defaults to [] (no issued outcomes — any
+ * breed claim is rejected).
  */
-export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
+export function validateSave(
+  prev,
+  body,
+  nowMs,
+  issuedStarClaims = [],
+  issuedFarmBreeds = []
+) {
   // Star-era fields are backward-compatible: default them on states and
   // actions that predate Constellation, so old saves keep validating.
   // normalizeSaveState / normalizeStarActions return non-objects
@@ -1129,40 +1270,99 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
 
   // Llama farm (issue #79) — purchase and breeding. A failure here is
   // a FARM rejection (409 with the last good state).
+  //
+  // Every llama that appears in this window is either BOUGHT (a base
+  // type the player paid for, into any empty stall) or BRED (a kid the
+  // server rolled in POST /api/farm/breed). The split is decided by
+  // the farm breed claims: a new llama that matches an issued breed
+  // outcome is a bred kid; every other new llama must be a bought base
+  // type, and the money rule below charges llamaPriceCents for each.
+  // A client-injected kid — one the server never rolled — matches no
+  // issued outcome, so it is rejected here, not just by the
+  // plausibility checks. The number of bought llamas is computed here
+  // for the money rule (Rule 7).
   const farmWasOwned = prevState.farm.owned;
   const farmIsOwned = newState.farm.owned;
-  if (!farmWasOwned && farmIsOwned) {
-    // Buying the farm: the new barn must hold exactly the 5 starting
-    // llamas, all of the base types, and the unlocked list must be
-    // exactly the base types. The money for the purchase is deducted
-    // in Rule 7 below. The starting layout (which stalls hold them)
-    // is the client's choice — only the count and types are enforced.
-    const boughtLlamas = newState.farm.stalls
-      .map((stall) => stall.llama)
-      .filter(Boolean);
-    if (boughtLlamas.length !== FARM_CONFIG.startingLlamaCount) {
-      return fail(
-        "FARM",
-        `farm purchase must place exactly ${FARM_CONFIG.startingLlamaCount} llamas, found ${boughtLlamas.length}`
-      );
+  // New llamas: stalls that were empty in the previous save and hold a
+  // llama in this one. A stall's llama never changes or disappears
+  // (MONOTONIC, above), so every new llama is one of these.
+  const newFarmLlamas = [];
+  for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
+    const prevLlama = prevState.farm.stalls[i]?.llama ?? null;
+    const newLlama = newState.farm.stalls[i]?.llama ?? null;
+    if (prevLlama === null && newLlama !== null) {
+      newFarmLlamas.push({ stallIndex: i, type: newLlama });
     }
-    for (const type of boughtLlamas) {
-      if (!LLAMA_BASE_TYPES.includes(type)) {
-        return fail(
-          "FARM",
-          `farm purchase placed a non-base llama type: ${type}`
-        );
-      }
-    }
-    const unlocked = [...(newState.farm.unlockedTypes ?? [])].sort();
-    const base = [...LLAMA_BASE_TYPES].sort();
+  }
+  // Breed claims (issue #79 feedback): each claim must match a
+  // server-issued, unconsumed breed outcome. A failed claim is a FARM
+  // rejection.
+  const farmBreedClaims = actions.farmBreedClaims ?? [];
+  const farmBreedMatch = matchIssuedFarmBreeds(
+    farmBreedClaims,
+    issuedFarmBreeds,
+    nowMs
+  );
+  if (!farmBreedMatch.ok) return fail("FARM", farmBreedMatch.detail);
+  const bredKids = farmBreedMatch.kids;
+  // Every bred kid must be one of the new llamas (same stall, same
+  // type) — the claim is only valid if the client actually applied the
+  // kid the server rolled.
+  for (const kid of bredKids) {
     if (
-      unlocked.length !== base.length ||
-      unlocked.some((type, i) => type !== base[i])
+      !newFarmLlamas.some(
+        (llama) => llama.stallIndex === kid.stallIndex && llama.type === kid.type
+      )
     ) {
       return fail(
         "FARM",
-        "farm purchase must unlock exactly the base llama types"
+        `farm breed claim for stall ${kid.stallIndex} ${kid.type} does not match the new llamas`
+      );
+    }
+  }
+  // The remaining new llamas are bought. Each must be a base type —
+  // bred types are never for sale, so a non-base "bought" llama is
+  // tampered, not purchased.
+  const boughtFarmLlamas = newFarmLlamas.filter(
+    (llama) =>
+      !bredKids.some((kid) => kid.stallIndex === llama.stallIndex)
+  );
+  for (const llama of boughtFarmLlamas) {
+    if (!LLAMA_BASE_TYPES.includes(llama.type)) {
+      return fail(
+        "FARM",
+        `farm llama bought in stall ${llama.stallIndex} is not a base type: ${llama.type}`
+      );
+    }
+  }
+  const farmBoughtLlamaCount = boughtFarmLlamas.length;
+  if (!farmWasOwned && farmIsOwned) {
+    // Buying the farm: the barn arrives EMPTY (no free llamas —
+    // Brandon: "you have to buy the llamas yourself"). Llamas bought
+    // in the same window as the purchase are allowed (they are the
+    // bought llamas above, base types, paid for in Rule 7), but no kid
+    // can be bred before the farm is owned — the breed endpoint
+    // requires an owned farm, so a bred kid in the purchase window is
+    // forged. The unlocked list must be exactly the types of the
+    // llamas in the barn (the bought ones); no type is unlocked for
+    // free at purchase.
+    if (bredKids.length > 0) {
+      return fail(
+        "FARM",
+        "farm kid bred before the farm was owned"
+      );
+    }
+    const unlocked = [...(newState.farm.unlockedTypes ?? [])].sort();
+    const inBarn = [
+      ...new Set(newFarmLlamas.map((llama) => llama.type)),
+    ].sort();
+    if (
+      unlocked.length !== inBarn.length ||
+      unlocked.some((type, i) => type !== inBarn[i])
+    ) {
+      return fail(
+        "FARM",
+        "farm purchase must unlock exactly the types of the llamas in the barn"
       );
     }
   }
@@ -1173,36 +1373,33 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   const passiveSeconds = Math.min(elapsedSeconds, MAX_OFFLINE_ACCRUAL_SECONDS);
 
   if (farmWasOwned && farmIsOwned) {
-    // Breeding: the new llamas in this window must be kids born in
-    // eligible stalls, and no more of them than the stalls that were
-    // empty when the window started (see farmMaxKidsPerWindow) — a
-    // client claiming more kids than there were empty stalls is
-    // tampered, not lucky. Each new kid must also sit in a stall
-    // with at least two llama neighbours in the new state, so a kid
-    // cannot appear in a stall that was never between two llamas.
-    const prevLlamaCount = farmLlamaCount(prevState.farm.stalls);
-    const newLlamaCount = farmLlamaCount(newState.farm.stalls);
-    const kidsBorn = newLlamaCount - prevLlamaCount;
+    // Breeding plausibility (issue #79 feedback): the bred kids in
+    // this window must be no more than the stalls that were empty when
+    // the window started (see farmMaxKidsPerWindow) — a client claiming
+    // more kids than there were empty stalls is tampered, not lucky.
+    // Each bred kid must also sit in a stall with at least two llama
+    // neighbours in the new state, so a kid cannot appear in a stall
+    // that was never between two llamas. Bought llamas are NOT checked
+    // here: a bought llama goes into any empty stall, no neighbours
+    // needed. The issued-outcome match (above) is what makes a kid
+    // real; these checks are the backstop that keeps even an issued
+    // kid plausible.
     const maxKids = farmMaxKidsPerWindow(prevState.farm.stalls);
-    if (kidsBorn > maxKids) {
+    if (bredKids.length > maxKids) {
       return fail(
         "FARM",
-        `${kidsBorn} farm kids born in ${elapsedSeconds.toFixed(1)}s exceeds the maximum ${maxKids}`
+        `${bredKids.length} farm kids born exceeds the maximum ${maxKids}`
       );
     }
-    for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
-      const prevLlama = prevState.farm.stalls[i]?.llama ?? null;
-      const newLlama = newState.farm.stalls[i]?.llama ?? null;
-      if (prevLlama === null && newLlama !== null) {
-        const llamaNeighbours = farmStallNeighbours(i).filter(
-          (n) => newState.farm.stalls[n]?.llama
+    for (const kid of bredKids) {
+      const llamaNeighbours = farmStallNeighbours(kid.stallIndex).filter(
+        (n) => newState.farm.stalls[n]?.llama
+      );
+      if (llamaNeighbours.length < 2) {
+        return fail(
+          "FARM",
+          `farm kid born in stall ${kid.stallIndex} without two llama neighbours`
         );
-        if (llamaNeighbours.length < 2) {
-          return fail(
-            "FARM",
-            `farm kid born in stall ${i} without two llama neighbours`
-          );
-        }
       }
     }
   }
@@ -1322,13 +1519,18 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   // completed projects (in), employee hires (out), and instant star
   // rewards (in or out, netted in starMoneyNet), in purchase order.
   // The llama farm purchase (issue #79) is a one-time money-out event:
-  // buying the farm deducts FARM_CONFIG.purchaseCostCents. The farm
+  // buying the farm deducts FARM_CONFIG.purchaseCostCents. Llamas
+  // bought in this window (issue #79 feedback — no free llamas, each
+  // base llama is bought separately) deduct FARM_CONFIG.llamaPriceCents
+  // each; the count is the bought llamas computed in the farm rule
+  // above (new llamas that are not matched breed kids). The farm
   // generates no cash in v1, so there is no passive farm income to
   // account for here.
   let expectedMoney = prevState.money + starMoneyNet;
   if (!farmWasOwned && farmIsOwned) {
     expectedMoney -= FARM_CONFIG.purchaseCostCents;
   }
+  expectedMoney -= farmBoughtLlamaCount * FARM_CONFIG.llamaPriceCents;
   for (const key of FREELANCE_PROJECT_KEYS) {
     expectedMoney +=
       actions.projectsCompleted[key] * BALANCE.freelanceProjects[key].reward;
