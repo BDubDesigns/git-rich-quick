@@ -31,7 +31,11 @@ import {
   saveStateToGameFields,
   stateToSaveState,
 } from "../../client/src/save/serialize.js";
-import { initialSaveState } from "../../shared/game-balance.js";
+import {
+  emptyFarmState,
+  initialFarmState,
+  initialSaveState,
+} from "../../shared/game-balance.js";
 
 const CLAIM_ID = "123e4567-e89b-42d3-a456-426614174001";
 
@@ -832,4 +836,34 @@ test("highlightAmounts: no sign or no unit means no coloring", () => {
     { text: "Bonus level +5 applied", tone: null },
   ]);
   assert.deepEqual(highlightAmounts(""), []);
+});
+
+test("farm purchase email fires when the farm is bought", () => {
+  const prev = gameState({ farm: emptyFarmState() });
+  const next = gameState({ farm: initialFarmState() });
+  const { emails, newEmailId } = collectTriggerEmails(prev, next);
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].triggerKey, "farm-purchased");
+  assert.equal(emails[0].sender, "Your Team");
+  assert.match(emails[0].subject, /llama farm/i);
+  assert.ok(newEmailId);
+  // And it does not re-mail on restore (same state twice).
+  const again = collectTriggerEmails(next, { ...next, emails });
+  assert.equal(again.emails.length, 1);
+});
+
+test("farm new-type email fires when breeding discovers a type", () => {
+  const before = initialFarmState();
+  const after = {
+    ...initialFarmState(),
+    unlockedTypes: ["classic", "drama", "spaghetti"],
+  };
+  const prev = gameState({ farm: before });
+  const next = gameState({ farm: after });
+  const { emails } = collectTriggerEmails(prev, next);
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].triggerKey, "farm-new-type:spaghetti");
+  assert.match(emails[0].subject, /Spaghetti Llama/);
+  // The purchase email does not fire here (the farm was already owned).
+  assert.ok(!emails.some((entry) => entry.triggerKey === "farm-purchased"));
 });

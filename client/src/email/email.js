@@ -25,10 +25,15 @@ import {
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_DISPLAY_NAMES,
   FREELANCE_PROJECT_KEYS,
+  LLAMA_BASE_TYPES,
+  LLAMA_TYPE_DESCRIPTIONS,
+  LLAMA_TYPE_NAMES,
   OPEN_SOURCE_DISPLAY_NAMES,
   OPEN_SOURCE_IDS,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
+  buildFarmNewTypeEmail,
+  buildFarmPurchasedEmail,
   buildFreelanceProjectUnlockedEmail,
   buildFreelanceProjectVisibleEmail,
   buildOpenSourceLevelEmail,
@@ -341,6 +346,32 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
         good: starClaim.good,
       }),
       `star-reward:${starClaim.claimId}`
+    );
+  }
+
+  // Llama farm (issue #79): buying the farm mails once, and each
+  // brand-new type discovered by breeding mails once. Both fire on a
+  // transition (owned false -> true, a type joining the unlocked list),
+  // so a restored save never re-mails old purchases or discoveries.
+  const wasFarmOwned = prevState.farm?.owned ?? false;
+  const isFarmOwned = newState.farm?.owned ?? false;
+  if (!wasFarmOwned && isFarmOwned) {
+    send(buildFarmPurchasedEmail(), "farm-purchased");
+  }
+  const prevTypes = prevState.farm?.unlockedTypes ?? [];
+  const newTypes = newState.farm?.unlockedTypes ?? [];
+  for (const type of newTypes) {
+    if (prevTypes.includes(type)) continue;
+    // The base types are the starting llamas, not a discovery — the
+    // purchase email already covers them, so they never get a
+    // new-type email of their own.
+    if (LLAMA_BASE_TYPES.includes(type)) continue;
+    send(
+      buildFarmNewTypeEmail({
+        typeName: LLAMA_TYPE_NAMES[type] ?? type,
+        typeDescription: LLAMA_TYPE_DESCRIPTIONS[type] ?? "",
+      }),
+      `farm-new-type:${type}`
     );
   }
 

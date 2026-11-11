@@ -16,6 +16,7 @@
 
 import {
   EMPLOYEE_TYPES,
+  FARM_CONFIG,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
   deriveUnlockedCosmetics,
@@ -85,6 +86,17 @@ export function stateToSaveState(clientState) {
     // equipped map is slot -> cosmeticId and changes freely.
     unlockedCosmetics: [...(clientState.unlockedCosmetics ?? [])],
     equippedCosmetics: { ...(clientState.equippedCosmetics ?? {}) },
+    // Llama farm (issue #79). Owned, stalls (llama + lighting per
+    // stall), and the unlocked types. Copied per stall so the save
+    // never shares a reference with the live state.
+    farm: {
+      owned: clientState.farm?.owned ?? false,
+      stalls: (clientState.farm?.stalls ?? []).map((stall) => ({
+        llama: stall.llama ?? null,
+        lighting: stall.lighting ?? "warm",
+      })),
+      unlockedTypes: [...(clientState.farm?.unlockedTypes ?? [])],
+    },
   };
 }
 
@@ -150,6 +162,36 @@ export function saveStateToGameFields(saveState) {
       ? [...saveState.unlockedCosmetics]
       : deriveUnlockedCosmetics(saveState),
     equippedCosmetics: { ...(saveState.equippedCosmetics ?? {}) },
+    // Llama farm (issue #79). A save from before the farm shipped has
+    // no farm field — default it to the empty (unbought) farm here,
+    // the same way the server's normalizeSaveState does on save. A
+    // farm that predates the unlocked-types field gets its types
+    // derived from the llamas actually in the stalls.
+    farm: (() => {
+      const farm = saveState.farm;
+      if (!farm || typeof farm !== "object" || Array.isArray(farm)) {
+        return {
+          owned: false,
+          stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
+            llama: null,
+            lighting: "warm",
+          })),
+          unlockedTypes: [],
+        };
+      }
+      const stalls = (farm.stalls ?? []).map((stall) => ({
+        llama: stall?.llama ?? null,
+        lighting: stall?.lighting ?? "warm",
+      }));
+      const unlockedTypes = Array.isArray(farm.unlockedTypes)
+        ? [...farm.unlockedTypes]
+        : [...new Set(stalls.map((stall) => stall.llama).filter(Boolean))];
+      return {
+        owned: farm.owned ?? false,
+        stalls,
+        unlockedTypes,
+      };
+    })(),
   };
 }
 
@@ -216,6 +258,19 @@ export function bigActionFields(saveState) {
     // big action.
     unlockedCosmetics: (saveState.unlockedCosmetics ?? []).length,
     equippedCosmetics: JSON.stringify(saveState.equippedCosmetics ?? {}),
+    // Llama farm (issue #79): buying the farm, a kid being born, and a
+    // lighting change are all big actions — the farm should persist
+    // promptly instead of waiting for the heartbeat. The lighting is
+    // compared as a string because any change (one stall's color) is a
+    // big action, like an equipped cosmetic.
+    farmOwned: saveState.farm?.owned ?? false,
+    farmLlamas: (saveState.farm?.stalls ?? []).filter(
+      (stall) => stall.llama !== null
+    ).length,
+    farmLighting: JSON.stringify(
+      (saveState.farm?.stalls ?? []).map((stall) => stall.lighting ?? "warm")
+    ),
+    farmUnlockedTypes: (saveState.farm?.unlockedTypes ?? []).length,
   };
 }
 
@@ -262,6 +317,11 @@ export function isInitialSaveState(saveState) {
   if ((saveState.unlockedCosmetics ?? []).length !== 0) return false;
   if (Object.keys(saveState.equippedCosmetics ?? {}).length !== 0)
     return false;
+  // Llama farm (issue #79): a fresh save has not bought the farm.
+  if (saveState.farm?.owned) return false;
+  if ((saveState.farm?.stalls ?? []).some((stall) => stall.llama !== null))
+    return false;
+  if ((saveState.farm?.unlockedTypes ?? []).length !== 0) return false;
   return true;
 }
 
@@ -288,5 +348,12 @@ export function bigActionIncreased(prev, next) {
   // is a big action.
   if ((next.equippedCosmetics ?? "") !== (prev.equippedCosmetics ?? ""))
     return true;
+  // Llama farm (issue #79): buying the farm, a kid being born, a new
+  // type being unlocked, or a lighting change all persist promptly.
+  if ((next.farmOwned ?? false) !== (prev.farmOwned ?? false)) return true;
+  if ((next.farmLlamas ?? 0) > (prev.farmLlamas ?? 0)) return true;
+  if ((next.farmUnlockedTypes ?? 0) > (prev.farmUnlockedTypes ?? 0))
+    return true;
+  if ((next.farmLighting ?? "") !== (prev.farmLighting ?? "")) return true;
   return false;
 }

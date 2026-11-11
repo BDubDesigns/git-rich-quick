@@ -135,6 +135,12 @@ const initialState = {
   // cosmeticId. Saved with the game state.
   unlockedCosmetics: [],
   equippedCosmetics: {},
+  // Llama farm (issue #79). The farm state (owned, stalls, unlocked
+  // types) is saved with the game state; farmBreedTicks is transient
+  // (not saved) — it counts GAME_TICKs toward the next breeding check,
+  // which runs every FARM_CONFIG.breedingTickSeconds.
+  farm: shared.emptyFarmState(),
+  farmBreedTicks: 0,
   // The email currently open in the Email tab (transient UI state, not saved).
   selectedEmailId: null,
   // The email the notification bar is showing (transient UI state, not saved).
@@ -145,6 +151,7 @@ const initialState = {
       shop: { isDescriptionVisible: true },
       projects: { isDescriptionVisible: true },
       openSource: { isDescriptionVisible: true },
+      farm: { isDescriptionVisible: true },
       settings: { isDescriptionVisible: true },
       leaderboard: { isDescriptionVisible: true },
       email: { isDescriptionVisible: true },
@@ -300,6 +307,57 @@ function gameReducer(state, action) {
       return { ...state, equippedCosmetics };
     }
 
+    // Buy the llama farm (issue #79). A one-time money purchase: the
+    // money is the gate, the farm has no unlock condition in v1. The
+    // purchase places the 5 starting llamas (3 Classic, 2 Drama) and
+    // unlocks the two base types. It is a big-action save trigger (see
+    // serialize.js), so the purchase persists promptly. A second buy
+    // (already owned) or an unaffordable buy is ignored here; the
+    // server rejects it too, so a tampered save cannot buy the farm
+    // twice or for free.
+    case "BUY_FARM": {
+      const farm = state.farm ?? shared.emptyFarmState();
+      if (farm.owned) return state;
+      if (state.money < shared.FARM_CONFIG.purchaseCostCents) return state;
+      const newState = {
+        ...state,
+        money: state.money - shared.FARM_CONFIG.purchaseCostCents,
+        farm: shared.initialFarmState(),
+      };
+      const latched = {
+        ...newState,
+        unlockedEmployees: updateUnlockLatch(newState),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(newState),
+        unlockedFreelanceProjects:
+          updateFreelanceProjectUnlockLatch(newState),
+      };
+      return withEmailTriggers(state, latched);
+    }
+
+    // Set a barn stall's lighting (mood) color (issue #79). Payload:
+    // { stallIndex, lighting }. The lighting is a free choice — it
+    // switches freely, like an equipped cosmetic — and the empty
+    // stall's own lighting sets the breeding odds for a kid appearing
+    // there. An unknown stall or color is ignored here; the server
+    // rejects it too. A lighting change is a big-action save trigger
+    // (see serialize.js), so it persists promptly.
+    case "SET_STALL_LIGHTING": {
+      const { stallIndex, lighting } = action.payload ?? {};
+      const farm = state.farm ?? shared.emptyFarmState();
+      if (
+        typeof stallIndex !== "number" ||
+        stallIndex < 0 ||
+        stallIndex >= shared.FARM_CONFIG.stallCount ||
+        !shared.FARM_LIGHTING_COLORS.includes(lighting)
+      ) {
+        return state;
+      }
+      const stalls = farm.stalls.map((stall, i) =>
+        i === stallIndex ? { ...stall, lighting } : stall
+      );
+      return { ...state, farm: { ...farm, stalls } };
+    }
+
     // Handle freelance project completion
     case "COMPLETE_PROJECT": {
       // deconstruct projectKey and get project data from config
@@ -362,6 +420,34 @@ function gameReducer(state, action) {
         (buff) => buff.expiresAtMs > now
       );
 
+      // Llama farm breeding (issue #79): every
+      // FARM_CONFIG.breedingTickSeconds ticks, each eligible empty
+      // stall (empty, with two llama neighbours) rolls for a kid. A
+      // kid is usually one of the neighbouring parents' types,
+      // sometimes a brand-new type, and a new type joins the unlocked
+      // list. The roll is pure (shared.rollFarmBreeding) — the reducer
+      // only supplies Math.random. The server validates each birth
+      // (neighbour rule + empty-stall cap), so a tampered client
+      // cannot invent llamas.
+      const farm = state.farm ?? shared.emptyFarmState();
+      const breedTicks = (state.farmBreedTicks ?? 0) + 1;
+      let nextFarm = farm;
+      let nextBreedTicks = breedTicks;
+      if (farm.owned && breedTicks >= shared.FARM_CONFIG.breedingTickSeconds) {
+        nextBreedTicks = 0;
+        const { stalls, kidsBorn } = shared.rollFarmBreeding(
+          farm.stalls,
+          farm.unlockedTypes ?? []
+        );
+        if (kidsBorn.length > 0) {
+          const unlockedTypes = [...(farm.unlockedTypes ?? [])];
+          for (const type of kidsBorn) {
+            if (!unlockedTypes.includes(type)) unlockedTypes.push(type);
+          }
+          nextFarm = { ...farm, stalls, unlockedTypes };
+        }
+      }
+
       // Build newState with all changes from this action
       const newState = {
         ...state,
@@ -370,6 +456,8 @@ function gameReducer(state, action) {
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
         activeStarEffects,
+        farm: nextFarm,
+        farmBreedTicks: nextBreedTicks,
       };
 
       // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)

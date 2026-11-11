@@ -22,6 +22,7 @@ import { FaGithub } from "react-icons/fa";
 import { IoSettings } from "react-icons/io5";
 import { MdRocketLaunch } from "react-icons/md";
 import { FaTrophy } from "react-icons/fa";
+import { GiBarn } from "react-icons/gi";
 
 // GITMail logo for the Email tab (cropped envelope, no text — the
 // "GITMail" text read weird on a button). The PNGs have a black
@@ -91,6 +92,7 @@ export const NAV_TABS = Object.freeze([
   { id: "shop", label: "Shop", Icon: FaPeopleGroup },
   { id: "projects", label: "Projects", Icon: MdRocketLaunch },
   { id: "openSource", label: "Open Source", Icon: FaGithub },
+  { id: "farm", label: "Farm", Icon: GiBarn },
   { id: "leaderboard", label: "Leaderboard", Icon: FaTrophy },
   { id: "settings", label: "Settings", Icon: IoSettings },
 ]);
@@ -113,6 +115,12 @@ export const SECTIONS_CONFIG = Object.freeze({
     displayName: "GitNub Contributions",
     description:
       "Contribute your LOC to open-source projects to unlock permanent bonuses.",
+  },
+  farm: {
+    id: "farm",
+    displayName: "Llama Farm",
+    description:
+      "Your staff have been dreaming of quitting to start an alpaca farm. You let them build it — but you never accepted their notice, so they're still employees. The llamas are unionizing. The barn has mood lighting. This is fine.",
   },
   settings: {
     id: "settings",

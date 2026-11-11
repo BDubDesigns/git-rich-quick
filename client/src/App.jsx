@@ -8,6 +8,7 @@ import { calculateLOCPerSecond } from "./context/gameLogic";
 import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
+import { Farm } from "./components/Farm";
 import { Settings } from "./components/Settings";
 import { Leaderboard } from "./components/Leaderboard";
 import { Email } from "./components/Email";
@@ -84,6 +85,7 @@ function App() {
             {state.activeTab === "openSource" && <OpenSource />}
             {(state.activeTab === "shop" ||
               state.activeTab === "projects") && <OpenSource />}
+            {state.activeTab === "farm" && <Farm />}
             {state.activeTab === "settings" && <Settings />}
             {state.activeTab === "leaderboard" && <Leaderboard />}
             {state.activeTab === "email" && <Email />}
@@ -103,6 +105,7 @@ function App() {
           {state.activeTab === "shop" && <Shop />}
           {state.activeTab === "projects" && <Projects />}
           {state.activeTab === "openSource" && <OpenSource />}
+          {state.activeTab === "farm" && <Farm />}
           {state.activeTab === "settings" && <Settings />}
           {state.activeTab === "leaderboard" && <Leaderboard />}
           {state.activeTab === "email" && <Email />}

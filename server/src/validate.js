@@ -81,7 +81,11 @@ import {
   COSMETIC_SLOTS,
   EMAIL_CONFIG,
   EMPLOYEE_TYPES,
+  FARM_CONFIG,
+  FARM_LIGHTING_COLORS,
   FREELANCE_PROJECT_KEYS,
+  LLAMA_BASE_TYPES,
+  LLAMA_TYPES,
   OPEN_SOURCE_IDS,
   STAR_CONFIG,
   STAR_EFFECT_IDS,
@@ -91,6 +95,9 @@ import {
   employeeBuffTypeRate,
   employeePurchaseCosts,
   employeeUnlockConditionsMet,
+  farmLlamaCount,
+  farmMaxKidsPerWindow,
+  farmStallNeighbours,
   findCosmetic,
   freelanceProjectUnlockConditionsMet,
   locPerClick,
@@ -172,6 +179,7 @@ function checkStateShape(state) {
       "emails",
       "unlockedCosmetics",
       "equippedCosmetics",
+      "farm",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -297,6 +305,80 @@ function checkStateShape(state) {
     }
     if (typeof cosmeticId !== "string" || !findCosmetic(cosmeticId)) {
       return `equippedCosmetics has an unknown cosmetic id: ${cosmeticId}`;
+    }
+  }
+  // Llama farm (issue #79). The farm is one object: owned (boolean),
+  // stalls (exactly FARM_CONFIG.stallCount entries, each { llama,
+  // lighting } with a llama that is null or a known type id and a
+  // lighting that is a known color), and unlockedTypes (known type ids
+  // only, no duplicates). Whether the llamas are plausible for the
+  // time window, and whether the farm was bought legitimately, is the
+  // FARM rule in validateSave, not the shape.
+  if (
+    state.farm === null ||
+    typeof state.farm !== "object" ||
+    Array.isArray(state.farm) ||
+    !hasExactKeys(state.farm, ["owned", "stalls", "unlockedTypes"])
+  ) {
+    return "farm must be an object with owned, stalls, and unlockedTypes";
+  }
+  if (typeof state.farm.owned !== "boolean") {
+    return "farm.owned must be a boolean";
+  }
+  if (
+    !Array.isArray(state.farm.stalls) ||
+    state.farm.stalls.length !== FARM_CONFIG.stallCount
+  ) {
+    return `farm.stalls must be an array of ${FARM_CONFIG.stallCount} stalls`;
+  }
+  for (const stall of state.farm.stalls) {
+    if (
+      stall === null ||
+      typeof stall !== "object" ||
+      Array.isArray(stall) ||
+      !hasExactKeys(stall, ["llama", "lighting"])
+    ) {
+      return "farm stalls must be objects with llama and lighting";
+    }
+    if (stall.llama !== null && !LLAMA_TYPES.includes(stall.llama)) {
+      return `farm stall has an unknown llama type: ${stall.llama}`;
+    }
+    if (!FARM_LIGHTING_COLORS.includes(stall.lighting)) {
+      return `farm stall has an unknown lighting color: ${stall.lighting}`;
+    }
+  }
+  if (!Array.isArray(state.farm.unlockedTypes)) {
+    return "farm.unlockedTypes must be an array";
+  }
+  const seenLlamaTypes = new Set();
+  for (const type of state.farm.unlockedTypes) {
+    if (typeof type !== "string" || !LLAMA_TYPES.includes(type)) {
+      return `farm.unlockedTypes has an unknown llama type: ${type}`;
+    }
+    if (seenLlamaTypes.has(type)) {
+      return "farm.unlockedTypes must not contain duplicates";
+    }
+    seenLlamaTypes.add(type);
+  }
+  if (!state.farm.owned) {
+    // An unbought farm has no llamas and no types: a save that claims
+    // llamas without owning the farm is malformed.
+    if (state.farm.stalls.some((stall) => stall.llama !== null)) {
+      return "farm has llamas but is not owned";
+    }
+    if (state.farm.unlockedTypes.length > 0) {
+      return "farm has unlocked types but is not owned";
+    }
+  } else {
+    // Every llama in the barn must be in the unlocked list — a type
+    // the player has not discovered cannot be sitting in a stall.
+    for (const stall of state.farm.stalls) {
+      if (
+        stall.llama !== null &&
+        !state.farm.unlockedTypes.includes(stall.llama)
+      ) {
+        return `farm stall holds a llama type that is not unlocked: ${stall.llama}`;
+      }
     }
   }
   return null;
@@ -934,6 +1016,29 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   if (newState.totalLinesOfCode < prevState.totalLinesOfCode) {
     return fail("MONOTONIC", "totalLinesOfCode decreased");
   }
+  // Llama farm (issue #79): the farm is bought once and never
+  // un-bought; unlocked types only grow; and a stall's llama, once
+  // placed, never changes type and never goes back to empty — there is
+  // no sell/cull in v1, so a llama disappearing or swapping types is
+  // tampered, not gameplay.
+  if (prevState.farm.owned && !newState.farm.owned) {
+    return fail("MONOTONIC", "farm ownership flipped back");
+  }
+  for (const type of prevState.farm.unlockedTypes ?? []) {
+    if (!(newState.farm.unlockedTypes ?? []).includes(type)) {
+      return fail("MONOTONIC", `farm llama type unlock lost: ${type}`);
+    }
+  }
+  for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
+    const prevLlama = prevState.farm.stalls[i]?.llama ?? null;
+    const newLlama = newState.farm.stalls[i]?.llama ?? null;
+    if (prevLlama !== null && newLlama !== prevLlama) {
+      return fail(
+        "MONOTONIC",
+        `farm stall ${i} llama changed or disappeared: ${prevLlama} -> ${newLlama}`
+      );
+    }
+  }
 
   // Rule 3 — unlocks are real: recompute each unlock from the new snapshot itself.
   for (const type of EMPLOYEE_TYPES) {
@@ -1022,10 +1127,85 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
     }
   }
 
+  // Llama farm (issue #79) — purchase and breeding. A failure here is
+  // a FARM rejection (409 with the last good state).
+  const farmWasOwned = prevState.farm.owned;
+  const farmIsOwned = newState.farm.owned;
+  if (!farmWasOwned && farmIsOwned) {
+    // Buying the farm: the new barn must hold exactly the 5 starting
+    // llamas, all of the base types, and the unlocked list must be
+    // exactly the base types. The money for the purchase is deducted
+    // in Rule 7 below. The starting layout (which stalls hold them)
+    // is the client's choice — only the count and types are enforced.
+    const boughtLlamas = newState.farm.stalls
+      .map((stall) => stall.llama)
+      .filter(Boolean);
+    if (boughtLlamas.length !== FARM_CONFIG.startingLlamaCount) {
+      return fail(
+        "FARM",
+        `farm purchase must place exactly ${FARM_CONFIG.startingLlamaCount} llamas, found ${boughtLlamas.length}`
+      );
+    }
+    for (const type of boughtLlamas) {
+      if (!LLAMA_BASE_TYPES.includes(type)) {
+        return fail(
+          "FARM",
+          `farm purchase placed a non-base llama type: ${type}`
+        );
+      }
+    }
+    const unlocked = [...(newState.farm.unlockedTypes ?? [])].sort();
+    const base = [...LLAMA_BASE_TYPES].sort();
+    if (
+      unlocked.length !== base.length ||
+      unlocked.some((type, i) => type !== base[i])
+    ) {
+      return fail(
+        "FARM",
+        "farm purchase must unlock exactly the base llama types"
+      );
+    }
+  }
+
   // Time window. Elapsed is clamped at zero (clock skew) and passive
   // accrual is capped at 8 hours; the click-count cap uses uncapped elapsed.
   const elapsedSeconds = Math.max(0, (nowMs - prev.savedAtMs) / 1000);
   const passiveSeconds = Math.min(elapsedSeconds, MAX_OFFLINE_ACCRUAL_SECONDS);
+
+  if (farmWasOwned && farmIsOwned) {
+    // Breeding: the new llamas in this window must be kids born in
+    // eligible stalls, and no more of them than the stalls that were
+    // empty when the window started (see farmMaxKidsPerWindow) — a
+    // client claiming more kids than there were empty stalls is
+    // tampered, not lucky. Each new kid must also sit in a stall
+    // with at least two llama neighbours in the new state, so a kid
+    // cannot appear in a stall that was never between two llamas.
+    const prevLlamaCount = farmLlamaCount(prevState.farm.stalls);
+    const newLlamaCount = farmLlamaCount(newState.farm.stalls);
+    const kidsBorn = newLlamaCount - prevLlamaCount;
+    const maxKids = farmMaxKidsPerWindow(prevState.farm.stalls);
+    if (kidsBorn > maxKids) {
+      return fail(
+        "FARM",
+        `${kidsBorn} farm kids born in ${elapsedSeconds.toFixed(1)}s exceeds the maximum ${maxKids}`
+      );
+    }
+    for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
+      const prevLlama = prevState.farm.stalls[i]?.llama ?? null;
+      const newLlama = newState.farm.stalls[i]?.llama ?? null;
+      if (prevLlama === null && newLlama !== null) {
+        const llamaNeighbours = farmStallNeighbours(i).filter(
+          (n) => newState.farm.stalls[n]?.llama
+        );
+        if (llamaNeighbours.length < 2) {
+          return fail(
+            "FARM",
+            `farm kid born in stall ${i} without two llama neighbours`
+          );
+        }
+      }
+    }
+  }
 
   // Rule 5 — clicks: at most 10/sec sustained, plus a small grace.
   if (actions.clicks > MAX_CLICKS_PER_SECOND * elapsedSeconds + CLICK_GRACE) {
@@ -1141,7 +1321,14 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
   // Rule 7 — money accounting, exact, no tolerance. Money only moves via
   // completed projects (in), employee hires (out), and instant star
   // rewards (in or out, netted in starMoneyNet), in purchase order.
+  // The llama farm purchase (issue #79) is a one-time money-out event:
+  // buying the farm deducts FARM_CONFIG.purchaseCostCents. The farm
+  // generates no cash in v1, so there is no passive farm income to
+  // account for here.
   let expectedMoney = prevState.money + starMoneyNet;
+  if (!farmWasOwned && farmIsOwned) {
+    expectedMoney -= FARM_CONFIG.purchaseCostCents;
+  }
   for (const key of FREELANCE_PROJECT_KEYS) {
     expectedMoney +=
       actions.projectsCompleted[key] * BALANCE.freelanceProjects[key].reward;
