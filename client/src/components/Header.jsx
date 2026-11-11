@@ -29,6 +29,11 @@ export function Header() {
           mobile and desktop. Empty (zero height) when no countdown is
           active. */}
       <div id="star-countdown-slot" className="px-2" />
+
+      {/* Active-effect slot: GoldenStar portals one thin duration bar
+          per live timed buff here, below the countdown bar, so both
+          bars sit under the stats bar. Empty when no effect is live. */}
+      <div id="star-effect-slot" className="px-2" />
     </header>
   );
 }

@@ -17,6 +17,7 @@ import {
   STAR_CONFIG,
   initialSaveState,
   locPerSecond,
+  starBuffDurationSeconds,
 } from "../../shared/game-balance.js";
 
 const T0 = 1_700_000_000_000;
@@ -378,4 +379,18 @@ test("a forged star claim (never issued) is rejected on save", async () => {
   } finally {
     await srv.stop();
   }
+});
+
+test("starBuffDurationSeconds: total duration from effect + good/bad", () => {
+  // The stored buff only carries expiresAtMs, so the effect duration
+  // bar derives the total from the config. Good is a multiplier above
+  // 1x, bad below 1x.
+  assert.equal(starBuffDurationSeconds("frenzy", true), 60);
+  assert.equal(starBuffDurationSeconds("frenzy", false), 30);
+  assert.equal(starBuffDurationSeconds("click", true), 20);
+  assert.equal(starBuffDurationSeconds("click", false), 10);
+  assert.equal(starBuffDurationSeconds("employee", true), 60);
+  assert.equal(starBuffDurationSeconds("employee", false), 30);
+  assert.equal(starBuffDurationSeconds("lucky", true), null);
+  assert.equal(starBuffDurationSeconds("nope", true), null);
 });

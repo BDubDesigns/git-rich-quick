@@ -54,6 +54,21 @@ body {
   user-select: none;
 }
 
+/* Golden-star Employee effect tint (employee card only): a subtle
+   translucent green/red wash on the panel while a Sprint (2x) or
+   Meeting (0.5x) is live on that type, so the player sees at a
+   glance that its production is changed. Written here, after .panel,
+   so it wins over the panel background (a Tailwind bg utility would
+   lose to the unlayered .panel rule). The tint is translucent, so
+   the card text stays readable. */
+.panel.buffed {
+  background-color: rgba(34, 197, 94, 0.12);
+}
+
+.panel.debuffed {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+
 .primary-text {
   color: var(--primary-text-color);
 }

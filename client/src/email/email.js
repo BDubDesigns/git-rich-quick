@@ -125,13 +125,19 @@ export function deleteEmail(emails, emailId) {
  * no unit ("level +5") is left plain. The shared reward string
  * (starRewardDetail) is NOT changed — the coloring happens here, at
  * the email render layer, so the floating text stays uncolored.
+ *
+ * Multipliers ("0.5x", "2x", "7x") are colored the same way, by
+ * value: above 1x is a buff (green), below 1x a debuff (red), exactly
+ * 1x plain. The pattern needs digits before the "x", so "x7" (x first)
+ * and "v5.0" never match, and unlock text ("Hire 5 Juniors") has no
+ * "Nx" token to match.
  */
 const AMOUNT_PATTERN =
   /([+-])(\$?[\d,]+(?:\.\d+)?(?:K|M|B|T|Qa|Qi|Sx|Sp|Oc|No|Dc)?)(\s?LOC)?/g;
+const MULTIPLIER_PATTERN = /\b(\d+(?:\.\d+)?)x(?![A-Za-z])/g;
 
 export function highlightAmounts(text) {
-  const segments = [];
-  let lastIndex = 0;
+  const matches = [];
   for (const match of text.matchAll(AMOUNT_PATTERN)) {
     const [full, sign, amount, loc] = match;
     const hasUnit =
@@ -139,14 +145,33 @@ export function highlightAmounts(text) {
       /(?:K|M|B|T|Qa|Qi|Sx|Sp|Oc|No|Dc)$/.test(amount) ||
       loc;
     if (!hasUnit) continue;
-    if (match.index > lastIndex) {
-      segments.push({ text: text.slice(lastIndex, match.index), tone: null });
-    }
-    segments.push({
+    matches.push({
+      index: match.index,
+      length: full.length,
       text: full,
       tone: sign === "+" ? "gain" : "loss",
     });
-    lastIndex = match.index + full.length;
+  }
+  for (const match of text.matchAll(MULTIPLIER_PATTERN)) {
+    const value = parseFloat(match[1]);
+    if (value === 1) continue;
+    matches.push({
+      index: match.index,
+      length: match[0].length,
+      text: match[0],
+      tone: value > 1 ? "gain" : "loss",
+    });
+  }
+  matches.sort((a, b) => a.index - b.index);
+  const segments = [];
+  let lastIndex = 0;
+  for (const m of matches) {
+    if (m.index < lastIndex) continue; // Overlaps an earlier match.
+    if (m.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, m.index), tone: null });
+    }
+    segments.push({ text: m.text, tone: m.tone });
+    lastIndex = m.index + m.length;
   }
   if (lastIndex < text.length) {
     segments.push({ text: text.slice(lastIndex), tone: null });
