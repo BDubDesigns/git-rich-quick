@@ -13,7 +13,7 @@ export function NavBar() {
 
   return (
     <div className="w-full flex justify-around lg:gap-3 lg:flex-1">
-      {NAV_TABS.map(({ id, label, Icon }) => {
+      {NAV_TABS.map(({ id, label, Icon, imageSrc }) => {
         const isActive = state.activeTab === id;
         return (
           <NavButton
@@ -21,6 +21,7 @@ export function NavBar() {
             id={id}
             label={label}
             Icon={Icon}
+            imageSrc={imageSrc}
             isActive={isActive}
             // Unread-mail badge on the Email tab only: a circle with the
             // unread count. It drops as mail is read and disappears at zero.
