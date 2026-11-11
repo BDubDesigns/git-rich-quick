@@ -1157,6 +1157,48 @@ export function starBuffDurationSeconds(effect, good) {
 }
 
 /**
+ * The effective production multiplier for one employee type right now.
+ *
+ * A Frenzy buff (Overclock / Throttling) scales ALL production, and an
+ * Employee buff (Sprint / Meeting) scales one type's production — and
+ * the production math multiplies them (see calculateLOCPerSecond: the
+ * Employee extra is added to the base rate, then Frenzy scales the
+ * whole rate), so the two combine as a product, never a sum. Each
+ * defaults to 1 when no live buff of that kind is active, and expired
+ * entries are ignored (same expiry check as activeStarBuff).
+ *
+ * The employee card's tint and boosted amount both read this one
+ * number, so they can never disagree with each other or with the
+ * actual production rate. A combined 1 — including a Frenzy bad
+ * (0.5x) cancelled by an Employee good (2x) — means no tint and no
+ * boosted amount, because production is genuinely unchanged.
+ *
+ * @param {Array} activeStarEffects - the state's live timed buffs
+ * @param {string} employeeType - intern / junior / senior
+ * @param {number} nowMs - the clock reading (injectable for tests)
+ * @returns {number} the combined multiplier (1 when nothing is live)
+ */
+export function effectiveEmployeeMultiplier(
+  activeStarEffects,
+  employeeType,
+  nowMs = Date.now()
+) {
+  let multiplier = 1;
+  for (const buff of activeStarEffects ?? []) {
+    if (buff.expiresAtMs <= nowMs) continue;
+    if (buff.effect === "frenzy") {
+      multiplier *= buff.multiplier;
+    } else if (
+      buff.effect === "employee" &&
+      buff.employeeType === employeeType
+    ) {
+      multiplier *= buff.multiplier;
+    }
+  }
+  return multiplier;
+}
+
+/**
  * The reward detail for a resolved star claim ("+500 LOC",
  * "Production 7x", "Senior Developers 0.5x productivity"). Timed
  * multipliers read "{multiplier}x" so the email renderer can color

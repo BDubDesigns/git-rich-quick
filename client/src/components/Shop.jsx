@@ -2,13 +2,13 @@ import { useState } from "react";
 import { useGameContext } from "../context/useGameContext";
 import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
 import {
-  activeStarBuff,
   getEmployeeBulkCost,
   isEmployeeUnlocked,
   getUnlockProgress,
   hasCrossedUnlockThreshold,
   resolveEmployeeIcon,
 } from "../context/gameLogic";
+import { effectiveEmployeeMultiplier } from "../../../shared/game-balance.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
@@ -75,13 +75,17 @@ export function Shop() {
           const { Icon, color } = resolveEmployeeIcon(employeeType, state);
           const cardConfig = { ...config, Icon, color };
 
-          // Live golden-star Employee buff for this type (Sprint 2x /
-          // Meeting 0.5x), or null when none is active. The card tints
-          // green (buffed) or red (debuffed) while it is live, so the
-          // player sees at a glance that this type's production is
-          // changed. activeStarBuff drops expired entries, so the
-          // tint clears when the effect ends.
-          const buff = activeStarBuff(state, "employee", employeeType);
+          // Live golden-star production multiplier for this type: the
+          // global Frenzy buff (Overclock 7x / Throttling 0.5x) times
+          // the type-specific Employee buff (Sprint 2x / Meeting 0.5x)
+          // for this type — the same product the production math uses,
+          // so the card tints green (buffed) or red (debuffed) while
+          // any live effect changes this type's production, and the
+          // tint clears when the effect ends. 1 when nothing is live.
+          const effectMultiplier = effectiveEmployeeMultiplier(
+            state.activeStarEffects,
+            employeeType
+          );
 
           return (
             <EmployeeCard
@@ -92,7 +96,7 @@ export function Shop() {
               canAfford={canAfford}
               onPurchase={() => handleBuyEmployee(employeeType)}
               quantity={quantity}
-              effectMultiplier={buff ? buff.multiplier : null}
+              effectMultiplier={effectMultiplier}
             />
           );
         }

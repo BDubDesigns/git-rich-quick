@@ -16,18 +16,34 @@ export function EmployeeCard({
   canAfford,
   onPurchase,
   quantity = 1,
-  // Live golden-star Employee buff multiplier for this type (Sprint
-  // 2x / Meeting 0.5x), or null when none is active. The card tints
-  // green (buffed) or red (debuffed) while it is live — a visual
-  // indicator only, production itself is unchanged here.
-  effectMultiplier = null,
+  // Live golden-star production multiplier for this type: the global
+  // Frenzy buff (Overclock 7x / Throttling 0.5x) TIMES the
+  // type-specific Employee buff (Sprint 2x / Meeting 0.5x) — the same
+  // product the production math uses. 1 when nothing is live. The card
+  // tints green (buffed) or red (debuffed) while the effective rate
+  // differs from the base, and the @returns line shows the boosted
+  // amount next to the base amount — a visual indicator only,
+  // production itself is unchanged here.
+  effectMultiplier = 1,
 }) {
   const tintClass =
-    effectMultiplier !== null && effectMultiplier > 1
+    effectMultiplier > 1
       ? "buffed"
-      : effectMultiplier !== null && effectMultiplier < 1
+      : effectMultiplier < 1
         ? "debuffed"
         : "";
+  // The boosted per-employee rate: base LOC/s times the same combined
+  // multiplier as the tint. Shown only while an effect is live (a
+  // multiplier of exactly 1 means production is unchanged, including
+  // a Frenzy bad cancelled by an Employee good). Green when the rate
+  // is higher than base, red when lower.
+  const boostedLocPerSecond = config.locPerSecond * effectMultiplier;
+  const boostedSuffix =
+    effectMultiplier === 1
+      ? null
+      : ` → ${formatNumber(boostedLocPerSecond)} LOC per Sec`;
+  const boostedClassName =
+    effectMultiplier > 1 ? "text-green-400" : "text-red-400";
   return (
     <div className={`panel px-3 pb-1 flex flex-col gap-1 m-0 ${tintClass}`}>
       <div className="flex items-center gap-4">
@@ -47,6 +63,8 @@ export function EmployeeCard({
               type="LOC"
               value={`${formatNumber(config.locPerSecond)} LOC per Sec`}
               valueClassName="text-green-400"
+              suffix={boostedSuffix}
+              suffixClassName={boostedClassName}
             />
           </JsDocBlock>
         </div>
