@@ -76,6 +76,10 @@ export function GoldenStar() {
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
     useFloatingText();
   const [star, setStar] = useState(null);
+  // Whether the star is in its fade-out window (issue #49): it starts
+  // fading starFadeSeconds before it despawns, so the player gets a
+  // "click me now or lose me" signal instead of it just vanishing.
+  const [fading, setFading] = useState(false);
   // Whether the next-star countdown may be shown (server-gated unlock).
   const [countdownUnlocked, setCountdownUnlocked] = useState(false);
   // Seconds until the next star appears (null = no star scheduled).
@@ -149,14 +153,29 @@ export function GoldenStar() {
   }, [star, secondsLeft]);
 
   // Despawn an unclicked star after its lifetime, then re-fetch the
-  // next star time (the server rolls a fresh one).
+  // next star time (the server rolls a fresh one). The star starts
+  // fading starFadeSeconds before it despawns (issue #49).
   useEffect(() => {
     if (star === null) return undefined;
-    const id = setTimeout(() => {
+    setFading(false);
+    const fadeId = setTimeout(
+      () => {
+        setFading(true);
+      },
+      Math.max(
+        0,
+        (STAR_CONFIG.starLifetimeSeconds - STAR_CONFIG.starFadeSeconds) *
+          1000
+      )
+    );
+    const despawnId = setTimeout(() => {
       setStar(null);
       fetchNext();
     }, STAR_CONFIG.starLifetimeSeconds * 1000);
-    return () => clearTimeout(id);
+    return () => {
+      clearTimeout(fadeId);
+      clearTimeout(despawnId);
+    };
   }, [star, fetchNext]);
 
   const handleStarClick = useCallback(async () => {
@@ -216,7 +235,7 @@ export function GoldenStar() {
         <button
           type="button"
           aria-label="Golden star — click for a random reward"
-          className="golden-star"
+          className={fading ? "golden-star fading" : "golden-star"}
           style={{ left: `${star.x}px`, top: `${star.y}px` }}
           onClick={handleStarClick}
         >
