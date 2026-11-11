@@ -20,7 +20,9 @@
 
 import {
   EMAIL_CONFIG,
+  EMPLOYEE_DISPLAY_NAMES,
   EMPLOYEE_TYPES,
+  OPEN_SOURCE_DISPLAY_NAMES,
   OPEN_SOURCE_IDS,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
@@ -32,15 +34,17 @@ import {
   starRewardDetail,
 } from "../../../shared/game-balance.js";
 import {
-  EMPLOYEE_CONFIGS,
-  OPEN_SOURCE_PROJECTS_CONFIG,
-} from "../context/gameConfig.js";
-import {
   getUnlockProgress,
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
-} from "../context/gameLogic.js";
+} from "../utils/unlockProgress.js";
 import { formatCondition } from "../utils/formatCondition.js";
+
+// NOTE: this module deliberately imports only shared/game-balance.js and
+// pure client utils (unlockProgress, formatCondition) — never the display
+// config (gameConfig.js) or gameLogic.js, which pull in react-icons. The
+// save server's test environment installs only the server workspace, so
+// server tests that import this module must stay free of npm packages.
 
 /** A unique id for a new email. crypto.randomUUID with a fallback. */
 export function newEmailId() {
@@ -138,11 +142,11 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
   for (const type of EMPLOYEE_TYPES) {
     const wasUnlocked = prevState.unlockedEmployees?.[type] ?? false;
     const isUnlocked = newState.unlockedEmployees?.[type] ?? false;
-    const config = EMPLOYEE_CONFIGS[type];
+    const config = EMPLOYEE_DISPLAY_NAMES[type];
     if (!config) continue;
     if (!wasUnlocked && isUnlocked) {
       send(
-        buildEmployeeUnlockedEmail({ employeeName: config.name }),
+        buildEmployeeUnlockedEmail({ employeeName: config }),
         `employee-unlocked:${type}`
       );
     } else if (
@@ -151,7 +155,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     ) {
       send(
         buildEmployeeVisibleEmail({
-          employeeName: config.name,
+          employeeName: config,
           requirementText: describeUnlockRequirements(
             getUnlockProgress(type, newState)
           ),
@@ -166,11 +170,11 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
       prevState.unlockedOpenSourceProjects?.[projectId] ?? false;
     const isUnlocked =
       newState.unlockedOpenSourceProjects?.[projectId] ?? false;
-    const config = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
+    const config = OPEN_SOURCE_DISPLAY_NAMES[projectId];
     if (!config) continue;
     if (!wasUnlocked && isUnlocked) {
       send(
-        buildOpenSourceUnlockedEmail({ projectName: config.name }),
+        buildOpenSourceUnlockedEmail({ projectName: config }),
         `opensource-unlocked:${projectId}`
       );
     } else if (
@@ -179,7 +183,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     ) {
       send(
         buildOpenSourceVisibleEmail({
-          projectName: config.name,
+          projectName: config,
           requirementText: describeUnlockRequirements(
             getUnlockProgressForOpenSource(projectId, newState)
           ),
@@ -191,7 +195,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     const newLevel = newState.openSourceProjects?.[projectId]?.level ?? 0;
     for (let level = prevLevel + 1; level <= newLevel; level += 1) {
       send(
-        buildOpenSourceLevelEmail({ projectName: config.name, level }),
+        buildOpenSourceLevelEmail({ projectName: config, level }),
         `opensource-level:${projectId}:${level}`
       );
     }
@@ -199,7 +203,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
 
   if (starClaim) {
     const employeeTypeName =
-      EMPLOYEE_CONFIGS[starClaim.employeeType]?.name ??
+      EMPLOYEE_DISPLAY_NAMES[starClaim.employeeType] ??
       starClaim.employeeType;
     send(
       buildStarRewardEmail({

@@ -711,6 +711,35 @@ export function normalizeStarActions(actions) {
  * server never renders email — it only enforces the shape and the cap.
  */
 
+/**
+ * Display names for employees and open-source projects. These are the
+ * single source of truth for names: the client display config
+ * (gameConfig.js) spreads them in alongside icons/colors/descriptions,
+ * and the email module reads them from here so it stays free of the
+ * client's icon imports (react-icons), which the save server's test
+ * environment does not install.
+ */
+export const EMPLOYEE_DISPLAY_NAMES = Object.freeze({
+  intern: "Intern",
+  junior: "Junior Developer",
+  senior: "Senior Developer",
+});
+
+export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
+  overReactFramework: "OverReact Framework",
+  blocker: "Blocker Containerization Platform",
+  constellation: "GitNub Constellation",
+});
+
+/**
+ * Unlock visibility threshold: a locked card (and its teaser email)
+ * appears once ANY unlock condition reaches this fraction of its target.
+ * Lives here (not in the client display config) because the unlock
+ * helpers in client/src/utils/unlockProgress.js read it, and that module
+ * must stay free of client-only imports for the server tests.
+ */
+export const UNLOCK_VISIBILITY_THRESHOLD = 0.1;
+
 /** Inbox bounds and field length caps (server-enforced in the save shape check). */
 export const EMAIL_CONFIG = Object.freeze({
   /** Max emails in the inbox; the client deletes the oldest past this. */

@@ -66,7 +66,7 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
   // ==== Game Mechanics ====
   TICK_INTERVAL: shared.BALANCE.mechanics.tickIntervalMs, // Game tick interval in milliseconds
   BASE_LOC_PER_CLICK: shared.BALANCE.mechanics.baseLocPerClick, // Base lines of code per click
-  UNLOCK_VISIBILITY_THRESHOLD: 0.1, // 10% progress to start showing locked employee card
+  UNLOCK_VISIBILITY_THRESHOLD: shared.UNLOCK_VISIBILITY_THRESHOLD, // 10% progress to start showing locked employee card
 
   // ==== Starting Resources ====
   STARTING_MONEY: shared.BALANCE.mechanics.startingMoney, // $0.00 in cents
@@ -128,7 +128,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
   intern: {
     // Balance numbers (cost, LOC/s, multiplier, unlocks) come from shared.
     ...shared.BALANCE.employees.intern,
-    name: "Intern",
+    name: shared.EMPLOYEE_DISPLAY_NAMES.intern,
     Icon: GiPlasticDuck,
     color: "orange",
     description:
@@ -137,7 +137,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
   junior: {
     // Balance numbers (cost, LOC/s, multiplier, unlocks) come from shared.
     ...shared.BALANCE.employees.junior,
-    name: "Junior Developer",
+    name: shared.EMPLOYEE_DISPLAY_NAMES.junior,
     Icon: BsBackpack,
     color: "brown",
     description:
@@ -146,7 +146,7 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
   senior: {
     // Balance numbers (cost, LOC/s, multiplier, unlocks) come from shared.
     ...shared.BALANCE.employees.senior,
-    name: "Senior Developer",
+    name: shared.EMPLOYEE_DISPLAY_NAMES.senior,
     Icon: BiCoffeeTogo,
     color: "green",
     description:
@@ -201,7 +201,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   overReactFramework: {
     // Levels (and unlock conditions) come from shared.
     ...shared.BALANCE.openSource.overReactFramework,
-    name: "OverReact Framework",
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.overReactFramework,
     icon: FaCircleRadiation,
     color: "yellow",
     description:
@@ -210,7 +210,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   blocker: {
     // Levels (and unlock conditions) come from shared.
     ...shared.BALANCE.openSource.blocker,
-    name: "Blocker Containerization Platform",
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.blocker,
     icon: FaFishFins,
     color: "teal",
     description:
@@ -219,7 +219,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   constellation: {
     // Levels (and unlock conditions) come from shared.
     ...shared.BALANCE.openSource.constellation,
-    name: "GitNub Constellation",
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.constellation,
     icon: FaStar,
     color: "gold",
     description:
