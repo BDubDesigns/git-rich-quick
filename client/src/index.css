@@ -69,6 +69,35 @@ body {
   background-color: rgba(239, 68, 68, 0.12);
 }
 
+/* Barn-stall tint (Farm tab only): a subtle translucent wash of the
+   stall's mood-lighting color over the panel background, so the stall
+   keeps its mood at a glance while the base panel styling
+   (background, border, radius) still comes from .panel. The color
+   arrives as --stall-light on the element; the border takes that
+   color when the stall can breed, and white when it is selected for
+   buying. Written here, after .panel, so it wins over the panel
+   background (a Tailwind bg utility would lose to the unlayered
+   .panel rule). The tint is translucent, so the stall text stays
+   readable — the same 13% wash the stalls used to get from an inline
+   background. */
+.panel.stall {
+  background-color: color-mix(
+    in srgb,
+    var(--stall-light, transparent) 13%,
+    var(--panel-background-color)
+  );
+}
+
+.panel.stall--eligible {
+  border-color: var(--stall-light, var(--border-color));
+  border-width: 2px;
+}
+
+.panel.stall--selected {
+  border-color: #ffffff;
+  border-width: 2px;
+}
+
 .primary-text {
   color: var(--primary-text-color);
 }
