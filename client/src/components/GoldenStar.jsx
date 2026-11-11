@@ -4,7 +4,7 @@ import { useGameContext } from "../context/useGameContext";
 import { useFloatingText } from "../hooks/useFloatingText";
 import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
 import { getConstellationLevel } from "../context/gameLogic";
-import { STAR_CONFIG, starEffectName } from "../../../shared/game-balance.js";
+import { STAR_CONFIG, starEffectName, starRewardDetail } from "../../../shared/game-balance.js";
 import {
   SAVE_API_URL,
   getNextStar,
@@ -35,8 +35,13 @@ function randomStarPosition() {
   };
 }
 
-function formatMoney(cents) {
-  return `$${(cents / 100).toFixed(2)}`;
+/** The floating label for a resolved claim (effect name + what it did). */
+function starRewardLabel(claim) {
+  const name = starEffectName(claim.effect, claim.good);
+  const employeeTypeName =
+    EMPLOYEE_CONFIGS[claim.employeeType]?.name ?? claim.employeeType;
+  const detail = starRewardDetail(claim, employeeTypeName);
+  return detail ? `${name}! ${detail}` : `${name}!`;
 }
 
 /** "90s" or "1m 30s" for the next-star countdown. */
@@ -44,39 +49,6 @@ function formatCountdown(seconds) {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
-}
-
-/** The floating label for a resolved claim (effect name + what it did). */
-function starRewardLabel(claim) {
-  const name = starEffectName(claim.effect, claim.good);
-  switch (claim.effect) {
-    case "lucky": {
-      if (claim.locDelta !== 0) {
-        const sign = claim.locDelta > 0 ? "+" : "";
-        return `${name}! ${sign}${claim.locDelta} LOC`;
-      }
-      const sign = claim.moneyDelta > 0 ? "+" : "-";
-      return `${name}! ${sign}${formatMoney(Math.abs(claim.moneyDelta))}`;
-    }
-    case "shootingStars": {
-      const parts = [];
-      if (claim.locDelta !== 0) parts.push(`+${claim.locDelta} LOC`);
-      if (claim.moneyDelta !== 0)
-        parts.push(`+${formatMoney(claim.moneyDelta)}`);
-      return `${name}! ${parts.join(" ")}`;
-    }
-    case "frenzy":
-      return `${name}! Production x${claim.multiplier}`;
-    case "click":
-      return `${name}! Clicks x${claim.multiplier}`;
-    case "employee": {
-      const typeName =
-        EMPLOYEE_CONFIGS[claim.employeeType]?.name ?? claim.employeeType;
-      return `${name}! ${typeName}s x${claim.multiplier}`;
-    }
-    default:
-      return `${name}!`;
-  }
 }
 
 /**

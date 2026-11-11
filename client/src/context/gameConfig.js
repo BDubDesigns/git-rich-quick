@@ -108,6 +108,12 @@ export const SECTIONS_CONFIG = Object.freeze({
     description:
       "Account and game settings — link a save to your account so it survives clearing browser data.",
   },
+  email: {
+    id: "email",
+    displayName: "Inbox",
+    description:
+      "Mail from the game world — hiring leads, unlock notices, star reports. It's not real email; nobody here knows your address, and HR definitely doesn't.",
+  },
   leaderboard: {
     id: "leaderboard",
     displayName: "Leaderboard",

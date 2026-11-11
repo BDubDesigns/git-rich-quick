@@ -65,6 +65,7 @@
 
 import {
   BALANCE,
+  EMAIL_CONFIG,
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
@@ -148,6 +149,7 @@ function checkStateShape(state) {
       "unlockedEmployees",
       "unlockedOpenSourceProjects",
       "activeStarEffects",
+      "emails",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -194,6 +196,28 @@ function checkStateShape(state) {
   for (const entry of state.activeStarEffects) {
     const entryError = activeStarEffectError(entry);
     if (entryError) return entryError;
+  }
+  // In-game inbox (issue #31). The client caps the inbox at
+  // EMAIL_CONFIG.maxInboxEmails and deletes the oldest past it, so a
+  // save with more is malformed/tampered and fails the shape check
+  // (400) rather than being silently trimmed — trimming here would
+  // drop mail the client still shows, and the next save would just
+  // fail again. Each entry is a plain record; the server never
+  // interprets trigger keys or content, it only bounds them.
+  if (!Array.isArray(state.emails)) {
+    return "emails must be an array";
+  }
+  if (state.emails.length > EMAIL_CONFIG.maxInboxEmails) {
+    return `emails exceeds the ${EMAIL_CONFIG.maxInboxEmails} inbox cap`;
+  }
+  const seenEmailIds = new Set();
+  for (const entry of state.emails) {
+    const entryError = emailEntryError(entry);
+    if (entryError) return entryError;
+    if (seenEmailIds.has(entry.id)) {
+      return "emails must have unique ids";
+    }
+    seenEmailIds.add(entry.id);
   }
   if (
     !hasExactKeys(state.unlockedEmployees, EMPLOYEE_TYPES) ||
@@ -337,6 +361,51 @@ function activeStarEffectError(entry) {
     return "activeStarEffects employeeType must be null for non-employee buffs";
   }
   return null;
+}
+
+/** One inbox entry (issue #31). Plain record, bounded strings. */
+function emailEntryError(entry) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    return "emails entries must be objects";
+  }
+  if (
+    !hasExactKeys(entry, [
+      "id",
+      "triggerKey",
+      "sender",
+      "subject",
+      "body",
+      "createdAtMs",
+      "read",
+    ])
+  ) {
+    return "emails entries have unknown or missing keys";
+  }
+  if (typeof entry.id !== "string" || !UUID_RE.test(entry.id)) {
+    return "emails id must be a UUID string";
+  }
+  if (
+    typeof entry.triggerKey !== "string" ||
+    entry.triggerKey.length < 1 ||
+    entry.triggerKey.length > EMAIL_CONFIG.maxTriggerKeyLength
+  ) {
+    return "emails triggerKey must be a non-empty string within its length cap";
+  }
+  const stringFieldError = (value, max, field) =>
+    typeof value !== "string" || value.length < 1 || value.length > max
+      ? `emails ${field} must be a non-empty string within its length cap`
+      : null;
+  return (
+    stringFieldError(entry.sender, EMAIL_CONFIG.maxSenderLength, "sender") ??
+    stringFieldError(entry.subject, EMAIL_CONFIG.maxSubjectLength, "subject") ??
+    stringFieldError(entry.body, EMAIL_CONFIG.maxBodyLength, "body") ??
+    (!isInt(entry.createdAtMs) || entry.createdAtMs < 0
+      ? "emails createdAtMs must be a non-negative integer"
+      : null) ??
+    (typeof entry.read !== "boolean"
+      ? "emails read must be a boolean"
+      : null)
+  );
 }
 
 /** Shape of one starClaims entry. Semantic checks live in matchIssuedStarClaims. */
