@@ -14,6 +14,7 @@
 import { GiPlasticDuck } from "react-icons/gi";
 import { BsBackpack } from "react-icons/bs";
 import { BiCoffeeTogo } from "react-icons/bi";
+import { FaClipboardList, FaKeyboard } from "react-icons/fa";
 
 // import icons for navigation tabs
 import { FaPeopleGroup } from "react-icons/fa6";
@@ -159,6 +160,24 @@ export const EMPLOYEE_CONFIGS = Object.freeze({
     description:
       "Doesn't use a mouse. Writes code on a mechanical keyboard loud enough to wake the dead. Hates everything you just wrote.",
   },
+  projectManager: {
+    // Balance numbers (cost, multiplier, unlocks, boost) come from shared.
+    ...shared.BALANCE.employees.projectManager,
+    name: shared.EMPLOYEE_DISPLAY_NAMES.projectManager,
+    Icon: FaClipboardList,
+    color: "purple",
+    description:
+      "Schedules standups nobody asked for and somehow the whole team ships 1% faster per manager. Nobody knows how. Nobody is asking.",
+  },
+  commitSpecialist: {
+    // Balance numbers (cost, multiplier, unlocks, bonus) come from shared.
+    ...shared.BALANCE.employees.commitSpecialist,
+    name: shared.EMPLOYEE_DISPLAY_NAMES.commitSpecialist,
+    Icon: FaKeyboard,
+    color: "blue",
+    description:
+      "Writes commit messages so clean the git log weeps. Each one adds a tenth of a line to every click — it adds up, eventually, if you hire enough of them.",
+  },
 });
 
 // Immutable cosmetic configuration (issue #11) — the visual data
@@ -188,6 +207,16 @@ export const COSMETICS_CONFIG = Object.freeze({
     name: "Gold Coffee",
     Icon: BiCoffeeTogo,
     color: "#FFD700",
+  },
+  "projectManager-icon-platinum": {
+    name: "Platinum Clipboard",
+    Icon: FaClipboardList,
+    color: "#E5E4E2",
+  },
+  "commitSpecialist-icon-diamond": {
+    name: "Diamond Keyboard",
+    Icon: FaKeyboard,
+    color: "#B9F2FF",
   },
 });
 

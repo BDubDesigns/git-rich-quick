@@ -71,13 +71,13 @@ async function setVeteranState(srv, playerId) {
   state.totalLinesOfCode = 1_310_000;
   state.linesOfCode = 1_310_000;
   state.money = 316_000; // $3.16K in cents
-  state.employees = { intern: 20, junior: 20, senior: 11 };
+  state.employees = { intern: 20, junior: 20, senior: 11, projectManager: 0, commitSpecialist: 0 };
   state.openSourceProjects = {
     overReactFramework: 5,
     blocker: 4,
     constellation: 5,
   };
-  state.unlockedEmployees = { intern: true, junior: true, senior: true };
+  state.unlockedEmployees = { intern: true, junior: true, senior: true, projectManager: true, commitSpecialist: true };
   state.unlockedOpenSourceProjects = {
     overReactFramework: true,
     blocker: true,
@@ -105,7 +105,7 @@ async function setVeteranState(srv, playerId) {
 function zeroActions() {
   return {
     clicks: 0,
-    employeesBought: { intern: 0, junior: 0, senior: 0 },
+    employeesBought: { intern: 0, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     projectsCompleted: {
       toDoListApp: 0,
       hobbyWebsite: 0,

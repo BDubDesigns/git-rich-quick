@@ -85,6 +85,7 @@ import {
   baseLocPerSecond,
   canEquipCosmetic,
   cosmeticTriggerMet,
+  employeeBuffTypeRate,
   employeePurchaseCosts,
   employeeUnlockConditionsMet,
   findCosmetic,
@@ -95,7 +96,6 @@ import {
   normalizeStarActions,
   openSourceLevelCosts,
   openSourceUnlockConditionsMet,
-  passiveBonus,
 } from "../../shared/game-balance.js";
 
 /** Max plausible sustained click rate: 10 clicks/second. */
@@ -664,8 +664,14 @@ function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowM
     newState.employees,
     newState.openSourceProjects
   );
-  const newClick = locPerClick(newState.openSourceProjects);
-  const passiveBonusValue = passiveBonus(newState.openSourceProjects);
+  // The base click value, with the Commit Specialist bonus at 1x
+  // (no Sprint). The final total is floored (Brandon: a click must
+  // never commit a fractional amount), so this is the whole-number
+  // click value the client credits for clicks outside any buff.
+  const newClick = locPerClick(
+    newState.openSourceProjects,
+    newState.employees
+  );
 
   // Group buff instances by (effect, employeeType). Each group tracks
   // its multipliers and its summed overlap.
@@ -738,10 +744,16 @@ function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowM
   for (const group of employeeGroups) {
     const overlapSeconds = Math.min(group.overlapSeconds, elapsedSeconds);
     const multiplier = Math.max(...group.multipliers);
-    const typeRate =
-      BALANCE.employees[group.employeeType].locPerSecond *
-      (newState.employees[group.employeeType] ?? 0) *
-      (1 + passiveBonusValue);
+    // The type's contribution to the passive rate, from the one shared
+    // helper the client uses too. A Project Manager's contribution is
+    // the boost itself (the rate the Sprint scales); a Commit
+    // Specialist contributes nothing to passive LOC, so a Sprint on
+    // them scales nothing here — their bonus lives on clicks.
+    const typeRate = employeeBuffTypeRate(
+      group.employeeType,
+      newState.employees,
+      newState.openSourceProjects
+    );
     employeeExtraRate += (multiplier - 1) * typeRate;
     employeeExtra += (multiplier - 1) * typeRate * overlapSeconds;
     maxEmployeeOverlap = Math.max(maxEmployeeOverlap, overlapSeconds);
@@ -765,13 +777,57 @@ function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowM
   // actually claimed in the window.
   let clickExtra = 0;
   const clickGroup = groups.get("click:");
+  let clicksDuringClickBuff = 0;
   if (clickGroup) {
     const overlapSeconds = Math.min(clickGroup.overlapSeconds, elapsedSeconds);
     const multiplier = Math.max(...clickGroup.multipliers);
     const maxClicksDuringBuff =
       Math.floor(MAX_CLICKS_PER_SECOND * overlapSeconds) + CLICK_GRACE;
     const clicksDuringBuff = Math.min(actions.clicks, maxClicksDuringBuff);
+    clicksDuringClickBuff = clicksDuringBuff;
     clickExtra = (multiplier - 1) * clicksDuringBuff * newClick;
+  }
+
+  // Commit Specialist Sprint extra: a Sprint on Commit Specialists
+  // multiplies their per-click bonus, so clicks made while it was live
+  // earn more than the 1x base click above. The per-click extra is the
+  // difference of the two floored click totals (with the Sprint and at
+  // 1x) — that is exactly what the client credits per click, since the
+  // base is an integer and the floor lives on the final total. Only a
+  // positive delta is added: a Meeting (0.5x) makes clicks earn LESS
+  // than the base credit, which the base credit already covers, and
+  // subtracting for it could under-credit clicks made outside the
+  // Meeting. The Click x Commit Specialist interaction (a Click buff
+  // multiplying Sprint-boosted clicks) is the same delta times the
+  // Click buff's uplift, over the clicks that could have been during
+  // both buffs — an upper bound, like the Frenzy x Employee
+  // interaction above.
+  const csSprintGroup = groups.get("employee:commitSpecialist");
+  if (csSprintGroup) {
+    const overlapSeconds = Math.min(
+      csSprintGroup.overlapSeconds,
+      elapsedSeconds
+    );
+    const multiplier = Math.max(...csSprintGroup.multipliers);
+    const csBonusDelta =
+      locPerClick(
+        newState.openSourceProjects,
+        newState.employees,
+        multiplier
+      ) - newClick;
+    if (csBonusDelta > 0) {
+      const maxClicksDuringBuff =
+        Math.floor(MAX_CLICKS_PER_SECOND * overlapSeconds) + CLICK_GRACE;
+      const clicksDuringBuff = Math.min(actions.clicks, maxClicksDuringBuff);
+      clickExtra += csBonusDelta * clicksDuringBuff;
+      if (clickGroup) {
+        const clickMultiplier = Math.max(...clickGroup.multipliers);
+        clickExtra +=
+          (clickMultiplier - 1) *
+          csBonusDelta *
+          Math.min(clicksDuringClickBuff, clicksDuringBuff);
+      }
+    }
   }
 
   return { passiveExtra, clickExtra };
@@ -999,7 +1055,8 @@ export function validateSave(prev, body, nowMs, issuedStarClaims = []) {
       passiveSeconds +
     starPassiveExtra;
   const maxClickLoc =
-    actions.clicks * locPerClick(newState.openSourceProjects) +
+    actions.clicks *
+      locPerClick(newState.openSourceProjects, newState.employees) +
     starClickExtra;
 
   // LOC spent in the window, from the claimed actions.

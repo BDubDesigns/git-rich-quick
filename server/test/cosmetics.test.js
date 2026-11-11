@@ -45,7 +45,7 @@ const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
 function zeroActions() {
   return {
     clicks: 0,
-    employeesBought: { intern: 0, junior: 0, senior: 0 },
+    employeesBought: { intern: 0, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     projectsCompleted: {
       toDoListApp: 0,
       hobbyWebsite: 0,
@@ -93,6 +93,8 @@ test("cosmetic registry: one slot per employee type, one unlock each at 10 hires
     "employeeIcon_intern",
     "employeeIcon_junior",
     "employeeIcon_senior",
+    "employeeIcon_projectManager",
+    "employeeIcon_commitSpecialist",
   ]);
   assert.deepEqual(findCosmetic("intern-icon-bronze"), {
     cosmeticId: "intern-icon-bronze",
@@ -110,6 +112,18 @@ test("cosmetic registry: one slot per employee type, one unlock each at 10 hires
     cosmeticId: "senior-icon-gold",
     slot: "employeeIcon_senior",
     employeeType: "senior",
+    triggerCount: 10,
+  });
+  assert.deepEqual(findCosmetic("projectManager-icon-platinum"), {
+    cosmeticId: "projectManager-icon-platinum",
+    slot: "employeeIcon_projectManager",
+    employeeType: "projectManager",
+    triggerCount: 10,
+  });
+  assert.deepEqual(findCosmetic("commitSpecialist-icon-diamond"), {
+    cosmeticId: "commitSpecialist-icon-diamond",
+    slot: "employeeIcon_commitSpecialist",
+    employeeType: "commitSpecialist",
     triggerCount: 10,
   });
   assert.equal(findCosmetic("not-a-cosmetic"), null);

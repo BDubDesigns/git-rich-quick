@@ -112,7 +112,7 @@ async function loadState(srv, playerId) {
 function zeroActions() {
   return {
     clicks: 0,
-    employeesBought: { intern: 0, junior: 0, senior: 0 },
+    employeesBought: { intern: 0, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     projectsCompleted: {
       toDoListApp: 0,
       hobbyWebsite: 0,

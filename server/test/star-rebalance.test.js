@@ -23,7 +23,7 @@ const baseArgs = {
   locPerSecond: 100,
   money: 100000,
   linesOfCode: 100000,
-  employeeCounts: { intern: 5, junior: 2, senior: 1 },
+  employeeCounts: { intern: 5, junior: 2, senior: 1, projectManager: 0, commitSpecialist: 0 },
 };
 
 test("Overclock (Frenzy good) rolls an integer 2-5x", () => {

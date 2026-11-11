@@ -29,7 +29,7 @@ const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 function zeroCounts() {
   return {
-    employeesBought: { intern: 0, junior: 0, senior: 0 },
+    employeesBought: { intern: 0, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     projectsCompleted: {
       toDoListApp: 0,
       hobbyWebsite: 0,
@@ -73,11 +73,11 @@ test("shared math matches the client formulas", () => {
   assert.equal(employeeCost("junior", 1), 23000); // round(20000 * 1.15)
   assert.equal(employeeCost("senior", 1), 180000); // round(150000 * 1.2)
   assert.equal(
-    locPerSecond({ intern: 3, junior: 1, senior: 0 }, { overReactFramework: 0, blocker: 0 }),
+    locPerSecond({ intern: 3, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 }, { overReactFramework: 0, blocker: 0 }),
     8
   );
   assert.equal(
-    locPerSecond({ intern: 3, junior: 1, senior: 0 }, { overReactFramework: 0, blocker: 1 }),
+    locPerSecond({ intern: 3, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 }, { overReactFramework: 0, blocker: 1 }),
     12
   );
   // Level 2 means levels 1 and 2 are both active: bonus 1 + 2 = 3, so 1 x (1 + 3) = 4.
@@ -87,6 +87,8 @@ test("shared math matches the client formulas", () => {
     intern: true,
     junior: false,
     senior: false,
+    projectManager: false,
+    commitSpecialist: false,
   });
   assert.deepEqual(fresh.unlockedOpenSourceProjects, {
     overReactFramework: true,
@@ -110,7 +112,7 @@ test("shared math matches the client formulas", () => {
   assert.equal(locPerClick({ overReactFramework: 5, blocker: 0 }), 32);
   assert.equal(
     locPerSecond(
-      { intern: 3, junior: 1, senior: 0 },
+      { intern: 3, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 },
       { overReactFramework: 0, blocker: 5 }
     ),
     68
@@ -164,7 +166,7 @@ test("legit play: clicks, then a project, then a hire, then passive", () => {
     prev(afterClicks, T0 + 60_000),
     body(afterHire, {
       ...zeroActions(),
-      employeesBought: { intern: 1, junior: 0, senior: 0 },
+      employeesBought: { intern: 1, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     }),
     T0 + 120_000
   );
@@ -515,7 +517,7 @@ test("action deltas must agree with the snapshot", () => {
     prev(before, T0),
     body(snapshot, {
       ...zeroActions(),
-      employeesBought: { intern: 1, junior: 0, senior: 0 },
+      employeesBought: { intern: 1, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     }),
     T0 + 60_000
   );
@@ -632,7 +634,7 @@ test("second junior costs the scaled price, exact money", () => {
     prev(before, T0),
     body(after, {
       ...zeroActions(),
-      employeesBought: { intern: 0, junior: 1, senior: 0 },
+      employeesBought: { intern: 0, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 },
     }),
     T0 + 60_000
   );
@@ -649,7 +651,7 @@ test("second junior costs the scaled price, exact money", () => {
     prev(before, T0),
     body(wrongPrice, {
       ...zeroActions(),
-      employeesBought: { intern: 0, junior: 1, senior: 0 },
+      employeesBought: { intern: 0, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 },
     }),
     T0 + 60_000
   );
@@ -676,7 +678,7 @@ test("heavy shipping that drains LOC does not false-reject (tick quantization)",
     linesOfCode: 3352,
     totalLinesOfCode: 60000,
     money: 1803000,
-    employees: { intern: 35, junior: 5, senior: 2 },
+    employees: { intern: 35, junior: 5, senior: 2, projectManager: 0, commitSpecialist: 0 },
     freelanceProjectsCompleted: {
       toDoListApp: 200,
       hobbyWebsite: 20,
@@ -693,7 +695,7 @@ test("heavy shipping that drains LOC does not false-reject (tick quantization)",
     totalLinesOfCode: 67500,
     // 1803000 + 215 ships * 3000c.
     money: 2448000,
-    employees: { intern: 35, junior: 5, senior: 2 },
+    employees: { intern: 35, junior: 5, senior: 2, projectManager: 0, commitSpecialist: 0 },
     freelanceProjectsCompleted: {
       toDoListApp: 415,
       hobbyWebsite: 20,
@@ -1313,7 +1315,7 @@ test("a save from before Constellation (no star fields) still validates", () => 
   delete after.activeStarEffects;
   const actions = {
     clicks: 50,
-    employeesBought: { intern: 0, junior: 0, senior: 0 },
+    employeesBought: { intern: 0, junior: 0, senior: 0, projectManager: 0, commitSpecialist: 0 },
     projectsCompleted: {
       toDoListApp: 0,
       hobbyWebsite: 0,

@@ -150,6 +150,45 @@ export const BALANCE = Object.freeze({
         Object.freeze({ triggerCount: 10, cosmeticId: "senior-icon-gold" }),
       ]),
     }),
+    // Each Project Manager adds +1% to ALL employee passive LOC.
+    // (The passive half of the original "+1% to all output" Project
+    // Manager idea, now scoped to passive only.)
+    projectManager: Object.freeze({
+      baseCost: 500000,
+      locPerSecond: 0,
+      costMultiplier: 1.2,
+      passiveBoostPerEmployee: 0.01,
+      unlockConditions: Object.freeze([
+        Object.freeze({ type: "TOTAL_LOC", target: 50000 }),
+        Object.freeze({ type: "TOTAL_EMPLOYEE_COUNT", target: 25 }),
+      ]),
+      cosmeticSlot: "employeeIcon_projectManager",
+      cosmeticUnlocks: Object.freeze([
+        Object.freeze({
+          triggerCount: 10,
+          cosmeticId: "projectManager-icon-platinum",
+        }),
+      ]),
+    }),
+    // Each Commit Specialist adds +0.1 LOC to each manual click; the
+    // FINAL click total is floored to a whole number (see locPerClick).
+    commitSpecialist: Object.freeze({
+      baseCost: 500000,
+      locPerSecond: 0,
+      costMultiplier: 1.2,
+      clickBonusPerEmployee: 0.1,
+      unlockConditions: Object.freeze([
+        Object.freeze({ type: "TOTAL_LOC", target: 25000 }),
+        Object.freeze({ type: "TOTAL_EMPLOYEE_COUNT", target: 20 }),
+      ]),
+      cosmeticSlot: "employeeIcon_commitSpecialist",
+      cosmeticUnlocks: Object.freeze([
+        Object.freeze({
+          triggerCount: 10,
+          cosmeticId: "commitSpecialist-icon-diamond",
+        }),
+      ]),
+    }),
   }),
 
   aiAssistants: Object.freeze({
@@ -341,7 +380,13 @@ export const BALANCE = Object.freeze({
   }),
 });
 
-export const EMPLOYEE_TYPES = Object.freeze(["intern", "junior", "senior"]);
+export const EMPLOYEE_TYPES = Object.freeze([
+  "intern",
+  "junior",
+  "senior",
+  "projectManager",
+  "commitSpecialist",
+]);
 export const FREELANCE_PROJECT_KEYS = Object.freeze([
   "toDoListApp",
   "hobbyWebsite",
@@ -724,9 +769,26 @@ export function passiveBonus(openSourceLevels) {
   return totalBonusByType(openSourceLevels, "PASSIVE_BOOST");
 }
 
-/** LOC earned by one click, given the open-source levels. */
-export function locPerClick(openSourceLevels) {
-  return BALANCE.mechanics.baseLocPerClick * (1 + clickBonus(openSourceLevels));
+/** LOC earned by one click, given the open-source levels and the employee
+ * counts. The Commit Specialist bonus is a flat additive amount on top of
+ * the base click and the OverReact click boost. The FINAL total is floored
+ * to a whole number (Brandon: a click must never yield or commit a
+ * fractional amount — never 5093.1, always 5093). The floor is on the
+ * total, not on the bonus in isolation, so it still holds if any part
+ * of the total is ever fractional. `csSprintMultiplier` is a live Sprint
+ * on Commit Specialists (default 1, i.e. no Sprint); each specialist
+ * gives +0.1 LOC per click at 1x, +0.5 at 5x, +0.05 at 0.5x (a Meeting).
+ * `employeeCounts` may be omitted (a save from before Commit
+ * Specialists shipped has no specialists, so the bonus is 0). */
+export function locPerClick(
+  openSourceLevels,
+  employeeCounts,
+  csSprintMultiplier = 1
+) {
+  return Math.floor(
+    BALANCE.mechanics.baseLocPerClick * (1 + clickBonus(openSourceLevels)) +
+      commitSpecialistClickBonus(employeeCounts, csSprintMultiplier)
+  );
 }
 
 /** Base passive LOC/sec from employees, before the passive bonus. */
@@ -738,9 +800,100 @@ export function baseLocPerSecond(employeeCounts) {
   );
 }
 
-/** Total passive LOC/sec, including the Blocker passive bonus. */
+/**
+ * Project Manager boost fraction: each Project Manager adds +1% to ALL
+ * employee passive LOC. `pmSprintMultiplier` is a live Sprint on Project
+ * Managers (default 1, i.e. no Sprint); a 5x Sprint makes each manager
+ * give +5% while it is live, a Meeting halves it to +0.5% per manager.
+ */
+export function projectManagerBoostFraction(
+  employeeCounts,
+  pmSprintMultiplier = 1
+) {
+  return (
+    BALANCE.employees.projectManager.passiveBoostPerEmployee *
+    (employeeCounts?.projectManager ?? 0) *
+    pmSprintMultiplier
+  );
+}
+
+/** The LOC/s the Project Manager boost contributes at a 1x Sprint:
+ * the boost fraction times the passive rate it scales. */
+export function projectManagerBoostRate(employeeCounts, openSourceLevels) {
+  return (
+    projectManagerBoostFraction(employeeCounts) *
+    baseLocPerSecond(employeeCounts) *
+    (1 + passiveBonus(openSourceLevels))
+  );
+}
+
+/**
+ * Commit Specialist click bonus: each Commit Specialist adds +0.1 LOC to
+ * a manual click. This is the RAW bonus — it is NOT floored here. The
+ * floor lives on the final click total in locPerClick (Brandon: floor
+ * the final total, not the bonus in isolation), so 10 specialists = +1,
+ * 15 = +1, 25 = +2 once the total is floored. `csSprintMultiplier` is a
+ * live Sprint on Commit Specialists (default 1); a 5x Sprint makes each
+ * specialist give +0.5 per click, so floor(0.5 x N) once the total is
+ * floored.
+ */
+export function commitSpecialistClickBonus(
+  employeeCounts,
+  csSprintMultiplier = 1
+) {
+  return (
+    BALANCE.employees.commitSpecialist.clickBonusPerEmployee *
+    (employeeCounts?.commitSpecialist ?? 0) *
+    csSprintMultiplier
+  );
+}
+
+/**
+ * The passive LOC/s rate an Employee buff (Sprint/Meeting) scales for one
+ * type: that type's contribution to the passive rate. For a normal type
+ * it is the type's LOC/s times its count times the Blocker passive bonus
+ * times the Project Manager boost (the boost multiplies every type's
+ * contribution). For a Project Manager it is the boost contribution
+ * itself (the rate the Sprint scales). A Commit Specialist contributes
+ * nothing to passive LOC, so a Sprint on them scales nothing here —
+ * their bonus lives on clicks, not passive.
+ */
+export function employeeBuffTypeRate(employeeType, employeeCounts, openSourceLevels) {
+  if (employeeType === "projectManager") {
+    return projectManagerBoostRate(employeeCounts, openSourceLevels);
+  }
+  if (employeeType === "commitSpecialist") {
+    return 0;
+  }
+  return (
+    BALANCE.employees[employeeType].locPerSecond *
+    (employeeCounts?.[employeeType] ?? 0) *
+    (1 + passiveBonus(openSourceLevels)) *
+    (1 + projectManagerBoostFraction(employeeCounts))
+  );
+}
+
+/**
+ * Total passive LOC/sec, including the Blocker passive bonus and the
+ * Project Manager boost: each manager multiplies the whole passive rate
+ * by (1 + 0.01 x N). Clicks are NOT boosted by managers, and the Commit
+ * Specialist bonus does not touch passive. The FINAL rate is floored to
+ * a whole number, the same rule as the click total (Brandon: a tick must
+ * never commit a fractional amount): 10 interns with 5 managers is
+ * 10 x 1.05 = 10.5, floored to 10. The floor is on the final rate, not
+ * on any one component — so it also floors a pre-existing fractional
+ * rate from the Blocker bonus (e.g. 3 interns at Blocker L1 is 4.5,
+ * floored to 4). The floor eats at most 1 LOC/s, and the Project
+ * Manager unlock (TOTAL_LOC >= 50000, 25 employees) means a player
+ * reaching managers already has a rate large enough that 1% per
+ * manager is worth at least 1 LOC/s.
+ */
 export function locPerSecond(employeeCounts, openSourceLevels) {
-  return baseLocPerSecond(employeeCounts) * (1 + passiveBonus(openSourceLevels));
+  return Math.floor(
+    baseLocPerSecond(employeeCounts) *
+      (1 + passiveBonus(openSourceLevels)) *
+      (1 + projectManagerBoostFraction(employeeCounts))
+  );
 }
 
 /**
@@ -939,8 +1092,10 @@ export function canEquipCosmetic(slot, cosmeticId, unlockedCosmetics) {
 
 /** The save state a brand-new player starts from. Unlocks derive from the configs. */
 export function initialSaveState() {
+  const employees = {};
   const unlockedEmployees = {};
   for (const type of EMPLOYEE_TYPES) {
+    employees[type] = 0;
     unlockedEmployees[type] =
       BALANCE.employees[type].unlockConditions.length === 0;
   }
@@ -960,7 +1115,7 @@ export function initialSaveState() {
     linesOfCode: BALANCE.mechanics.startingLoc,
     totalLinesOfCode: 0,
     money: BALANCE.mechanics.startingMoney,
-    employees: { intern: 0, junior: 0, senior: 0 },
+    employees,
     aiAssistants: { noPilot: 0 },
     freelanceProjectsCompleted: {
       toDoListApp: 0,
@@ -1096,6 +1251,45 @@ export function normalizeSaveState(state) {
   ) {
     next.equippedCosmetics = {};
   }
+  if (
+    next.employees &&
+    typeof next.employees === "object" &&
+    !Array.isArray(next.employees)
+  ) {
+    // Project Manager and Commit Specialist shipped after the first
+    // three employees: a save from before them lacks those keys.
+    // Default the missing counts to 0 instead of failing the shape
+    // check, same pattern as the open-source migration above.
+    let changed = false;
+    const employees = { ...next.employees };
+    for (const type of EMPLOYEE_TYPES) {
+      if (employees[type] === undefined) {
+        employees[type] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.employees = employees;
+  }
+  if (
+    next.unlockedEmployees &&
+    typeof next.unlockedEmployees === "object" &&
+    !Array.isArray(next.unlockedEmployees)
+  ) {
+    // Same migration for the unlock latch: a save from before the new
+    // types lacks their latch keys. Derive each missing latch from the
+    // save's own state, so a veteran who already meets a new type's
+    // condition gets it unlocked on load instead of locked behind a
+    // goal they already cleared.
+    let changed = false;
+    const unlocked = { ...next.unlockedEmployees };
+    for (const type of EMPLOYEE_TYPES) {
+      if (unlocked[type] === undefined) {
+        unlocked[type] = employeeUnlockConditionsMet(type, next);
+        changed = true;
+      }
+    }
+    if (changed) next.unlockedEmployees = unlocked;
+  }
   return next;
 }
 
@@ -1162,6 +1356,8 @@ export const EMPLOYEE_DISPLAY_NAMES = Object.freeze({
   intern: "Intern",
   junior: "Junior Developer",
   senior: "Senior Developer",
+  projectManager: "Project Manager",
+  commitSpecialist: "Commit Specialist",
 });
 
 export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
@@ -1235,15 +1431,29 @@ export function starBuffDurationSeconds(effect, good) {
  * (0.5x) cancelled by an Employee good (2x) — means no tint and no
  * boosted amount, because production is genuinely unchanged.
  *
+ * The Project Manager boost is part of this multiplier too: each
+ * manager adds +1% to ALL employee passive LOC, so a type's
+ * production is its base rate times (1 + 0.01 x N) even with no star
+ * buff live. That means a card tints green whenever managers are
+ * owned — the boost is permanent, not a star effect, so the tint no
+ * longer means "a star buff is live" by itself. The PM Sprint
+ * scaling is NOT folded in here: a Sprint on Project Managers is a
+ * buff on the Project Manager type itself, shown on the PM card, not
+ * on every type's card.
+ *
  * @param {Array} activeStarEffects - the state's live timed buffs
  * @param {string} employeeType - intern / junior / senior
  * @param {number} nowMs - the clock reading (injectable for tests)
+ * @param {object|null} employeeCounts - flat employee counts, when the
+ *   caller wants the Project Manager boost included; omit for the
+ *   star-buff-only multiplier (the boost factor is then 1)
  * @returns {number} the combined multiplier (1 when nothing is live)
  */
 export function effectiveEmployeeMultiplier(
   activeStarEffects,
   employeeType,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  employeeCounts = null
 ) {
   let multiplier = 1;
   for (const buff of activeStarEffects ?? []) {
@@ -1256,6 +1466,9 @@ export function effectiveEmployeeMultiplier(
     ) {
       multiplier *= buff.multiplier;
     }
+  }
+  if (employeeCounts) {
+    multiplier *= 1 + projectManagerBoostFraction(employeeCounts);
   }
   return multiplier;
 }

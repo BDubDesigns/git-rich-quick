@@ -7,6 +7,8 @@ import {
   getUnlockProgress,
   hasCrossedUnlockThreshold,
   resolveEmployeeIcon,
+  activeStarBuff,
+  flatEmployeeCounts,
 } from "../context/gameLogic";
 import { effectiveEmployeeMultiplier } from "../../../shared/game-balance.js";
 import { SectionLayout } from "./SectionLayout.jsx";
@@ -75,16 +77,35 @@ export function Shop() {
           const cardConfig = { ...config, Icon, color };
 
           // Live golden-star production multiplier for this type: the
-          // global Frenzy buff (Overclock 7x / Throttling 0.5x) times
-          // the type-specific Employee buff (Sprint 2x / Meeting 0.5x)
-          // for this type — the same product the production math uses,
-          // so the card tints green (buffed) or red (debuffed) while
-          // any live effect changes this type's production, and the
-          // tint clears when the effect ends. 1 when nothing is live.
-          const effectMultiplier = effectiveEmployeeMultiplier(
-            state.activeStarEffects,
-            employeeType
-          );
+          // global Frenzy buff (Overclock / Throttling) times the
+          // type-specific Employee buff (Sprint / Meeting) for this
+          // type — the same product the production math uses, so the
+          // card tints green (buffed) or red (debuffed) while any live
+          // effect changes this type's production, and the tint clears
+          // when the effect ends. 1 when nothing is live.
+          //
+          // The Project Manager boost is part of that multiplier for
+          // the passive types (each manager adds +1% to all employee
+          // passive LOC), so it is passed in here — a card tints green
+          // whenever managers are owned, because the boost is
+          // permanent. The boost types themselves show only their own
+          // Sprint/Meeting multiplier: a Project Manager's card shows
+          // its Sprint scaling the boost (+1% -> +5% at 5x), and a
+          // Commit Specialist's card shows its Sprint scaling the
+          // click bonus (+0.1 -> +0.5 at 5x). A Frenzy buff does not
+          // change a manager's boost or a specialist's click bonus,
+          // so it does not tint those cards.
+          const effectMultiplier =
+            employeeType === "projectManager" ||
+            employeeType === "commitSpecialist"
+              ? (activeStarBuff(state, "employee", employeeType)
+                  ?.multiplier ?? 1)
+              : effectiveEmployeeMultiplier(
+                  state.activeStarEffects,
+                  employeeType,
+                  Date.now(),
+                  flatEmployeeCounts(state)
+                );
 
           return (
             <EmployeeCard
