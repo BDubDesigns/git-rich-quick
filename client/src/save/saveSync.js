@@ -155,6 +155,13 @@ export class SaveSync {
     // these (recordStarClaim), with the effect and amounts the server
     // validates. Reset on an accepted save or a revert, kept on a 429.
     this.starClaims = [];
+    // Farm breed claims since the baseline (issue #79 feedback). Only
+    // the farm breed handler records these (recordFarmBreed), with the
+    // breedId and kids the server rolled. Reset on an accepted save or
+    // a revert, kept on a 429. A kid being born changes the farm llama
+    // count, which is a big-action save trigger, so no separate
+    // prompt-save flag is needed — the big-action path saves promptly.
+    this.farmBreedClaims = [];
     // A prompt save is pending for the recorded claims (star fix
     // slice). Set by recordStarClaim, cleared when noteState starts
     // the save — one prompt attempt per claim, not one per tick.
@@ -334,6 +341,19 @@ export class SaveSync {
   }
 
   /**
+   * Record one farm breed claim (a server-rolled breeding tick's kids).
+   * The claim is `{ breedId, kids }` (kids is the list of
+   * `{ stallIndex, type }` the server rolled); the server validates it
+   * and the save only accepts kids that match an issued outcome. Call
+   * it in the same handler that dispatches the breed result, with the
+   * exact kids applied, so the claim and the state change can never
+   * disagree.
+   */
+  recordFarmBreed(claim) {
+    this.farmBreedClaims.push({ ...claim });
+  }
+
+  /**
    * Called on every state change (from the React provider). Triggers a
    * save when a big action actually happened (a hire, an open-source
    * level) — not on ticks, failed actions, or project completions.
@@ -424,6 +444,7 @@ export class SaveSync {
       this.baseline = initial;
       this.clicks = 0;
       this.starClaims = [];
+      this.farmBreedClaims = [];
       this._starClaimSavePending = false;
       this._lastSeenBig = bigActionFields(initial);
       this.needsLoad = false;
@@ -528,6 +549,7 @@ export class SaveSync {
               this._lastSeenBig = bigActionFields(data.state);
               this.clicks = 0;
               this.starClaims = [];
+              this.farmBreedClaims = [];
               this.needsLoad = false;
               // Same as init's load: report when the server last saved.
               const savedAtMs = Date.parse(data.savedAt);
@@ -561,6 +583,7 @@ export class SaveSync {
       const saveState = stateToSaveState(current);
       const sentClicks = this.clicks;
       const sentStarClaimCount = this.starClaims.length;
+      const sentFarmBreedClaimCount = this.farmBreedClaims.length;
       const actions = {
         clicks: sentClicks,
         employeesBought: diffCounts(
@@ -581,6 +604,9 @@ export class SaveSync {
         // A copy: claims recorded while this save is in flight stay
         // queued for the next save (same as clicks, below).
         starClaims: [...this.starClaims],
+        // Farm breed claims (issue #79 feedback): same copy pattern
+        // as the star claims above.
+        farmBreedClaims: [...this.farmBreedClaims],
       };
 
       let result;
@@ -603,9 +629,11 @@ export class SaveSync {
         // clicks that were sent — clicks made while the save was in flight
         // stay counted for the next save. Same for star claims: drop the
         // sent ones, keep any claimed while the save was in flight.
+        // Same for farm breed claims.
         this.baseline = saveState;
         this.clicks = Math.max(0, this.clicks - sentClicks);
         this.starClaims.splice(0, sentStarClaimCount);
+        this.farmBreedClaims.splice(0, sentFarmBreedClaimCount);
         this._clearRetryTimer();
         this.onRetry(null);
         this.onSavedAt(Date.now());
@@ -645,6 +673,7 @@ export class SaveSync {
         }
         this.clicks = 0;
         this.starClaims = [];
+        this.farmBreedClaims = [];
         this._clearRetryTimer();
         this.onRetry(null);
         this.setStatus("error");
@@ -700,6 +729,7 @@ export class SaveSync {
     this._lastSeenBig = bigActionFields(minted.state);
     this.clicks = 0;
     this.starClaims = [];
+    this.farmBreedClaims = [];
     this.needsLoad = false;
   }
 }

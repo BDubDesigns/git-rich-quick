@@ -481,26 +481,56 @@ export const OPEN_SOURCE_IDS = Object.freeze([
  * harness are the next slice, not v1 — the money rule is exact, and
  * passive cash with a changing llama count cannot be validated exactly
  * without restructuring it.
+ *
+ * Feedback (Brandon, Nov 10): the farm is a cool first mini-game
+ * unlock, so it costs $10,000, not $250. No free llamas — the barn
+ * arrives empty and you buy llamas yourself. Breeding is slow (a
+ * 60s tick, not 5s) and the roll happens on the SERVER, not the
+ * client: POST /api/farm/breed rolls the outcome and records it as an
+ * issued outcome, and a save only accepts kids that match an issued
+ * outcome. See store.breedFarm and matchIssuedFarmBreeds.
  */
 export const FARM_CONFIG = Object.freeze({
   /**
-   * One-time purchase cost, in cents ($250). The money is the gate —
-   * the farm has no unlock condition in v1. Tuning value.
+   * One-time purchase cost, in cents ($10,000). The money is the gate —
+   * the farm has no unlock condition in v1. Tuning value (Brandon:
+   * "at least 10k").
    */
-  purchaseCostCents: 25000,
+  purchaseCostCents: 1000000,
+  /**
+   * Price of one base llama (Classic or Drama), in cents ($500).
+   * Bred types are never for sale — they come only from breeding.
+   * Tuning value: cheap enough that a player who just spent $10,000
+   * on the barn can afford a pair to start breeding.
+   */
+  llamaPriceCents: 50000,
   /** Barn stalls in the grid (3x3). Each stall holds at most one llama. */
   stallCount: 9,
   /** Columns in the stall grid (used for orthogonal adjacency). */
   gridCols: 3,
-  /** How often the breeding check runs, in seconds. */
-  breedingTickSeconds: 5,
-  /** Llamas placed when the farm is bought. */
-  startingLlamaCount: 5,
+  /**
+   * How often the breeding check runs, in seconds. The client calls
+   * POST /api/farm/breed on this interval and the server rolls. 60s,
+   * not 5s — a kid every few minutes at the v1 odds, not a kid every
+   * few seconds. Tuning value.
+   */
+  breedingTickSeconds: 60,
+  /**
+   * How long an already-issued breed outcome stays valid at save time,
+   * in seconds. Mirrors the star-claim-expiry fix: the outcome is
+   * issued at breed time, and the save carrying the kids can be delayed
+   * past the breed by a deploy restart, a network failure, or 10s
+   * rate-limit retries. 300s covers a deploy restart plus retries; a
+   * genuinely stale claim (older than 300s + 5s grace) is still
+   * rejected, and the outcome is consumed on accept so it cannot be
+   * replayed.
+   */
+  issuedBreedValidSeconds: 300,
 });
 
 /**
  * Llama type ids, in discovery order. The first two are the base types
- * every farm starts with; the rest are discovered by breeding.
+ * you can buy in the shop; the rest are discovered by breeding.
  */
 export const LLAMA_TYPES = Object.freeze([
   "classic",
@@ -511,7 +541,7 @@ export const LLAMA_TYPES = Object.freeze([
   "ai",
 ]);
 
-/** The two base types every farm starts with. */
+/** The two base types for sale in the shop. Bred types are never sold. */
 export const LLAMA_BASE_TYPES = Object.freeze(["classic", "drama"]);
 
 /** Display names for the llama types. */
@@ -699,27 +729,6 @@ export function rollFarmBreeding(stalls, unlockedTypes, rng = Math.random) {
   return { stalls: next, kidsBorn };
 }
 
-/**
- * The starting stall layout when the farm is bought: 5 llamas in a
- * checkerboard (stalls 0, 2, 4, 6, 8), so all four empty stalls sit
- * between llamas and can breed from the start. Three Classics, two
- * Dramas. Every stall starts on warm lighting.
- */
-export function farmStartingStalls() {
-  const starting = {
-    0: "classic",
-    2: "drama",
-    4: "classic",
-    6: "drama",
-    8: "classic",
-  };
-  const stalls = [];
-  for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
-    stalls.push({ llama: starting[i] ?? null, lighting: "warm" });
-  }
-  return stalls;
-}
-
 /** A farm that has never been bought: no llamas, no types, warm lights. */
 export function emptyFarmState() {
   return {
@@ -732,12 +741,20 @@ export function emptyFarmState() {
   };
 }
 
-/** The farm state right after buying it: owned, 5 starting llamas, base types unlocked. */
+/**
+ * The farm state right after buying it: owned, but EMPTY — no free
+ * llamas (Brandon: "you have to buy the llamas yourself"). Buy base
+ * llamas in the shop to move in, then breed. No types are unlocked
+ * until a llama of that type is bought or born.
+ */
 export function initialFarmState() {
   return {
     owned: true,
-    stalls: farmStartingStalls(),
-    unlockedTypes: [...LLAMA_BASE_TYPES],
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
+      llama: null,
+      lighting: "warm",
+    })),
+    unlockedTypes: [],
   };
 }
 
@@ -1765,6 +1782,13 @@ export function normalizeStarActions(actions) {
   if (!Array.isArray(next.starClaims)) {
     next.starClaims = [];
   }
+  if (!Array.isArray(next.farmBreedClaims)) {
+    // Farm breed claims (server-rolled breeding, issue #79 feedback):
+    // a client from before server-side breeding shipped has no
+    // farmBreedClaims key. Default it to [] instead of failing the
+    // shape check, same pattern as starClaims above.
+    next.farmBreedClaims = [];
+  }
   if (
     next.openSourceLevelsBought &&
     typeof next.openSourceLevelsBought === "object" &&
@@ -2104,19 +2128,20 @@ export function buildStarRewardEmail({ effectName, rewardText, good }) {
   };
 }
 
-/** The llama farm was bought — the barn opens with 5 llamas. */
+/** The llama farm was bought — the barn opens empty. */
 export function buildFarmPurchasedEmail() {
   return {
     sender: "Your Team",
     subject: "We bought a llama farm??",
     body:
       `So. The team has been threatening to quit and start an alpaca ` +
-      `farm for months, and you finally let them build one. Five llamas ` +
-      `have moved into the barn — 3 Classics, 2 Dramas. You still have ` +
-      `not accepted their notice of quitting, so technically they are ` +
-      `still employees. HR has questions. You do not have answers.\n\n` +
-      `Set the lights, let them breed, and see what new types show up. ` +
-      `The llamas generate no cash yet. They generate vibes.`,
+      `farm for months, and you finally let them build one. The barn ` +
+      `is up, the mood lighting is installed, and it is completely ` +
+      `empty — no llamas come with it. You still have not accepted ` +
+      `their notice of quitting, so technically they are still ` +
+      `employees. HR has questions. You do not have answers.\n\n` +
+      `Buy some llamas, move them in, set the lights, and let them ` +
+      `breed. The llamas generate no cash yet. They generate vibes.`,
   };
 }
 

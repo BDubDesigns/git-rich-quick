@@ -215,6 +215,11 @@ export function emptyActions() {
     // validates each claim (effect unlocked, amounts in range, count
     // capped by the spawn rate) and credits it in the LOC/money rules.
     starClaims: [],
+    // Farm breed claims since the last accepted save (issue #79
+    // feedback). The server validates each claim's kids against a
+    // server-issued breed outcome; any new llama that is not a matched
+    // breed kid must be a bought base llama.
+    farmBreedClaims: [],
   };
 }
 
