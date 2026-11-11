@@ -12,6 +12,7 @@ import { Settings } from "./components/Settings";
 import { Leaderboard } from "./components/Leaderboard";
 import { Email } from "./components/Email";
 import { GameLayout } from "./components/GameLayout";
+import { ScrollAffordanceFrame } from "./components/ScrollAffordances.jsx";
 import { GoldenStar } from "./components/GoldenStar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 
@@ -57,12 +58,18 @@ function App() {
           its own timer when the player has a Constellation level. */}
       <GoldenStar />
       {isDesktop ? (
-        // Desktop: 3-pane grid layout
+        // Desktop: 3-pane grid layout. Each pane is a
+        // ScrollAffordanceFrame: the pane scrolls on its own and the
+        // up/down arrows (RuneSpace #345 pattern) sit on its visible
+        // box, so a pane whose content hides above or below says so.
         <div className="grid grid-cols-3 gap-4 h-full">
           {/* Left pane: Always Shop */}
-          <div className="overflow-y-auto">
+          <ScrollAffordanceFrame
+            scrollerClassName="h-full overflow-y-auto"
+            className="min-h-0"
+          >
             <Shop />
-          </div>
+          </ScrollAffordanceFrame>
 
           {/* Center pane: Dynamic (controlled by activeTab). Shop and
               Projects are NOT rendered here — they live in the fixed side
@@ -70,19 +77,25 @@ function App() {
               in the left and center panes, Projects in the center and
               right). When the active tab is Shop or Projects, the center
               falls back to Open Source so the pane is never empty. */}
-          <div className="overflow-y-auto">
+          <ScrollAffordanceFrame
+            scrollerClassName="h-full overflow-y-auto"
+            className="min-h-0"
+          >
             {state.activeTab === "openSource" && <OpenSource />}
             {(state.activeTab === "shop" ||
               state.activeTab === "projects") && <OpenSource />}
             {state.activeTab === "settings" && <Settings />}
             {state.activeTab === "leaderboard" && <Leaderboard />}
             {state.activeTab === "email" && <Email />}
-          </div>
+          </ScrollAffordanceFrame>
 
           {/* Right pane: Always Projects */}
-          <div className="overflow-y-auto">
+          <ScrollAffordanceFrame
+            scrollerClassName="h-full overflow-y-auto"
+            className="min-h-0"
+          >
             <Projects />
-          </div>
+          </ScrollAffordanceFrame>
         </div>
       ) : (
         // Mobile: Single pane (current behavior, unchanged)

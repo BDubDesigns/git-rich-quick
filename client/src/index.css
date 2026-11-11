@@ -87,3 +87,91 @@ body,
 body {
   font-family: "Cascadia Code", monospace;
 }
+
+/* Scroll affordances (RuneSpace #345 pattern, adapted): directional
+   arrows on a scrollable tab/pane when content hides above or below.
+   The overlay layer is a sibling of the scroller inside a `relative`
+   frame the same size as the scroller's visible box, so the arrows
+   stay on the visible viewport while the content moves under them and
+   never scroll away. Arrows are decoration only (`aria-hidden`,
+   `pointer-events: none`) — native scrolling is untouched. The arrow
+   is RuneSpace's left-pointing triangle (clip-path), rotated per
+   direction, with the same breathing pulse; the fill/border/glow use
+   the GRQ active-button blue in place of the mining amber. */
+.grq-scroll-affordance-layer {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* One canonical arrow for both edges. The edge wrapper owns only
+   placement (centered on its anchor with `translate`) and direction
+   (`rotate`); it never scales. The inner arrow owns the breathing
+   `scale`, so the pulse grows from the arrow's own center. */
+.grq-scroll-affordance {
+  --grq-scroll-arrow-length: 1.5rem;
+  --grq-scroll-arrow-span: 3rem;
+  --grq-scroll-arrow-inset: 0.25rem;
+  --grq-scroll-arrow-anchor: calc(
+    var(--grq-scroll-arrow-inset) + var(--grq-scroll-arrow-length) / 2
+  );
+  position: absolute;
+  display: block;
+  width: var(--grq-scroll-arrow-length);
+  height: var(--grq-scroll-arrow-span);
+  translate: -50% -50%;
+}
+
+.grq-scroll-affordance__arrow {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: color-mix(
+    in srgb,
+    var(--active-button-bg-color) 52%,
+    var(--main-bg-color)
+  );
+  clip-path: polygon(0 50%, 100% 0, 100% 100%);
+  filter: drop-shadow(0 0 0.3rem var(--active-button-bg-color))
+    drop-shadow(
+      0 0 0.75rem
+        color-mix(in srgb, var(--active-button-bg-color) 56%, transparent)
+    );
+  transform-origin: center;
+  animation: grq-scroll-affordance-breathe 2.25s ease-in-out infinite;
+}
+
+.grq-scroll-affordance__arrow::after {
+  position: absolute;
+  inset: 0.125rem;
+  content: "";
+  background: color-mix(
+    in srgb,
+    var(--active-button-bg-color) 82%,
+    transparent
+  );
+  clip-path: inherit;
+}
+
+.grq-scroll-affordance--top {
+  top: var(--grq-scroll-arrow-anchor);
+  left: 50%;
+  rotate: 90deg;
+}
+
+.grq-scroll-affordance--bottom {
+  top: calc(100% - var(--grq-scroll-arrow-anchor));
+  left: 50%;
+  rotate: 270deg;
+}
+
+@keyframes grq-scroll-affordance-breathe {
+  0%,
+  100% {
+    scale: 1;
+  }
+  50% {
+    scale: 1.15;
+  }
+}
