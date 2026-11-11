@@ -26,6 +26,35 @@
  *    returns the rule; the HTTP layer maps SHAPE -> 400, RATE_LIMIT -> 429,
  *    everything else -> 409.
  *
+ * 3. GOLDEN STARS (issue #33) are client-rolled, server-validated. The
+ *    client rolls the outcome at click time and reports it as a star
+ *    claim in `actionsSinceLastSave.starClaims`; the server validates
+ *    plausibility + accounting (see `validateStarClaims`): the effect
+ *    must be unlocked at the Constellation level, each claimed amount
+ *    must be within the possible range for that effect at the player's
+ *    rate/cash, timed buffs must carry the exact multiplier/duration
+ *    for the effect, and the number of claims in the window is capped
+ *    by the spawn rate (at most ceil(window / min interval) + 1). The
+ *    LOC and money rules then credit the claimed star gains (and debit
+ *    the claimed losses) and add the buff allowance to the max earnable,
+ *    so a legitimate star reward never false-rejects. This is the
+ *    strongest validation that fits the save model without a
+ *    server-rolled outcome endpoint; that endpoint is a follow-up slice
+ *    paired with the leaderboard (#29), and until it lands a player
+ *    could in principle claim the maximum star reward on every spawn.
+ *    The bound keeps that to the spawn-capped maximum, and the claim
+ *    must still match the snapshot deltas exactly (rules 6-8), so the
+ *    exposure is a bounded over-credit, not an open faucet.
+ *
+ * Star-era fields are backward-compatible: a save (or client) from
+ * before Constellation shipped lacks `constellation` in the
+ * open-source maps, `activeStarEffects` on the state, and `starClaims`
+ * in the actions. Those are defaulted (constellation 0 / unlocked,
+ * no active buffs, no claims) by `normalizeSaveState` /
+ * `normalizeStarActions` before any check runs, so old saves keep
+ * validating. Only the new fields are defaulted — a missing old
+ * field is still a shape error.
+ *
  * Pure function: no I/O, no clock of its own. `prev` is the last accepted
  * snapshot `{ state, savedAtMs }`; for a brand-new player the store passes
  * the initial state with savedAtMs = player creation time. `nowMs` is the
@@ -37,12 +66,20 @@ import {
   EMPLOYEE_TYPES,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
+  STAR_CONFIG,
+  STAR_EFFECT_IDS,
+  baseLocPerSecond,
   employeePurchaseCosts,
   employeeUnlockConditionsMet,
   locPerClick,
   locPerSecond,
+  normalizeSaveState,
+  normalizeStarActions,
   openSourceLevelCosts,
   openSourceUnlockConditionsMet,
+  passiveBonus,
+  starSpawnIntervalSeconds,
+  unlockedStarEffects,
 } from "../../shared/game-balance.js";
 
 /** Max plausible sustained click rate: 10 clicks/second. */
@@ -87,8 +124,10 @@ function isCountMap(obj, keys) {
 }
 
 /**
- * Rule 1 — shape. Only known keys, right types, no negatives, levels 0-3,
- * NoPilot frozen at 0 (no buy action exists for it in v1).
+ * Rule 1 — shape. Only known keys, right types, no negatives, levels
+ * 0 to each project's own max (5 for all three projects now), NoPilot
+ * frozen at 0 (no buy action exists for it in v1). Star-era fields
+ * (activeStarEffects, starClaims) are validated here too.
  */
 function checkShape(body) {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -109,6 +148,7 @@ function checkShape(body) {
       "openSourceProjects",
       "unlockedEmployees",
       "unlockedOpenSourceProjects",
+      "activeStarEffects",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -144,9 +184,17 @@ function checkShape(body) {
     return "openSourceProjects must be non-negative integer levels";
   }
   for (const projectId of OPEN_SOURCE_IDS) {
-    if (state.openSourceProjects[projectId] > 3) {
-      return "open-source level must be 0-3";
+    const maxLevel = BALANCE.openSource[projectId].levels.length;
+    if (state.openSourceProjects[projectId] > maxLevel) {
+      return `open-source level must be 0-${maxLevel}`;
     }
+  }
+  if (!Array.isArray(state.activeStarEffects)) {
+    return "activeStarEffects must be an array";
+  }
+  for (const entry of state.activeStarEffects) {
+    const entryError = activeStarEffectError(entry);
+    if (entryError) return entryError;
   }
   if (
     !hasExactKeys(state.unlockedEmployees, EMPLOYEE_TYPES) ||
@@ -171,6 +219,7 @@ function checkShape(body) {
       "employeesBought",
       "projectsCompleted",
       "openSourceLevelsBought",
+      "starClaims",
     ])
   ) {
     return "actionsSinceLastSave has unknown or missing keys";
@@ -191,7 +240,429 @@ function checkShape(body) {
   ) {
     return "actions.openSourceLevelsBought must be non-negative integer counts";
   }
+  if (!Array.isArray(actions.starClaims)) {
+    return "actions.starClaims must be an array";
+  }
+  for (const claim of actions.starClaims) {
+    const claimError = starClaimShapeError(claim);
+    if (claimError) return claimError;
+  }
   return null;
+}
+
+// --- Golden star (issue #33) validation helpers ---
+
+/**
+ * A timed buff is only valid with the multiplier/duration its effect and
+ * good/bad roll produce. Frenzy good is x7/60s, bad x0.5/30s; Click
+ * good is an integer x2-5/20s, bad x0.5/10s; Employee good is x2/60s,
+ * bad x0.5/30s. Any other multiplier is a tampered claim.
+ */
+function starBuffMultiplierValid(effect, multiplier) {
+  if (typeof multiplier !== "number" || !Number.isFinite(multiplier)) {
+    return false;
+  }
+  switch (effect) {
+    case "frenzy":
+      return multiplier === 7 || multiplier === 0.5;
+    case "click":
+      return (
+        multiplier === 0.5 ||
+        (Number.isInteger(multiplier) && multiplier >= 2 && multiplier <= 5)
+      );
+    case "employee":
+      return multiplier === 2 || multiplier === 0.5;
+    default:
+      return false;
+  }
+}
+
+function starBuffDurationValid(effect, good, durationSeconds) {
+  if (!isInt(durationSeconds)) return false;
+  const key = good ? "good" : "bad";
+  switch (effect) {
+    case "frenzy":
+      return durationSeconds === STAR_CONFIG.frenzyDurationSeconds[key];
+    case "click":
+      return durationSeconds === STAR_CONFIG.clickDurationSeconds[key];
+    case "employee":
+      return durationSeconds === STAR_CONFIG.employeeDurationSeconds[key];
+    default:
+      return false;
+  }
+}
+
+/** One activeStarEffects entry (a timed buff in the save state). */
+function activeStarEffectError(entry) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    return "activeStarEffects entries must be objects";
+  }
+  if (
+    !hasExactKeys(entry, ["effect", "multiplier", "expiresAtMs", "employeeType"])
+  ) {
+    return "activeStarEffects entries have unknown or missing keys";
+  }
+  if (!["frenzy", "click", "employee"].includes(entry.effect)) {
+    return "activeStarEffects effect must be a timed buff (frenzy, click, employee)";
+  }
+  if (!starBuffMultiplierValid(entry.effect, entry.multiplier)) {
+    return `activeStarEffects multiplier ${entry.multiplier} is not valid for ${entry.effect}`;
+  }
+  if (typeof entry.expiresAtMs !== "number" || !Number.isFinite(entry.expiresAtMs)) {
+    return "activeStarEffects expiresAtMs must be a finite number";
+  }
+  if (entry.effect === "employee") {
+    if (!EMPLOYEE_TYPES.includes(entry.employeeType)) {
+      return "activeStarEffects employee buff needs a valid employeeType";
+    }
+  } else if (entry.employeeType !== null) {
+    return "activeStarEffects employeeType must be null for non-employee buffs";
+  }
+  return null;
+}
+
+/** Shape of one starClaims entry. Semantic checks live in validateStarClaims. */
+function starClaimShapeError(claim) {
+  if (claim === null || typeof claim !== "object" || Array.isArray(claim)) {
+    return "starClaims entries must be objects";
+  }
+  if (
+    !hasExactKeys(claim, [
+      "effect",
+      "good",
+      "locDelta",
+      "moneyDelta",
+      "multiplier",
+      "durationSeconds",
+      "employeeType",
+    ])
+  ) {
+    return "starClaims entries have unknown or missing keys";
+  }
+  if (!STAR_EFFECT_IDS.includes(claim.effect)) {
+    return `unknown star effect: ${claim.effect}`;
+  }
+  if (typeof claim.good !== "boolean") {
+    return "starClaims good must be a boolean";
+  }
+  if (!isInt(claim.locDelta) || !isInt(claim.moneyDelta)) {
+    return "starClaims locDelta and moneyDelta must be integers";
+  }
+  const isInstant = claim.effect === "lucky" || claim.effect === "shootingStars";
+  if (isInstant) {
+    if (claim.multiplier !== null || claim.durationSeconds !== null) {
+      return "instant star effects carry no multiplier or duration";
+    }
+    if (claim.employeeType !== null) {
+      return "instant star effects carry no employeeType";
+    }
+  } else {
+    if (typeof claim.multiplier !== "number" || !Number.isFinite(claim.multiplier)) {
+      return "timed star effects need a numeric multiplier";
+    }
+    if (!isInt(claim.durationSeconds)) {
+      return "timed star effects need an integer durationSeconds";
+    }
+    if (claim.effect === "employee") {
+      if (!EMPLOYEE_TYPES.includes(claim.employeeType)) {
+        return "employee star claims need a valid employeeType";
+      }
+    } else if (claim.employeeType !== null) {
+      return "employeeType must be null for non-employee star claims";
+    }
+  }
+  return null;
+}
+
+/**
+ * Validate the star claims in one window. Returns an error string, or
+ * null when every claim is plausible. Checks, in order:
+ * - the effect is unlocked at the Constellation level (max of prev/new,
+ *   since a level bought mid-window unlocks stars clicked after it);
+ * - instant amounts are within the possible range for the effect at the
+ *   player's rate/cash (max of prev/new, the most generous bound, so a
+ *   claim made just after a purchase is never false-rejected);
+ * - a Lucky roll gives LOC or cash, never both (a claim with both is a
+ *   double-dip);
+ * - timed buffs carry the exact multiplier/duration for the effect and
+ *   good/bad roll;
+ * - Shooting Stars is always a good burst (five good Lucky rolls);
+ * - the claim count is capped by the spawn rate (see MAX_STAR_WINDOW_SECONDS).
+ *
+ * Amounts are bounded above only: under-claiming is harmless (it only
+ * makes the LOC/money rules stricter), so the lower bound is the max
+ * loss for a bad roll, not the min gain. A +1 covers float rounding
+ * (the client floors its amounts).
+ */
+const MAX_STAR_WINDOW_SECONDS = 900; // 15 min: the spawn cap uses the window, capped here. Stars only spawn while the tab is open, and the 60s heartbeat means a longer gap is almost always a closed tab; without the cap an 8h offline window would allow hundreds of claims. 15 min covers a long network outage without opening that hole.
+
+function validateStarClaims(prevState, newState, claims, elapsedSeconds) {
+  const prevLevel = prevState.openSourceProjects.constellation ?? 0;
+  const newLevel = newState.openSourceProjects.constellation ?? 0;
+  const level = Math.max(prevLevel, newLevel);
+  if (claims.length > 0 && level === 0) {
+    return "star claims without any Constellation level (level 0 = no stars)";
+  }
+  const unlocked = unlockedStarEffects(level);
+  // Most generous bounds: the claim could have happened at either
+  // snapshot's rate/cash (e.g. just after a purchase mid-window).
+  const maxRate = Math.max(
+    locPerSecond(prevState.employees, prevState.openSourceProjects),
+    locPerSecond(newState.employees, newState.openSourceProjects)
+  );
+  const maxMoney = Math.max(prevState.money, newState.money);
+  const maxLuckyLoc = STAR_CONFIG.luckyLocMultiplier.good.max * maxRate;
+  const maxLuckyLocLoss = STAR_CONFIG.luckyLocMultiplier.bad.max * maxRate;
+  const maxLuckyMoney = STAR_CONFIG.luckyMoneyFraction.good.max * maxMoney;
+  const maxLuckyMoneyLoss =
+    STAR_CONFIG.luckyMoneyFraction.bad.max * maxMoney;
+
+  for (const claim of claims) {
+    if (!unlocked.includes(claim.effect)) {
+      return `star effect ${claim.effect} is not unlocked at Constellation level ${level}`;
+    }
+    switch (claim.effect) {
+      case "lucky": {
+        // One roll gives LOC or cash, never both.
+        if (claim.locDelta !== 0 && claim.moneyDelta !== 0) {
+          return "lucky star claims give LOC or cash, not both";
+        }
+        if (claim.good) {
+          if (claim.locDelta < 0 || claim.moneyDelta < 0) {
+            return "good lucky star claims never lose LOC or money";
+          }
+          if (claim.locDelta > maxLuckyLoc + 1) {
+            return `lucky LOC gain ${claim.locDelta} exceeds the maximum ${maxLuckyLoc.toFixed(1)}`;
+          }
+          if (claim.moneyDelta > maxLuckyMoney + 1) {
+            return `lucky money gain ${claim.moneyDelta} exceeds the maximum ${maxLuckyMoney.toFixed(1)}`;
+          }
+        } else {
+          if (claim.locDelta > 0 || claim.moneyDelta > 0) {
+            return "bad lucky star claims never gain LOC or money";
+          }
+          if (claim.locDelta < -maxLuckyLocLoss - 1) {
+            return `lucky LOC loss ${claim.locDelta} exceeds the maximum ${maxLuckyLocLoss.toFixed(1)}`;
+          }
+          if (claim.moneyDelta < -maxLuckyMoneyLoss - 1) {
+            return `lucky money loss ${claim.moneyDelta} exceeds the maximum ${maxLuckyMoneyLoss.toFixed(1)}`;
+          }
+        }
+        break;
+      }
+      case "shootingStars": {
+        // A burst of five good Lucky rolls: always a gain, bounded by 5x Lucky.
+        if (!claim.good) {
+          return "shooting stars is always a good burst";
+        }
+        if (claim.locDelta < 0 || claim.moneyDelta < 0) {
+          return "shooting stars never loses LOC or money";
+        }
+        const burst = STAR_CONFIG.shootingStarsCount;
+        if (claim.locDelta > burst * maxLuckyLoc + 1) {
+          return `shooting stars LOC gain ${claim.locDelta} exceeds the maximum ${(burst * maxLuckyLoc).toFixed(1)}`;
+        }
+        if (claim.moneyDelta > burst * maxLuckyMoney + 1) {
+          return `shooting stars money gain ${claim.moneyDelta} exceeds the maximum ${(burst * maxLuckyMoney).toFixed(1)}`;
+        }
+        break;
+      }
+      case "frenzy":
+      case "click":
+      case "employee": {
+        if (claim.locDelta !== 0 || claim.moneyDelta !== 0) {
+          return `${claim.effect} star claims give no instant LOC or money`;
+        }
+        if (!starBuffMultiplierValid(claim.effect, claim.multiplier)) {
+          return `${claim.effect} multiplier ${claim.multiplier} is not valid`;
+        }
+        if (
+          !starBuffDurationValid(claim.effect, claim.good, claim.durationSeconds)
+        ) {
+          return `${claim.effect} duration ${claim.durationSeconds}s is not valid for a ${claim.good ? "good" : "bad"} roll`;
+        }
+        break;
+      }
+      default:
+        return `unknown star effect: ${claim.effect}`;
+    }
+  }
+
+  // Spawn cap: at most one star per min interval in the window, plus one
+  // for a star spawned just before the window that was clicked inside it.
+  // The window is capped at MAX_STAR_WINDOW_SECONDS (see the note above).
+  const interval = starSpawnIntervalSeconds(level);
+  if (interval) {
+    const effectiveSeconds = Math.min(elapsedSeconds, MAX_STAR_WINDOW_SECONDS);
+    const maxClaims =
+      Math.ceil(effectiveSeconds / interval.min) + 1;
+    if (claims.length > maxClaims) {
+      return `${claims.length} star claims in ${elapsedSeconds.toFixed(1)}s exceeds the spawn cap of ${maxClaims}`;
+    }
+  }
+  return null;
+}
+
+/** Sum of the instant LOC/money deltas across star claims, plus the LOC gains alone. */
+function starTotals(claims) {
+  let locNet = 0;
+  let locGains = 0;
+  let moneyNet = 0;
+  for (const claim of claims) {
+    locNet += claim.locDelta;
+    if (claim.locDelta > 0) locGains += claim.locDelta;
+    moneyNet += claim.moneyDelta;
+  }
+  return { locNet, locGains, moneyNet };
+}
+
+/**
+ * Extra LOC allowance from timed star buffs active in the window.
+ * A buff's overlap is how long it was live inside the window:
+ * - a buff already active at the window start (in prev.activeStarEffects):
+ *   from the window start to its expiry (plus a small clock-skew grace —
+ *   the client stamps expiresAtMs from its own clock, which can sit a
+ *   few seconds off the server's), capped at the window length and at
+ *   the longest any buff can last (60s), so a tampered far-future
+ *   expiresAtMs cannot inflate the allowance on a long offline window;
+ * - a buff claimed in this window (in starClaims): its full duration,
+ *   capped at the window length (it may have started at any point).
+ * Buffs of the same (effect, employeeType) never stack in the client
+ * (a new one replaces the old), so their overlaps are summed and
+ * capped at the window length, and the highest multiplier in the group
+ * is used — an upper bound, so the allowance is never below the true
+ * gain. A bad buff (multiplier < 1) lowers the allowance, which is
+ * correct: the player earned less while it was live.
+ *
+ * Frenzy and Employee buffs MULTIPLY on the client (the Employee extra
+ * is part of the passive rate that Frenzy scales), so the allowance
+ * adds their interaction too: (frenzy - 1) x (employee extra rate) x
+ * the time both were live, bounded by the shorter of the two overlaps.
+ * Without it, a player with both buffs active would false-reject.
+ *
+ * Returns { passiveExtra, clickExtra } in LOC.
+ */
+const STAR_CLOCK_SKEW_GRACE_MS = 5000;
+/** No timed star buff lasts longer than 60s (Frenzy/Employee good). */
+const MAX_STAR_BUFF_SECONDS = 60;
+
+function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowMs) {
+  const prevState = prev.state;
+  const newRate = locPerSecond(
+    newState.employees,
+    newState.openSourceProjects
+  );
+  const newClick = locPerClick(newState.openSourceProjects);
+  const passiveBonusValue = passiveBonus(newState.openSourceProjects);
+
+  // Group buff instances by (effect, employeeType). Each group tracks
+  // its multipliers and its summed overlap.
+  const groups = new Map();
+  const addToGroup = (effect, employeeType, multiplier, overlapSeconds) => {
+    if (overlapSeconds <= 0) return;
+    const key = `${effect}:${employeeType ?? ""}`;
+    const group = groups.get(key) ?? {
+      effect,
+      employeeType,
+      multipliers: [],
+      overlapSeconds: 0,
+    };
+    group.multipliers.push(multiplier);
+    group.overlapSeconds += overlapSeconds;
+    groups.set(key, group);
+  };
+
+  // Buffs already active at the window start. The overlap is capped at
+  // the longest any buff can last (60s), so a tampered far-future
+  // expiresAtMs cannot inflate the allowance on a long offline window.
+  for (const buff of prevState.activeStarEffects ?? []) {
+    const overlapSeconds = Math.min(
+      Math.max(
+        0,
+        (Math.min(buff.expiresAtMs + STAR_CLOCK_SKEW_GRACE_MS, nowMs) -
+          prev.savedAtMs) /
+          1000
+      ),
+      elapsedSeconds,
+      MAX_STAR_BUFF_SECONDS
+    );
+    addToGroup(buff.effect, buff.employeeType, buff.multiplier, overlapSeconds);
+  }
+
+  // Buffs claimed in this window.
+  for (const claim of claims) {
+    if (
+      claim.effect !== "frenzy" &&
+      claim.effect !== "click" &&
+      claim.effect !== "employee"
+    ) {
+      continue;
+    }
+    const overlapSeconds = Math.min(claim.durationSeconds, elapsedSeconds);
+    addToGroup(
+      claim.effect,
+      claim.employeeType,
+      claim.multiplier,
+      overlapSeconds
+    );
+  }
+
+  // Frenzy (one group at most — it has no employeeType).
+  const frenzyGroup = groups.get("frenzy:");
+  const frenzyOverlap = frenzyGroup
+    ? Math.min(frenzyGroup.overlapSeconds, elapsedSeconds)
+    : 0;
+  const frenzyMultiplier = frenzyGroup
+    ? Math.max(...frenzyGroup.multipliers)
+    : 1;
+
+  // Employee buffs, one group per type.
+  const employeeGroups = [...groups.values()].filter(
+    (group) => group.effect === "employee"
+  );
+  let employeeExtraRate = 0;
+  let employeeExtra = 0;
+  let maxEmployeeOverlap = 0;
+  for (const group of employeeGroups) {
+    const overlapSeconds = Math.min(group.overlapSeconds, elapsedSeconds);
+    const multiplier = Math.max(...group.multipliers);
+    const typeRate =
+      BALANCE.employees[group.employeeType].locPerSecond *
+      (newState.employees[group.employeeType] ?? 0) *
+      (1 + passiveBonusValue);
+    employeeExtraRate += (multiplier - 1) * typeRate;
+    employeeExtra += (multiplier - 1) * typeRate * overlapSeconds;
+    maxEmployeeOverlap = Math.max(maxEmployeeOverlap, overlapSeconds);
+  }
+
+  // Passive extra: Frenzy on the base rate, Employee on its type's
+  // rate, plus the Frenzy x Employee interaction (Frenzy scales the
+  // Employee extra too) for the time both were live.
+  let passiveExtra = (frenzyMultiplier - 1) * newRate * frenzyOverlap;
+  passiveExtra += employeeExtra;
+  if (frenzyOverlap > 0 && maxEmployeeOverlap > 0) {
+    passiveExtra +=
+      (frenzyMultiplier - 1) *
+      employeeExtraRate *
+      Math.min(frenzyOverlap, maxEmployeeOverlap);
+  }
+
+  // Click extra: the Click buff scales clicks made while it was live.
+  // Clicks that could have happened then are the click-rate cap over
+  // the buff's overlap, plus the grace, and no more than the clicks
+  // actually claimed in the window.
+  let clickExtra = 0;
+  const clickGroup = groups.get("click:");
+  if (clickGroup) {
+    const overlapSeconds = Math.min(clickGroup.overlapSeconds, elapsedSeconds);
+    const multiplier = Math.max(...clickGroup.multipliers);
+    const maxClicksDuringBuff =
+      Math.floor(MAX_CLICKS_PER_SECOND * overlapSeconds) + CLICK_GRACE;
+    const clicksDuringBuff = Math.min(actions.clicks, maxClicksDuringBuff);
+    clickExtra = (multiplier - 1) * clicksDuringBuff * newClick;
+  }
+
+  return { passiveExtra, clickExtra };
 }
 
 /**
@@ -199,12 +670,25 @@ function checkShape(body) {
  * Returns `{ ok: true }` or `{ ok: false, rule, detail }`.
  */
 export function validateSave(prev, body, nowMs) {
-  const shapeError = checkShape(body);
+  // Star-era fields are backward-compatible: default them on states and
+  // actions that predate Constellation, so old saves keep validating.
+  // normalizeSaveState / normalizeStarActions return non-objects
+  // unchanged, so a malformed body still fails the shape check below.
+  const normalizedPrev = {
+    ...(prev ?? {}),
+    state: normalizeSaveState(prev?.state),
+  };
+  const normalizedBody = {
+    ...(body ?? {}),
+    state: normalizeSaveState(body?.state),
+    actionsSinceLastSave: normalizeStarActions(body?.actionsSinceLastSave),
+  };
+  const shapeError = checkShape(normalizedBody);
   if (shapeError) return fail("SHAPE", shapeError);
 
-  const prevState = prev.state;
-  const newState = body.state;
-  const actions = body.actionsSinceLastSave;
+  const prevState = normalizedPrev.state;
+  const newState = normalizedBody.state;
+  const actions = normalizedBody.actionsSinceLastSave;
 
   // Rule 9 — rate limit: at most one accepted save per 10 seconds.
   if (nowMs - prev.savedAtMs < SAVE_RATE_LIMIT_SECONDS * 1000) {
@@ -292,13 +776,45 @@ export function validateSave(prev, body, nowMs) {
     );
   }
 
+  // Star claims (issue #33): validate plausibility and accounting
+  // bounds before they are credited in the LOC/money rules below.
+  // A failed claim is a STAR rejection (409 with the last good state).
+  const starClaims = actions.starClaims ?? [];
+  const starError = validateStarClaims(
+    prevState,
+    newState,
+    starClaims,
+    elapsedSeconds
+  );
+  if (starError) return fail("STAR", starError);
+  const {
+    locNet: starLocNet,
+    locGains: starLocGains,
+    moneyNet: starMoneyNet,
+  } = starTotals(starClaims);
+  const {
+    passiveExtra: starPassiveExtra,
+    clickExtra: starClickExtra,
+  } = starBuffAllowance(
+    normalizedPrev,
+    newState,
+    starClaims,
+    actions,
+    elapsedSeconds,
+    nowMs
+  );
+
   // Max earnable LOC in the window, credited at the NEW snapshot's rates
-  // (see the deviation note at the top of this file).
+  // (see the deviation note at the top of this file). Star buffs add
+  // their allowance on top of the base passive/click credit, and instant
+  // star gains are credited to the max earnable (losses debit it).
   const maxPassive =
     locPerSecond(newState.employees, newState.openSourceProjects) *
-    passiveSeconds;
+      passiveSeconds +
+    starPassiveExtra;
   const maxClickLoc =
-    actions.clicks * locPerClick(newState.openSourceProjects);
+    actions.clicks * locPerClick(newState.openSourceProjects) +
+    starClickExtra;
 
   // LOC spent in the window, from the claimed actions.
   let projectLocCost = 0;
@@ -332,7 +848,12 @@ export function validateSave(prev, body, nowMs) {
   // necessary and sufficient: the legitimate excess is bounded above
   // by one tick, and the 1% term still covers fractional rounding.
   const expectedLoc =
-    prevState.linesOfCode + maxPassive + maxClickLoc - projectLocCost - openSourceLocCost;
+    prevState.linesOfCode +
+    maxPassive +
+    maxClickLoc +
+    starLocNet -
+    projectLocCost -
+    openSourceLocCost;
   const oneTickLoc = locPerSecond(
     newState.employees,
     newState.openSourceProjects
@@ -349,10 +870,12 @@ export function validateSave(prev, body, nowMs) {
     );
   }
   const totalGained = newState.totalLinesOfCode - prevState.totalLinesOfCode;
-  if (totalGained > maxPassive + maxClickLoc + tolerance) {
+  // totalLinesOfCode only ever grows from gains, so only the positive
+  // star LOC counts here (a Lucky loss lowers linesOfCode, not the total).
+  if (totalGained > maxPassive + maxClickLoc + starLocGains + tolerance) {
     return fail(
       "LOC",
-      `totalLinesOfCode gained ${totalGained.toFixed(1)} exceeds the maximum earnable ${(maxPassive + maxClickLoc).toFixed(1)} (+${tolerance.toFixed(1)} tolerance)`
+      `totalLinesOfCode gained ${totalGained.toFixed(1)} exceeds the maximum earnable ${(maxPassive + maxClickLoc + starLocGains).toFixed(1)} (+${tolerance.toFixed(1)} tolerance)`
     );
   }
   if (newState.totalLinesOfCode < newState.linesOfCode) {
@@ -360,8 +883,9 @@ export function validateSave(prev, body, nowMs) {
   }
 
   // Rule 7 — money accounting, exact, no tolerance. Money only moves via
-  // completed projects (in) and employee hires (out), in purchase order.
-  let expectedMoney = prevState.money;
+  // completed projects (in), employee hires (out), and instant star
+  // rewards (in or out, netted in starMoneyNet), in purchase order.
+  let expectedMoney = prevState.money + starMoneyNet;
   for (const key of FREELANCE_PROJECT_KEYS) {
     expectedMoney +=
       actions.projectsCompleted[key] * BALANCE.freelanceProjects[key].reward;

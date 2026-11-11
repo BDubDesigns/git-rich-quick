@@ -7,7 +7,8 @@
  * `{ id: level }`). These are thin adapters — the numbers come from the
  * reducer, never invented here.
  *
- * Only the 9 game fields are saved. UI state (activeTab, selectedPanes,
+ * The 10 game fields are saved, including the timed golden-star buffs
+ * (activeStarEffects). UI state (activeTab, selectedPanes,
  * clickHistory, currentCPS, uiState) is NOT saved and is reset to the
  * initial values on restore.
  */
@@ -28,7 +29,9 @@ function flatCounts(nested) {
 
 function flatLevels(nested) {
   return OPEN_SOURCE_IDS.reduce((acc, key) => {
-    acc[key] = nested[key].level;
+    // A save from before Constellation shipped has no constellation key;
+    // default it to 0 instead of throwing on the missing entry.
+    acc[key] = nested[key]?.level ?? 0;
     return acc;
   }, {});
 }
@@ -42,12 +45,13 @@ function inflateCounts(flat) {
 
 function inflateLevels(flat) {
   return OPEN_SOURCE_IDS.reduce((acc, key) => {
-    acc[key] = { level: flat[key] };
+    // Same migration as flatLevels: an old save lacks constellation.
+    acc[key] = { level: flat[key] ?? 0 };
     return acc;
   }, {});
 }
 
-/** Client reducer state -> the flat 9-field save shape the server stores. */
+/** Client reducer state -> the flat 10-field save shape the server stores. */
 export function stateToSaveState(clientState) {
   return {
     linesOfCode: clientState.linesOfCode,
@@ -59,10 +63,13 @@ export function stateToSaveState(clientState) {
     openSourceProjects: flatLevels(clientState.openSourceProjects),
     unlockedEmployees: { ...clientState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...clientState.unlockedOpenSourceProjects },
+    // Timed golden-star buffs. A shallow copy of the array (the entries
+    // are plain data); expired entries are dropped by the game tick.
+    activeStarEffects: [...(clientState.activeStarEffects ?? [])],
   };
 }
 
-/** Server flat save shape -> the 9 game fields in client reducer shape. */
+/** Server flat save shape -> the 10 game fields in client reducer shape. */
 export function saveStateToGameFields(saveState) {
   return {
     linesOfCode: saveState.linesOfCode,
@@ -74,6 +81,7 @@ export function saveStateToGameFields(saveState) {
     openSourceProjects: inflateLevels(saveState.openSourceProjects),
     unlockedEmployees: { ...saveState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...saveState.unlockedOpenSourceProjects },
+    activeStarEffects: [...(saveState.activeStarEffects ?? [])],
   };
 }
 
@@ -93,6 +101,10 @@ export function emptyActions() {
       acc[key] = 0;
       return acc;
     }, {}),
+    // Golden-star claims since the last accepted save. The server
+    // validates each claim (effect unlocked, amounts in range, count
+    // capped by the spawn rate) and credits it in the LOC/money rules.
+    starClaims: [],
   };
 }
 
@@ -159,6 +171,7 @@ export function isInitialSaveState(saveState) {
     )
       return false;
   }
+  if ((saveState.activeStarEffects ?? []).length !== 0) return false;
   return true;
 }
 

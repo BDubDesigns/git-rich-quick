@@ -1,0 +1,46 @@
+/* Golden star (GitNub Constellation, issue #33). Fixed-positioned so it
+   shows regardless of scroll; the spawn position keeps it fully inside
+   the viewport (see randomStarPosition in GoldenStar.jsx). The glow
+   pulses on the button, the rock on the icon, so the hover scale (on
+   the button's transform) never fights the rock animation. */
+.golden-star {
+  position: fixed;
+  z-index: 50;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  animation: star-glow 1.5s ease-in-out infinite;
+  transition: transform 0.15s ease;
+}
+
+.golden-star:hover {
+  transform: scale(1.15);
+}
+
+.golden-star svg {
+  display: block;
+  animation: star-rock 2s ease-in-out infinite;
+}
+
+@keyframes star-rock {
+  0%,
+  100% {
+    transform: rotate(-10deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes star-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.55));
+  }
+  50% {
+    filter: drop-shadow(0 0 22px rgba(255, 215, 0, 1));
+  }
+}

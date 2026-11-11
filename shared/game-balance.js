@@ -14,8 +14,11 @@
  * The save-state shape these helpers operate on (see
  * `save-schema-validation-spec.md`):
  *   employees: flat counts { intern, junior, senior }
- *   openSourceProjects: levels as plain numbers { overReactFramework, blocker }
+ *   openSourceProjects: levels as plain numbers
+ *     { overReactFramework, blocker, constellation }
  *   aiAssistants: flat counts { noPilot }
+ *   activeStarEffects: timed golden-star buffs
+ *     [{ effect, multiplier, expiresAtMs, employeeType }]
  */
 
 export const BALANCE = Object.freeze({
@@ -87,6 +90,16 @@ export const BALANCE = Object.freeze({
           locCost: 3000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 4 }),
         }),
+        // Extra levels (issue #33 slice): same per-level click boost
+        // as the existing levels (doubles each level).
+        Object.freeze({
+          locCost: 15000,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 8 }),
+        }),
+        Object.freeze({
+          locCost: 75000,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 16 }),
+        }),
       ]),
     }),
     blocker: Object.freeze({
@@ -110,6 +123,46 @@ export const BALANCE = Object.freeze({
           locCost: 75000,
           bonus: Object.freeze({ type: "PASSIVE_BOOST", value: 1.5 }),
         }),
+        // Extra levels (issue #33 slice): same per-level passive
+        // boost as the existing levels (+0.5 each level).
+        Object.freeze({
+          locCost: 300000,
+          bonus: Object.freeze({ type: "PASSIVE_BOOST", value: 2 }),
+        }),
+        Object.freeze({
+          locCost: 1500000,
+          bonus: Object.freeze({ type: "PASSIVE_BOOST", value: 2.5 }),
+        }),
+      ]),
+    }),
+    // GitNub Constellation (issue #33): the golden-star project. One
+    // project, many tiers — each level unlocks a new star effect and,
+    // every other level, makes stars spawn faster. It has no numeric
+    // bonus (type STAR, value 0): no LOC formula reads it. The star
+    // mechanic itself lives in STAR_CONFIG below.
+    constellation: Object.freeze({
+      unlockConditions: Object.freeze([]),
+      levels: Object.freeze([
+        Object.freeze({
+          locCost: 1000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 5000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 20000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 75000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 250000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
       ]),
     }),
   }),
@@ -124,7 +177,276 @@ export const FREELANCE_PROJECT_KEYS = Object.freeze([
 export const OPEN_SOURCE_IDS = Object.freeze([
   "overReactFramework",
   "blocker",
+  "constellation",
 ]);
+
+/**
+ * Golden star (GitNub Constellation, issue #33).
+ *
+ * One project, many tiers. Level 0 = no stars. Each level unlocks a new
+ * effect type and, every other level, makes stars spawn faster.
+ *
+ * Effects and their fixed weights (probability = weight / total weight
+ * of the UNLOCKED pool). Good/bad is a separate roll after the effect
+ * is chosen (good 3/4, bad 1/4, bad always half as bad: half the
+ * magnitude, half the duration). The outcome is rolled at CLICK time,
+ * not spawn time. Effect pun names are locked (Brandon, Nov 10).
+ */
+export const STAR_CONFIG = Object.freeze({
+  /** How long an unclicked star stays on screen, in seconds. */
+  starLifetimeSeconds: 30,
+  /** Chance a clicked star is a good outcome (vs bad). */
+  goodChance: 0.75,
+  /** Spawn interval range (seconds) per Constellation level, index level-1. */
+  spawnIntervalSeconds: Object.freeze([
+    Object.freeze({ min: 90, max: 180 }), // L1
+    Object.freeze({ min: 90, max: 180 }), // L2 (same — more tiers to work toward)
+    Object.freeze({ min: 60, max: 120 }), // L3 (faster)
+    Object.freeze({ min: 60, max: 120 }), // L4 (same)
+    Object.freeze({ min: 45, max: 90 }), // L5 (faster)
+  ]),
+  /** Effect definitions: weight, the level that unlocks it, and the locked pun names. */
+  effects: Object.freeze({
+    lucky: Object.freeze({
+      weight: 40,
+      unlockLevel: 1,
+      names: Object.freeze({ good: "Airdrop", bad: "Rug Pull" }),
+    }),
+    frenzy: Object.freeze({
+      weight: 30,
+      unlockLevel: 3,
+      names: Object.freeze({ good: "Overclock", bad: "Throttling" }),
+    }),
+    click: Object.freeze({
+      weight: 20,
+      unlockLevel: 2,
+      names: Object.freeze({ good: "AI Accelerator", bad: "Hallucination" }),
+    }),
+    employee: Object.freeze({
+      weight: 10,
+      unlockLevel: 4,
+      names: Object.freeze({ good: "Sprint", bad: "Meeting" }),
+    }),
+    shootingStars: Object.freeze({
+      weight: 5,
+      unlockLevel: 5,
+      names: Object.freeze({ good: "Shooting Stars", bad: "Shooting Stars" }),
+    }),
+  }),
+  /** Lucky: instant chunk. Good = 20-50x LOC/sec OR 1-10% of cash; bad = half as bad. */
+  luckyLocMultiplier: Object.freeze({
+    good: Object.freeze({ min: 20, max: 50 }),
+    bad: Object.freeze({ min: 10, max: 25 }),
+  }),
+  luckyMoneyFraction: Object.freeze({
+    good: Object.freeze({ min: 0.01, max: 0.1 }),
+    bad: Object.freeze({ min: 0.01, max: 0.05 }),
+  }),
+  /** Frenzy: all production (LOC/sec) x7 for 60s; bad = x0.5 for 30s. */
+  frenzyMultiplier: Object.freeze({ good: 7, bad: 0.5 }),
+  frenzyDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
+  /** Click: click value x2-5 for 20s; bad = x0.5 for 10s. */
+  clickMultiplier: Object.freeze({
+    good: Object.freeze({ min: 2, max: 5 }),
+    bad: 0.5,
+  }),
+  clickDurationSeconds: Object.freeze({ good: 20, bad: 10 }),
+  /** Employee: one random employee type produces 2x for 60s; bad = 0.5x for 30s. */
+  employeeMultiplier: Object.freeze({ good: 2, bad: 0.5 }),
+  employeeDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
+  /** Shooting Stars: one click grants a burst worth this many Lucky rolls. */
+  shootingStarsCount: 5,
+});
+
+export const STAR_EFFECT_IDS = Object.freeze(Object.keys(STAR_CONFIG.effects));
+
+/** Effect ids unlocked at a Constellation level (level 0 = none). */
+export function unlockedStarEffects(constellationLevel) {
+  return STAR_EFFECT_IDS.filter(
+    (id) => STAR_CONFIG.effects[id].unlockLevel <= constellationLevel
+  );
+}
+
+/** Spawn interval range (seconds) for a Constellation level; null at level 0. */
+export function starSpawnIntervalSeconds(constellationLevel) {
+  if (constellationLevel < 1) return null;
+  const index = Math.min(
+    constellationLevel,
+    STAR_CONFIG.spawnIntervalSeconds.length
+  ) - 1;
+  return STAR_CONFIG.spawnIntervalSeconds[index];
+}
+
+/**
+ * Weighted pick of one effect from the unlocked pool. `rng` returns a
+ * float in [0, 1); injectable so the client and tests can seed it.
+ * Returns null at level 0 (no stars).
+ */
+export function rollStarEffect(constellationLevel, rng = Math.random) {
+  const unlocked = unlockedStarEffects(constellationLevel);
+  if (unlocked.length === 0) return null;
+  const totalWeight = unlocked.reduce(
+    (sum, id) => sum + STAR_CONFIG.effects[id].weight,
+    0
+  );
+  let roll = rng() * totalWeight;
+  for (const id of unlocked) {
+    roll -= STAR_CONFIG.effects[id].weight;
+    if (roll < 0) return id;
+  }
+  return unlocked[unlocked.length - 1];
+}
+
+/** Roll good (true) or bad (false) for a clicked star. */
+export function rollStarGood(rng = Math.random) {
+  return rng() < STAR_CONFIG.goodChance;
+}
+
+/**
+ * Resolve one Lucky roll into an instant LOC/money delta. Pure.
+ * Exactly one of locDelta / moneyDelta is nonzero (a Lucky roll gives
+ * LOC or cash, never both). Losses are clamped to what the player
+ * holds, so the result can never drive a balance below zero.
+ * `rng` returns a float in [0, 1); injectable for tests.
+ */
+export function resolveLuckyReward({
+  good,
+  locPerSecond,
+  money,
+  linesOfCode,
+  rng = Math.random,
+}) {
+  const isLoc = rng() < 0.5;
+  if (isLoc) {
+    const range = good
+      ? STAR_CONFIG.luckyLocMultiplier.good
+      : STAR_CONFIG.luckyLocMultiplier.bad;
+    const amount = Math.floor(
+      locPerSecond * (range.min + rng() * (range.max - range.min))
+    );
+    if (good) return { locDelta: amount, moneyDelta: 0 };
+    return { locDelta: -Math.min(amount, linesOfCode), moneyDelta: 0 };
+  }
+  const range = good
+    ? STAR_CONFIG.luckyMoneyFraction.good
+    : STAR_CONFIG.luckyMoneyFraction.bad;
+  const amount = Math.floor(
+    money * (range.min + rng() * (range.max - range.min))
+  );
+  if (good) return { locDelta: 0, moneyDelta: amount };
+  return { locDelta: 0, moneyDelta: -Math.min(amount, money) };
+}
+
+/**
+ * Resolve a clicked star into a claim record — the shape the server
+ * validates and the client applies. Pure; `rng` is injectable.
+ *
+ * Claim shape:
+ *   { effect, good, locDelta, moneyDelta, multiplier, durationSeconds, employeeType }
+ * Instant effects (lucky, shootingStars) carry locDelta/moneyDelta and
+ * null multiplier/duration. Timed buffs (frenzy, click, employee) carry
+ * a multiplier + durationSeconds and zero deltas. Shooting Stars is a
+ * burst of five GOOD Lucky rolls (a rare L5 windfall, never a loss).
+ */
+export function resolveStarClaim({
+  effect,
+  good,
+  locPerSecond,
+  money,
+  linesOfCode,
+  employeeCounts,
+  rng = Math.random,
+}) {
+  const base = {
+    effect,
+    good,
+    locDelta: 0,
+    moneyDelta: 0,
+    multiplier: null,
+    durationSeconds: null,
+    employeeType: null,
+  };
+  switch (effect) {
+    case "lucky": {
+      const { locDelta, moneyDelta } = resolveLuckyReward({
+        good,
+        locPerSecond,
+        money,
+        linesOfCode,
+        rng,
+      });
+      return { ...base, locDelta, moneyDelta };
+    }
+    case "frenzy": {
+      const key = good ? "good" : "bad";
+      return {
+        ...base,
+        multiplier: STAR_CONFIG.frenzyMultiplier[key],
+        durationSeconds: STAR_CONFIG.frenzyDurationSeconds[key],
+      };
+    }
+    case "click": {
+      const key = good ? "good" : "bad";
+      // Good click multiplier is an integer 2-5 (the config range).
+      const multiplier = good
+        ? Math.floor(
+            STAR_CONFIG.clickMultiplier.good.min +
+              rng() *
+                (STAR_CONFIG.clickMultiplier.good.max -
+                  STAR_CONFIG.clickMultiplier.good.min +
+                  1)
+          )
+        : STAR_CONFIG.clickMultiplier.bad;
+      return {
+        ...base,
+        multiplier,
+        durationSeconds: STAR_CONFIG.clickDurationSeconds[key],
+      };
+    }
+    case "employee": {
+      const key = good ? "good" : "bad";
+      // Boost a type the player actually owns, so the buff is never a
+      // dud; if they own no employees yet, any type is a no-op.
+      const owned = EMPLOYEE_TYPES.filter(
+        (type) => (employeeCounts[type] ?? 0) > 0
+      );
+      const pool = owned.length > 0 ? owned : EMPLOYEE_TYPES;
+      const employeeType = pool[Math.floor(rng() * pool.length)];
+      return {
+        ...base,
+        multiplier: STAR_CONFIG.employeeMultiplier[key],
+        durationSeconds: STAR_CONFIG.employeeDurationSeconds[key],
+        employeeType,
+      };
+    }
+    case "shootingStars": {
+      // A burst of five good Lucky rolls, summed into one claim.
+      let locDelta = 0;
+      let moneyDelta = 0;
+      for (let i = 0; i < STAR_CONFIG.shootingStarsCount; i += 1) {
+        const roll = resolveLuckyReward({
+          good: true,
+          locPerSecond,
+          money,
+          linesOfCode,
+          rng,
+        });
+        locDelta += roll.locDelta;
+        moneyDelta += roll.moneyDelta;
+      }
+      return { ...base, good: true, locDelta, moneyDelta };
+    }
+    default:
+      return base;
+  }
+}
+
+/** The display name of a star outcome (the locked pun name). */
+export function starEffectName(effect, good) {
+  const names = STAR_CONFIG.effects[effect]?.names;
+  if (!names) return "Golden Star";
+  return good ? names.good : names.bad;
+}
 
 /** Total employees across all types, from flat counts. */
 export function totalEmployees(employeeCounts) {
@@ -250,7 +572,9 @@ export function initialSaveState() {
       BALANCE.employees[type].unlockConditions.length === 0;
   }
   const unlockedOpenSourceProjects = {};
+  const openSourceProjects = {};
   for (const projectId of OPEN_SOURCE_IDS) {
+    openSourceProjects[projectId] = 0;
     unlockedOpenSourceProjects[projectId] =
       BALANCE.openSource[projectId].unlockConditions.length === 0;
   }
@@ -265,8 +589,81 @@ export function initialSaveState() {
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
     },
-    openSourceProjects: { overReactFramework: 0, blocker: 0 },
+    openSourceProjects,
     unlockedEmployees,
     unlockedOpenSourceProjects,
+    // Timed golden-star buffs active right now. Each entry is
+    // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
+    // (10-60s); expired entries are dropped by the client tick.
+    activeStarEffects: [],
   };
+}
+
+/**
+ * Fill in the star-era fields on a save state that predates them (a save
+ * stored before Constellation shipped). Returns a shallow copy with the
+ * new fields defaulted; states that already have them are unchanged.
+ * Only the NEW fields are defaulted — a missing old field is still a
+ * shape error, so this never masks a malformed save.
+ */
+export function normalizeSaveState(state) {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return state;
+  }
+  const next = { ...state };
+  if (
+    next.openSourceProjects &&
+    typeof next.openSourceProjects === "object" &&
+    !Array.isArray(next.openSourceProjects) &&
+    next.openSourceProjects.constellation === undefined
+  ) {
+    next.openSourceProjects = {
+      ...next.openSourceProjects,
+      constellation: 0,
+    };
+  }
+  if (
+    next.unlockedOpenSourceProjects &&
+    typeof next.unlockedOpenSourceProjects === "object" &&
+    !Array.isArray(next.unlockedOpenSourceProjects) &&
+    next.unlockedOpenSourceProjects.constellation === undefined
+  ) {
+    // Constellation has no unlock conditions, so it starts unlocked.
+    next.unlockedOpenSourceProjects = {
+      ...next.unlockedOpenSourceProjects,
+      constellation: true,
+    };
+  }
+  if (!Array.isArray(next.activeStarEffects)) {
+    next.activeStarEffects = [];
+  }
+  return next;
+}
+
+/**
+ * Fill in the star-era fields on an actions object that predates them
+ * (a client from before the star slice): the starClaims list, and the
+ * constellation key in openSourceLevelsBought. Same rule as
+ * normalizeSaveState: only the new fields are defaulted.
+ */
+export function normalizeStarActions(actions) {
+  if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
+    return actions;
+  }
+  const next = { ...actions };
+  if (!Array.isArray(next.starClaims)) {
+    next.starClaims = [];
+  }
+  if (
+    next.openSourceLevelsBought &&
+    typeof next.openSourceLevelsBought === "object" &&
+    !Array.isArray(next.openSourceLevelsBought) &&
+    next.openSourceLevelsBought.constellation === undefined
+  ) {
+    next.openSourceLevelsBought = {
+      ...next.openSourceLevelsBought,
+      constellation: 0,
+    };
+  }
+  return next;
 }

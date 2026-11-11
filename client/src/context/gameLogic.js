@@ -189,6 +189,9 @@ export function getTotalPassiveBonus(state) {
  * from open source projects. Uses the same calculation pattern as passive LOC:
  * Final LOC = Base LOC × (1 + Total Click Bonus Multiplier)
  *
+ * A golden-star Click buff (AI Accelerator / Hallucination) multiplies the
+ * click value while it is live. See activeStarBuff.
+ *
  * @param {Object} state - The game state object
  * @returns {number} Total LOC generated from one click, including bonuses
  *
@@ -200,7 +203,9 @@ export function getTotalPassiveBonus(state) {
  * calculateLOCPerClick(state) // returns 13 (10 * 1.3)
  */
 export function calculateLOCPerClick(state) {
-  return shared.locPerClick(flatOpenSourceLevels(state));
+  const base = shared.locPerClick(flatOpenSourceLevels(state));
+  const clickBuff = activeStarBuff(state, "click");
+  return clickBuff ? base * clickBuff.multiplier : base;
 }
 
 /**
@@ -209,6 +214,12 @@ export function calculateLOCPerClick(state) {
  * This formula combines the base passive LOC generation (from all employees)
  * with all active passive bonuses from open source projects. Uses the same
  * calculation pattern as click LOC: Final LOC = Base LOC × (1 + Total Passive Bonus Multiplier)
+ *
+ * Golden-star buffs apply on top of the base rate, the same way the save
+ * server credits them (see validate.js): an Employee buff (Sprint /
+ * Meeting) scales one type's contribution, and a Frenzy buff (Overclock /
+ * Throttling) scales the whole passive rate — so the two multiply, they
+ * do not add.
  *
  * @param {Object} state - The game state object
  * @returns {number} Total LOC generated per second from employees, including bonuses
@@ -221,10 +232,52 @@ export function calculateLOCPerClick(state) {
  * calculateLOCPerSecond(state) // returns 10.35 (9 * 1.15)
  */
 export function calculateLOCPerSecond(state) {
-  return shared.locPerSecond(
-    flatEmployeeCounts(state),
-    flatOpenSourceLevels(state)
-  );
+  const employeeCounts = flatEmployeeCounts(state);
+  const openSourceLevels = flatOpenSourceLevels(state);
+  const base = shared.locPerSecond(employeeCounts, openSourceLevels);
+  const passiveBonusValue = shared.passiveBonus(openSourceLevels);
+
+  // Employee buffs: each scales one type's contribution to the base rate.
+  let total = base;
+  for (const type of shared.EMPLOYEE_TYPES) {
+    const buff = activeStarBuff(state, "employee", type);
+    if (!buff) continue;
+    const typeRate =
+      shared.BALANCE.employees[type].locPerSecond *
+      (employeeCounts[type] ?? 0) *
+      (1 + passiveBonusValue);
+    total += (buff.multiplier - 1) * typeRate;
+  }
+
+  // Frenzy scales the whole passive rate (including any Employee extra).
+  const frenzy = activeStarBuff(state, "frenzy");
+  if (frenzy) total *= frenzy.multiplier;
+  return total;
+}
+
+/**
+ * The currently live golden-star buff for an effect, or null. A buff is
+ * live when it is in state.activeStarEffects and has not expired yet.
+ * Only one buff per (effect, employeeType) can be live at a time — a new
+ * one replaces the old — so the first match is the live one. Expired
+ * entries are dropped by the GAME_TICK, but the expiry check here keeps
+ * a buff from applying in the gap between its expiry and the next tick.
+ */
+export function activeStarBuff(state, effect, employeeType = null) {
+  const now = Date.now();
+  const buffs = state.activeStarEffects ?? [];
+  for (const buff of buffs) {
+    if (buff.effect !== effect) continue;
+    if (effect === "employee" && buff.employeeType !== employeeType) continue;
+    if (buff.expiresAtMs <= now) continue;
+    return buff;
+  }
+  return null;
+}
+
+/** The player's Constellation level (0 = no golden stars). */
+export function getConstellationLevel(state) {
+  return state.openSourceProjects.constellation?.level ?? 0;
 }
 
 /**

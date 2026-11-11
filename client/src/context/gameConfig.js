@@ -30,6 +30,7 @@ import { GiCoinsPile } from "react-icons/gi"; // paradigm-shifting blockchain pr
 // import icons for gitnub / open source projects
 import { FaCircleRadiation } from "react-icons/fa6"; // overReact framework
 import { FaFishFins } from "react-icons/fa6"; // blocker containerization platform
+import { FaStar } from "react-icons/fa"; // gitnub constellation (golden star)
 
 // Shared balance numbers and formulas — the single source of truth, also
 // imported by the save server (`server/src/validate.js`). This file only
@@ -200,5 +201,14 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     color: "teal",
     description:
       "Why fix dependencies when you can ship the whole OS? Blocker wraps your 5KB script in a 4GB virtual environment, ensuring that if it works on your machine, it's now the Ops team's problem.",
+  },
+  constellation: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.constellation,
+    name: "GitNub Constellation",
+    icon: FaStar,
+    color: "gold",
+    description:
+      "A constellation of golden stars, hung in the GitNub sky by a dev who clearly had too much time on their hands. Chart more of it and the stars start falling — click one before it burns out. Mostly good news. Mostly.",
   },
 });

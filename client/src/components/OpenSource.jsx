@@ -55,6 +55,7 @@ export function OpenSource() {
         return (
           <OpenSourceCard
             key={id}
+            projectId={id}
             project={config}
             currentLevel={currentLevel}
             currentBonus={currentBonus}
