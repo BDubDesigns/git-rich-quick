@@ -212,7 +212,7 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
     }
     fakeCompleteTodoApp(clientState);
 
-    // A save within 10s of minting is rate-limited (the limit is measured
+    // A save within 1s of minting is rate-limited (the limit is measured
     // from the minting time). It must not reset the accumulator.
     // Awaiting the save makes the test deterministic: the server clock
     // only moves when the test advances it.
@@ -250,11 +250,11 @@ test("mint, load, heartbeat save, and 429 accumulation + retry", async () => {
     assert.equal(afterHire.money, 500, "3000c - 2500c intern cost");
     assert.equal(saveStatus, "saved");
 
-    // The retry timer: 9s after the last accepted save, a save is
+    // The retry timer: 0.5s after the last accepted save, a save is
     // rate-limited with retryAfterSeconds = 1. Advance the server clock
     // past the limit, and the scheduled retry (1s real time) fires and
     // the save is accepted.
-    srv.advance(9_000);
+    srv.advance(500);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
       engine.recordClick();
@@ -321,9 +321,9 @@ test("saves during a retry wait do not reset the retry timer", async () => {
     await engine.requestSave("test");
     assert.equal(saveStatus, "saved");
 
-    // 9s after the last accepted save, a save is rate-limited with
+    // 0.5s after the last accepted save, a save is rate-limited with
     // retryAfterSeconds = 1, and a retry is scheduled.
-    srv.advance(9_000);
+    srv.advance(500);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
       engine.recordClick();
@@ -555,12 +555,19 @@ test("tampered save is rejected with 409 and the client reverts", async () => {
     const good = await loadServerState(srv.base, playerId);
     assert.equal(good.money, 3000);
 
-    // Tamper: one cent extra. The server must 409 and the engine must
-    // revert local state to the last good state.
+    // Tamper: decrease total LOC below the stored total. The server
+    // must 409 (MONOTONIC) and the engine must revert local state to the
+    // last good state. (The old tamper — one cent extra — is accepted
+    // now; the leaderboard is gone, so money is trusted.)
     srv.advance(11_000);
-    clientState.money = 3001;
+    clientState.totalLinesOfCode = 49;
     await engine.requestSave("test");
     await waitFor(() => saveStatus === "error");
+    assert.equal(
+      clientState.totalLinesOfCode,
+      50,
+      "local state reverted to last good"
+    );
     assert.equal(clientState.money, 3000, "local state reverted to last good");
     assert.equal(engine.clicks, 0, "accumulator reset on a 409 revert");
     const afterTamper = await loadServerState(srv.base, playerId);
@@ -672,10 +679,10 @@ test("rate-limited save reports the retry delay, and a later load reports the sa
     assert.deepEqual(savedAtCalls, []);
     assert.deepEqual(retryCalls, []);
 
-    // 9s after minting, a save is rate-limited with retryAfterSeconds = 1.
+    // 0.5s after minting, a save is rate-limited with retryAfterSeconds = 1.
     // The engine must report the wait (status "retrying" + the delay) so
     // the footer can count down instead of showing a bare "Saving...".
-    srv.advance(9_000);
+    srv.advance(500);
     for (let i = 0; i < 5; i += 1) {
       fakeClick(clientState);
       engine.recordClick();
@@ -725,7 +732,7 @@ test("rate-limited save reports the retry delay, and a later load reports the sa
     assert.equal(saveStatus2, "saved");
     assert.equal(savedAtCalls2.length, 1);
     // The loaded save's savedAt is the server time of the accepted save
-    // (the controlled server clock, T0 + 29s + 5s).
+    // (the controlled server clock, T0 + 500ms + 5s).
     assert.equal(savedAtCalls2[0], srv.now());
     assert.equal(clientState2.totalLinesOfCode, 5);
   } finally {

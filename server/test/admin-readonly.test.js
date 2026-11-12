@@ -277,20 +277,25 @@ test("admin rejected-saves lists rejections most recent first with rule, detail,
 
     const playerId = await mintPlayer(srv.base);
     srv.advance(11_000);
-    // A tampered save: 100k extra LOC with no actions is rejected (LOC).
+    // A tampered save: a farm breed claim with no issued outcome is
+    // rejected (FARM). The old LOC tamper (100k extra LOC) is accepted
+    // now — the leaderboard is gone, so the server stores what it sends.
     const state = initialSaveState();
-    const tampered = {
-      ...state,
-      linesOfCode: state.linesOfCode + 100_000,
-      totalLinesOfCode: state.totalLinesOfCode + 100_000,
-    };
     const bad = await post(srv.base, "/api/save", {
       playerId,
-      state: tampered,
-      actionsSinceLastSave: zeroActions(),
+      state,
+      actionsSinceLastSave: {
+        ...zeroActions(),
+        farmBreedClaims: [
+          {
+            breedId: "123e4567-e89b-42d3-a456-426614174000",
+            kids: [{ stallIndex: 0, type: "classic" }],
+          },
+        ],
+      },
     });
     assert.equal(bad.status, 409);
-    assert.equal((await bad.json()).rule, "LOC");
+    assert.equal((await bad.json()).rule, "FARM");
 
     // A second rejection, a malformed save (SHAPE).
     srv.advance(11_000);
@@ -318,7 +323,7 @@ test("admin rejected-saves lists rejections most recent first with rule, detail,
       body.rejections[0].rejectedAt,
       new Date(T0 + 22_000).toISOString()
     );
-    assert.equal(body.rejections[1].rule, "LOC");
+    assert.equal(body.rejections[1].rule, "FARM");
     assert.equal(
       body.rejections[1].rejectedAt,
       new Date(T0 + 11_000).toISOString()
@@ -390,15 +395,17 @@ test("admin stats counts players, linked accounts, and recent activity", async (
     assert.equal(stats.rejectionsStored, 0);
 
     // 11s later: the guest saves, then sends a tampered save (rejected).
-    // The second advance is past the 10s rate limit, so the tampered
-    // save reaches the LOC rule (409) instead of the rate limit (429).
+    // The second advance is past the 1s rate limit, so the tampered
+    // save reaches the MONOTONIC rule (409) instead of the rate limit
+    // (429). The tamper decreases total LOC below the stored total
+    // (50 clicks): the old LOC tamper (100k extra LOC) is accepted now.
     srv.advance(11_000);
     await saveWithClicks(srv, guest, 50);
     srv.advance(11_000);
     const tampered = {
       ...initialSaveState(),
-      linesOfCode: 100_000,
-      totalLinesOfCode: 100_000,
+      linesOfCode: 50,
+      totalLinesOfCode: 0,
     };
     const bad = await post(srv.base, "/api/save", {
       playerId: guest,

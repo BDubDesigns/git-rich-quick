@@ -2,7 +2,7 @@
  * Number abbreviation (issue #42) — the ONE shared formatter (SSOT).
  *
  * Every number the player sees goes through here: LOC, money, rates
- * (LOC/s, $/s), costs, leaderboard scores, unlock targets, star-reward
+ * (LOC/s, $/s), costs, unlock targets, star-reward
  * text. No per-component formatting — callers import these two functions
  * and render the string they return. The underlying values stay exact;
  * only the rendered text is abbreviated (display-only).

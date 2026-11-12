@@ -187,7 +187,6 @@ const initialState = {
       openSource: { isDescriptionVisible: true },
       farm: { isDescriptionVisible: true },
       settings: { isDescriptionVisible: true },
-      leaderboard: { isDescriptionVisible: true },
       email: { isDescriptionVisible: true },
     },
   },

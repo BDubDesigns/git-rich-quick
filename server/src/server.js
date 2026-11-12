@@ -34,8 +34,6 @@
  *   and audit logging; see admin.js for the guardrail distinction
  *   (seed is test-player-only, read-only endpoints are per-player
  *   debugging by explicit playerId).
- * - GET  /api/leaderboard — leaderboard (issue #29): top 10 accounts
- *   only, by lifetime LOC (default), current LOC, or cash. Public read.
  * - GET  /api/star/next — next golden star (issue #29): when the
  *   player's next star may spawn, rolled server-side; the client
  *   schedules from it and shows a countdown when unlocked. Also
@@ -94,7 +92,6 @@ import { createAuth } from "./auth.js";
 import { createStore } from "./store.js";
 import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
 import { TEST_ACCOUNT_EMAIL, isAdminAuthorized } from "./admin.js";
-import { normalizeLeaderboardSort } from "./leaderboard.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -589,9 +586,9 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
    * player's own save row with the fresh initial state and clears
    * their server-side star state (see store.resetPlayer) — the
    * player keeps the same playerId and the same account link; only
-   * the progress goes to 0. A normal save can never do this (the
-   * money rule is exact and the deltas forbid going backwards), so
-   * the reset bypasses validateSave on its own path. It is NOT rate
+   * the progress goes to 0. A normal save can never do this (monotonicity
+   * forbids progress going backwards), so the reset bypasses validateSave
+   * on its own path. It is NOT rate
    * limited: a player who just saved can still reset. 400 for a
    * malformed body, 404 for an unknown player. The playerId is the
    * credential here, the same as /api/save in v1 — the endpoint can
@@ -648,21 +645,6 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       return;
     }
     sendJson(res, 200, snapshotBody(snapshot));
-  }
-
-  /**
-   * Leaderboard (issue #29): GET /api/leaderboard?sort=lifetime|current|cash.
-   * Public read — no auth. Returns the top 10 accounts only, ranked by
-   * the requested sort (default lifetime LOC). The response carries
-   * rank, display name, and the three score fields — never a save or
-   * an email. Unknown sort values fall back to lifetime.
-   */
-  async function handleLeaderboard(req, res, url) {
-    const sort = normalizeLeaderboardSort(
-      url.searchParams.get("sort") ?? "lifetime"
-    );
-    const entries = await store.getLeaderboard(sort, 10);
-    sendJson(res, 200, { sort, entries });
   }
 
   /**
@@ -1006,8 +988,6 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleSave(req, res);
       } else if (req.method === "POST" && url.pathname === "/api/save/reset") {
         await handleResetSave(req, res);
-      } else if (req.method === "GET" && url.pathname === "/api/leaderboard") {
-        await handleLeaderboard(req, res, url);
       } else if (req.method === "GET" && url.pathname === "/api/star/next") {
         await handleStarNext(req, res, url);
       } else if (req.method === "POST" && url.pathname === "/api/star/claim") {

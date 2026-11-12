@@ -245,8 +245,8 @@ test("old saves migrate: missing project keys default to 0, latches derive from 
   assert.deepEqual(r, { ok: true });
 });
 
-test("AI-Powered Dashboard unlock needs 25 Blockchain Projects", () => {
-  // 24 is not enough.
+test("AI-Powered Dashboard unlock is trusted with or without 25 Blockchain Projects (leaderboard killed)", () => {
+  // 24 is not enough for the unlock — but the server stores the claim anyway now.
   const before = stateWith({
     freelanceProjectsCompleted: { paradigmShiftingBlockchainProject: 24 },
   });
@@ -259,8 +259,7 @@ test("AI-Powered Dashboard unlock needs 25 Blockchain Projects", () => {
     body(cheater, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "UNLOCK");
+  assert.deepEqual(r, { ok: true });
 
   // 25 is exactly enough.
   const met = stateWith({
@@ -278,8 +277,8 @@ test("AI-Powered Dashboard unlock needs 25 Blockchain Projects", () => {
   assert.deepEqual(ok, { ok: true });
 });
 
-test("NFT Marketplace unlock needs 500 AI Dashboards AND 1000 total projects", () => {
-  // 500 AI Dashboards but only 925 total: the total condition fails.
+test("NFT Marketplace unlock is trusted with or without 500 AI Dashboards AND 1000 total projects (leaderboard killed)", () => {
+  // 500 AI Dashboards but only 925 total: the total condition fails on the client — the server stores the claim anyway now.
   const shortTotal = stateWith({
     freelanceProjectsCompleted: {
       toDoListApp: 400,
@@ -304,10 +303,9 @@ test("NFT Marketplace unlock needs 500 AI Dashboards AND 1000 total projects", (
     body(cheaterTotal, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r1.ok, false);
-  assert.equal(r1.rule, "UNLOCK");
+  assert.deepEqual(r1, { ok: true });
 
-  // 1000 total but only 5 AI Dashboards: the specific condition fails.
+  // 1000 total but only 5 AI Dashboards: the specific condition fails on the client — the server stores the claim anyway now.
   const shortSpecific = stateWith({
     freelanceProjectsCompleted: {
       toDoListApp: 970,
@@ -332,8 +330,7 @@ test("NFT Marketplace unlock needs 500 AI Dashboards AND 1000 total projects", (
     body(cheaterSpecific, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r2.ok, false);
-  assert.equal(r2.rule, "UNLOCK");
+  assert.deepEqual(r2, { ok: true });
 
   // Both met: 475 To Do + 25 Blockchain + 500 AI Dashboards = 1000.
   const met = stateWith({
@@ -363,8 +360,8 @@ test("NFT Marketplace unlock needs 500 AI Dashboards AND 1000 total projects", (
   assert.deepEqual(ok, { ok: true });
 });
 
-test("Metaverse Real Estate unlock needs 500 NFT Marketplaces AND 2000 total projects", () => {
-  // 500 NFT Marketplaces but only 1425 total.
+test("Metaverse Real Estate unlock is trusted with or without 500 NFT Marketplaces AND 2000 total projects (leaderboard killed)", () => {
+  // 500 NFT Marketplaces but only 1425 total — the server stores the claim anyway now.
   const shortTotal = stateWith({
     freelanceProjectsCompleted: {
       toDoListApp: 400,
@@ -395,8 +392,7 @@ test("Metaverse Real Estate unlock needs 500 NFT Marketplaces AND 2000 total pro
     body(cheaterTotal, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r1.ok, false);
-  assert.equal(r1.rule, "UNLOCK");
+  assert.deepEqual(r1, { ok: true });
 
   // Both met: 975 To Do + 25 Blockchain + 500 AI + 500 NFT = 2000.
   const met = stateWith({
@@ -432,8 +428,8 @@ test("Metaverse Real Estate unlock needs 500 NFT Marketplaces AND 2000 total pro
   assert.deepEqual(ok, { ok: true });
 });
 
-test("Quantum To-Do List unlock needs 500 Metaverse Real Estates AND 4000 total projects", () => {
-  // 4530 total but only 5 Metaverse Real Estates.
+test("Quantum To-Do List unlock is trusted with or without 500 Metaverse Real Estates AND 4000 total projects (leaderboard killed)", () => {
+  // 4530 total but only 5 Metaverse Real Estates — the server stores the claim anyway now.
   const shortSpecific = stateWith({
     freelanceProjectsCompleted: {
       toDoListApp: 3500,
@@ -468,8 +464,7 @@ test("Quantum To-Do List unlock needs 500 Metaverse Real Estates AND 4000 total 
     body(cheater, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "UNLOCK");
+  assert.deepEqual(r, { ok: true });
 
   // Both met: 2475 To Do + 25 Blockchain + 500 AI + 500 NFT + 500
   // Metaverse = 4000.
@@ -542,9 +537,10 @@ test("legit play: ship an AI-Powered Dashboard (6000 LOC -> 204000c)", () => {
   assert.deepEqual(r, { ok: true });
 });
 
-test("shipping a big project without enough LOC is rejected", () => {
-  // Only 5000 LOC on hand for a 6000 LOC ship: the LOC rule rejects
-  // (expected LOC is negative after the project cost).
+test("shipping a big project without enough LOC is accepted (leaderboard killed: LOC is trusted)", () => {
+  // Only 5000 LOC on hand for a 6000 LOC ship: the old LOC rule
+  // rejected this (expected LOC is negative after the project cost).
+  // The server stores the ship anyway now.
   const before = stateWith({
     linesOfCode: 5000,
     totalLinesOfCode: 100000,
@@ -573,8 +569,7 @@ test("shipping a big project without enough LOC is rejected", () => {
     }),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "LOC");
+  assert.deepEqual(r, { ok: true });
 });
 
 test("unlock conditions for the big projects match the shared config", () => {

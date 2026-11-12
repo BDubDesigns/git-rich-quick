@@ -181,20 +181,6 @@ export async function resetSave(baseUrl, playerId) {
 }
 
 /**
- * Leaderboard (issue #29): the top 10 accounts, ranked by `sort`
- * ("lifetime" | "current" | "cash"; default lifetime). Public read.
- * Returns `{ status, data }` — 200 with
- * `{ sort, entries: [{ rank, displayName, lifetimeLoc, currentLoc, money }] }`.
- * Throws on network failure.
- */
-export async function getLeaderboard(baseUrl = SAVE_API_URL, sort = "lifetime") {
-  return request(
-    baseUrl,
-    `/api/leaderboard?sort=${encodeURIComponent(sort)}`
-  );
-}
-
-/**
  * Next golden star (issue #29): when the player's next star may spawn.
  * The server rolls the time; the response is
  * `{ nextStarAtMs, secondsUntilStar, constellationLevel, countdownUnlocked,

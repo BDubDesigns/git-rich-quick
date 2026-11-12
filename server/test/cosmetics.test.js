@@ -306,7 +306,7 @@ test("validateSave rejects a cosmetic equipped in the wrong slot (COSMETIC)", ()
   assert.equal(result.rule, "COSMETIC");
 });
 
-test("validateSave rejects an unlocked cosmetic whose trigger is not met (COSMETIC)", () => {
+test("validateSave accepts an unlocked cosmetic whose trigger is not met (leaderboard killed: triggers are not policed)", () => {
   const before = stateWith({
     employees: { intern: 5 },
     money: internHireCost(0, 5),
@@ -321,16 +321,14 @@ test("validateSave rejects an unlocked cosmetic whose trigger is not met (COSMET
     body(after, zeroActions()),
     T0 + 11_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "COSMETIC");
+  assert.deepEqual(result, { ok: true });
 });
 
 test("validateSave accepts a grandfathered cosmetic unlocked below the new trigger", () => {
   // The trigger rose from 10 to 25 hires. A player who earned the
-  // Bronze Duck at 10 hires keeps it: the unlocked list only grows,
-  // and the COSMETIC rule only checks the trigger for newly claimed
-  // cosmetics. Their save must not be rejected, and the cosmetic
-  // must still equip.
+  // Bronze Duck at 10 hires keeps it: the unlocked list only grows
+  // (MONOTONIC), and the server no longer checks triggers at all.
+  // Their save must not be rejected, and the cosmetic must still equip.
   const before = stateWith({
     employees: { intern: 10 },
     unlockedCosmetics: ["intern-icon-bronze"],

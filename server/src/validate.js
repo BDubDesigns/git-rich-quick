@@ -1,32 +1,43 @@
 /**
- * Get Rich Quick GIT — server-side save validation (Slice 1).
+ * Get Rich Quick GIT — server-side save validation.
  *
- * The client sends a snapshot, not a trusted balance. The server holds the
- * last accepted snapshot and recomputes what is possible from it. Implements
- * the nine rules from `save-schema-validation-spec.md`, with two deliberate
- * deviations, both documented here and in the PR:
+ * The leaderboard is gone (killed Nov 11, 2026 — it made saves a pain
+ * and cheaters would top it anyway), so the server no longer polices
+ * how progress was earned. A save is accepted when it is well-formed
+ * and internally consistent:
  *
- * 1. CREDITING USES THE NEW SNAPSHOT'S RATES, not the previous snapshot's.
- *    The spec says to use the previous snapshot's employees/bonuses, which
- *    can only under-credit. But under-crediting plus a hard 409 reject
- *    false-rejects legitimate play: buy an OverReact level mid-window and
- *    your clicks earn at the new rate, which the old rate cannot explain,
- *    so the save is rejected and the client discards the purchase. We
- *    credit at the new snapshot's rates instead. This can over-credit a
- *    player who upgrades late in a window, bounded by the rate delta times
- *    the window length — and upgrades are real purchases, verified by the
- *    money, LOC, and delta rules, with finite levels. The proper fix is
- *    split-window accounting (credit each rate for the time it was live),
- *    which needs purchase timestamps the client does not send yet.
+ * - SHAPE: only known keys, right types, no negatives, levels within
+ *   each project's max, star/email/cosmetic/farm entries well-formed.
+ *   A shape failure is a 400.
+ * - RATE_LIMIT: at most one accepted save per second per player.
+ *   Flood control only. A rate-limited save is a 429 and the client
+ *   keeps its actions and retries — it must NOT discard local state.
+ * - MONOTONIC: counts and totals never decrease, latches only flip
+ *   false -> true. A stale or corrupted save can never roll progress
+ *   backwards; a rejection here is a 409 with the last good state.
+ * - CONSISTENCY: an equipped cosmetic must be unlocked and in the
+ *   right slot; Release Manager assignments cannot exceed managers
+ *   owned and auto-ships are a subset of completions for unlocked
+ *   projects; a claimed star outcome or farm breed must match a
+ *   server-issued, unconsumed outcome (replay protection for the
+ *   server-rolled star/breed systems, not leaderboard policing).
  *
- * 2. SHAPE failures are 400 and RATE_LIMIT is 429, not 409. A malformed
+ * Everything else the old validator computed — the LOC cap, the exact
+ * money accounting, the click cap, the action deltas, the unlock
+ * recomputation, the cosmetic triggers, the farm purchase/plausibility
+ * checks, the auto-ship rate cap — is gone. The client is trusted with
+ * its own numbers now; the server stores what it sends.
+ *
+ * Deliberate deviations, documented here and in the PR:
+ *
+ * 1. SHAPE failures are 400 and RATE_LIMIT is 429, not 409. A malformed
  *    body is a bad request, and a rate-limited save must NOT make the
  *    client discard its local state (the 409 path does that) — it should
  *    keep its actions and retry on the next heartbeat. `validateSave`
  *    returns the rule; the HTTP layer maps SHAPE -> 400, RATE_LIMIT -> 429,
  *    everything else -> 409.
  *
- * 3. GOLDEN STARS (issue #33, server-rolled in issue #29) are decided
+ * 2. GOLDEN STARS (issue #33, server-rolled in issue #29) are decided
  *    by the SERVER, not the client. The client asks the server for a
  *    star outcome (POST /api/star/claim); the server rolls the effect,
  *    good/bad, and reward from the player's stored state, records the
@@ -48,15 +59,13 @@
  *    will 400 on a star claim until it reloads — the save itself is
  *    not lost, and the next heartbeat retries with fresh state).
  *
- * 4. COSMETICS (issue #11) extend Rule 3 (unlocks are real): a
- *    cosmetic NEWLY claimed in a save must have its hire-count
- *    trigger met by the new snapshot itself, and an equipped cosmetic
- *    must be unlocked and belong to the slot it is equipped in. A
- *    cosmetic already unlocked in the previous save is grandfathered
- *    (the trigger rose from 10 to 25 hires; an earned cosmetic is
- *    never revoked). The unlocked list only grows (Rule 2); the
- *    equipped map switches freely. Failures are the COSMETIC rule
- *    (409).
+ * 3. COSMETICS (issue #11): the server no longer checks whether a
+ *    newly claimed cosmetic's hire-count trigger is met — how a
+ *    cosmetic was earned is not policed anymore. What survives is the
+ *    equip check in validateSave: an equipped cosmetic must be
+ *    unlocked and belong to the slot it is equipped in. The unlocked
+ *    list only grows (the MONOTONIC rule), so an earned cosmetic is
+ *    never revoked. Failures are the COSMETIC rule (409).
  *
  * Star-era fields are backward-compatible: a save (or client) from
  * before Constellation shipped lacks `constellation` in the
@@ -84,39 +93,19 @@ import {
   FARM_CONFIG,
   FARM_LIGHTING_COLORS,
   FREELANCE_PROJECT_KEYS,
-  LLAMA_BASE_TYPES,
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
   STAR_CONFIG,
   STAR_EFFECT_IDS,
-  baseLocPerSecond,
   canEquipCosmetic,
-  cosmeticTriggerMet,
-  employeeBuffTypeRate,
-  employeePurchaseCosts,
-  employeeUnlockConditionsMet,
-  farmMaxKidsPerWindow,
-  farmStallNeighbours,
   findCosmetic,
-  freelanceProjectUnlockConditionsMet,
-  locPerClick,
-  locPerSecond,
-  maxReleaseManagerShips,
   normalizeSaveState,
   normalizeStarActions,
-  openSourceLevelCosts,
-  openSourceUnlockConditionsMet,
   releaseManagerAssignedCount,
 } from "../../shared/game-balance.js";
 
-/** Max plausible sustained click rate: 10 clicks/second. */
-export const MAX_CLICKS_PER_SECOND = 10;
-/** Small grace on the click-count cap, for timing jitter. */
-export const CLICK_GRACE = 10;
-/** Offline passive accrual is capped at 8 hours. */
-export const MAX_OFFLINE_ACCRUAL_SECONDS = 8 * 60 * 60;
-/** At most one accepted save per 10 seconds per player. */
-export const SAVE_RATE_LIMIT_SECONDS = 10;
+/** At most one accepted save per 1 second per player (flood control only). */
+export const SAVE_RATE_LIMIT_SECONDS = 1;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -216,8 +205,8 @@ function checkStateShape(state) {
   }
   // Release Manager (auto-ships): the per-project assignment counts
   // and the cumulative auto-ship counts. Both are count maps over the
-  // freelance keys; the assignment sum bound (<= owned managers) and
-  // the auto-ship rate cap live in validateSave, not the shape.
+  // freelance keys; the assignment sum bound (<= owned managers) lives
+  // in validateSave, not the shape.
   if (
     !isCountMap(state.releaseManagerAssignments, FREELANCE_PROJECT_KEYS)
   ) {
@@ -326,9 +315,9 @@ function checkStateShape(state) {
   // stalls (exactly FARM_CONFIG.stallCount entries, each { llama,
   // lighting } with a llama that is null or a known type id and a
   // lighting that is a known color), and unlockedTypes (known type ids
-  // only, no duplicates). Whether the llamas are plausible for the
-  // time window, and whether the farm was bought legitimately, is the
-  // FARM rule in validateSave, not the shape.
+  // only, no duplicates). Whether a claimed kid matches a
+  // server-issued breed outcome is the FARM rule in validateSave, not
+  // the shape; how a llama was bought or bred is not policed anymore.
   if (
     state.farm === null ||
     typeof state.farm !== "object" ||
@@ -429,7 +418,7 @@ function checkActionsShape(actions) {
     return "actions.projectsCompleted must be non-negative integer counts";
   }
   // Release Manager auto-ships this window, per project. A subset of
-  // projectsCompleted (the auto-shipped ones); the rate cap lives in
+  // projectsCompleted (the auto-shipped ones); the subset check lives in
   // validateSave, not the shape.
   if (!isCountMap(actions.autoShips, FREELANCE_PROJECT_KEYS)) {
     return "actions.autoShips must be non-negative integer counts";
@@ -856,223 +845,8 @@ export function matchIssuedStarClaims(claims, issued, nowMs = null) {
   return { ok: true, claimIds };
 }
 
-/** Sum of the instant LOC/money deltas across star claims, plus the LOC gains alone. */
-function starTotals(claims) {
-  let locNet = 0;
-  let locGains = 0;
-  let moneyNet = 0;
-  for (const claim of claims) {
-    locNet += claim.locDelta;
-    if (claim.locDelta > 0) locGains += claim.locDelta;
-    moneyNet += claim.moneyDelta;
-  }
-  return { locNet, locGains, moneyNet };
-}
-
-/**
- * Extra LOC allowance from timed star buffs active in the window.
- * A buff's overlap is how long it was live inside the window:
- * - a buff already active at the window start (in prev.activeStarEffects):
- *   from the window start to its expiry (plus a small clock-skew grace —
- *   the client stamps expiresAtMs from its own clock, which can sit a
- *   few seconds off the server's), capped at the window length and at
- *   the longest any buff can last (60s), so a tampered far-future
- *   expiresAtMs cannot inflate the allowance on a long offline window;
- * - a buff claimed in this window (in starClaims): its full duration,
- *   capped at the window length (it may have started at any point).
- * Buffs of the same (effect, employeeType) never stack in the client
- * (a new one replaces the old), so their overlaps are summed and
- * capped at the window length, and the highest multiplier in the group
- * is used — an upper bound, so the allowance is never below the true
- * gain. A bad buff (multiplier < 1) lowers the allowance, which is
- * correct: the player earned less while it was live.
- *
- * Frenzy and Employee buffs MULTIPLY on the client (the Employee extra
- * is part of the passive rate that Frenzy scales), so the allowance
- * adds their interaction too: (frenzy - 1) x (employee extra rate) x
- * the time both were live, bounded by the shorter of the two overlaps.
- * Without it, a player with both buffs active would false-reject.
- *
- * Returns { passiveExtra, clickExtra } in LOC.
- */
+/** Clock-skew grace for server-issued claim expiry (used by the star/farm claim matchers below). */
 const STAR_CLOCK_SKEW_GRACE_MS = 5000;
-/** No timed star buff lasts longer than 60s (Frenzy/Employee good). */
-const MAX_STAR_BUFF_SECONDS = 60;
-
-function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowMs) {
-  const prevState = prev.state;
-  const newRate = locPerSecond(
-    newState.employees,
-    newState.openSourceProjects
-  );
-  // The base click value, with the Commit Specialist bonus at 1x
-  // (no Sprint). The final total is floored (Brandon: a click must
-  // never commit a fractional amount), so this is the whole-number
-  // click value the client credits for clicks outside any buff.
-  const newClick = locPerClick(
-    newState.openSourceProjects,
-    newState.employees
-  );
-
-  // Group buff instances by (effect, employeeType). Each group tracks
-  // its multipliers and its summed overlap.
-  const groups = new Map();
-  const addToGroup = (effect, employeeType, multiplier, overlapSeconds) => {
-    if (overlapSeconds <= 0) return;
-    const key = `${effect}:${employeeType ?? ""}`;
-    const group = groups.get(key) ?? {
-      effect,
-      employeeType,
-      multipliers: [],
-      overlapSeconds: 0,
-    };
-    group.multipliers.push(multiplier);
-    group.overlapSeconds += overlapSeconds;
-    groups.set(key, group);
-  };
-
-  // Buffs already active at the window start. The overlap is capped at
-  // the longest any buff can last (60s), so a tampered far-future
-  // expiresAtMs cannot inflate the allowance on a long offline window.
-  for (const buff of prevState.activeStarEffects ?? []) {
-    const overlapSeconds = Math.min(
-      Math.max(
-        0,
-        (Math.min(buff.expiresAtMs + STAR_CLOCK_SKEW_GRACE_MS, nowMs) -
-          prev.savedAtMs) /
-          1000
-      ),
-      elapsedSeconds,
-      MAX_STAR_BUFF_SECONDS
-    );
-    addToGroup(buff.effect, buff.employeeType, buff.multiplier, overlapSeconds);
-  }
-
-  // Buffs claimed in this window.
-  for (const claim of claims) {
-    if (
-      claim.effect !== "frenzy" &&
-      claim.effect !== "click" &&
-      claim.effect !== "employee"
-    ) {
-      continue;
-    }
-    const overlapSeconds = Math.min(claim.durationSeconds, elapsedSeconds);
-    addToGroup(
-      claim.effect,
-      claim.employeeType,
-      claim.multiplier,
-      overlapSeconds
-    );
-  }
-
-  // Frenzy (one group at most — it has no employeeType).
-  const frenzyGroup = groups.get("frenzy:");
-  const frenzyOverlap = frenzyGroup
-    ? Math.min(frenzyGroup.overlapSeconds, elapsedSeconds)
-    : 0;
-  const frenzyMultiplier = frenzyGroup
-    ? Math.max(...frenzyGroup.multipliers)
-    : 1;
-
-  // Employee buffs, one group per type.
-  const employeeGroups = [...groups.values()].filter(
-    (group) => group.effect === "employee"
-  );
-  let employeeExtraRate = 0;
-  let employeeExtra = 0;
-  let maxEmployeeOverlap = 0;
-  for (const group of employeeGroups) {
-    const overlapSeconds = Math.min(group.overlapSeconds, elapsedSeconds);
-    const multiplier = Math.max(...group.multipliers);
-    // The type's contribution to the passive rate, from the one shared
-    // helper the client uses too. A Project Manager's contribution is
-    // the boost itself (the rate the Sprint scales); a Commit
-    // Specialist contributes nothing to passive LOC, so a Sprint on
-    // them scales nothing here — their bonus lives on clicks.
-    const typeRate = employeeBuffTypeRate(
-      group.employeeType,
-      newState.employees,
-      newState.openSourceProjects
-    );
-    employeeExtraRate += (multiplier - 1) * typeRate;
-    employeeExtra += (multiplier - 1) * typeRate * overlapSeconds;
-    maxEmployeeOverlap = Math.max(maxEmployeeOverlap, overlapSeconds);
-  }
-
-  // Passive extra: Frenzy on the base rate, Employee on its type's
-  // rate, plus the Frenzy x Employee interaction (Frenzy scales the
-  // Employee extra too) for the time both were live.
-  let passiveExtra = (frenzyMultiplier - 1) * newRate * frenzyOverlap;
-  passiveExtra += employeeExtra;
-  if (frenzyOverlap > 0 && maxEmployeeOverlap > 0) {
-    passiveExtra +=
-      (frenzyMultiplier - 1) *
-      employeeExtraRate *
-      Math.min(frenzyOverlap, maxEmployeeOverlap);
-  }
-
-  // Click extra: the Click buff scales clicks made while it was live.
-  // Clicks that could have happened then are the click-rate cap over
-  // the buff's overlap, plus the grace, and no more than the clicks
-  // actually claimed in the window.
-  let clickExtra = 0;
-  const clickGroup = groups.get("click:");
-  let clicksDuringClickBuff = 0;
-  if (clickGroup) {
-    const overlapSeconds = Math.min(clickGroup.overlapSeconds, elapsedSeconds);
-    const multiplier = Math.max(...clickGroup.multipliers);
-    const maxClicksDuringBuff =
-      Math.floor(MAX_CLICKS_PER_SECOND * overlapSeconds) + CLICK_GRACE;
-    const clicksDuringBuff = Math.min(actions.clicks, maxClicksDuringBuff);
-    clicksDuringClickBuff = clicksDuringBuff;
-    clickExtra = (multiplier - 1) * clicksDuringBuff * newClick;
-  }
-
-  // Commit Specialist Sprint extra: a Sprint on Commit Specialists
-  // multiplies their per-click bonus, so clicks made while it was live
-  // earn more than the 1x base click above. The per-click extra is the
-  // difference of the two floored click totals (with the Sprint and at
-  // 1x) — that is exactly what the client credits per click, since the
-  // base is an integer and the floor lives on the final total. Only a
-  // positive delta is added: a Meeting (0.5x) makes clicks earn LESS
-  // than the base credit, which the base credit already covers, and
-  // subtracting for it could under-credit clicks made outside the
-  // Meeting. The Click x Commit Specialist interaction (a Click buff
-  // multiplying Sprint-boosted clicks) is the same delta times the
-  // Click buff's uplift, over the clicks that could have been during
-  // both buffs — an upper bound, like the Frenzy x Employee
-  // interaction above.
-  const csSprintGroup = groups.get("employee:commitSpecialist");
-  if (csSprintGroup) {
-    const overlapSeconds = Math.min(
-      csSprintGroup.overlapSeconds,
-      elapsedSeconds
-    );
-    const multiplier = Math.max(...csSprintGroup.multipliers);
-    const csBonusDelta =
-      locPerClick(
-        newState.openSourceProjects,
-        newState.employees,
-        multiplier
-      ) - newClick;
-    if (csBonusDelta > 0) {
-      const maxClicksDuringBuff =
-        Math.floor(MAX_CLICKS_PER_SECOND * overlapSeconds) + CLICK_GRACE;
-      const clicksDuringBuff = Math.min(actions.clicks, maxClicksDuringBuff);
-      clickExtra += csBonusDelta * clicksDuringBuff;
-      if (clickGroup) {
-        const clickMultiplier = Math.max(...clickGroup.multipliers);
-        clickExtra +=
-          (clickMultiplier - 1) *
-          csBonusDelta *
-          Math.min(clicksDuringClickBuff, clicksDuringBuff);
-      }
-    }
-  }
-
-  return { passiveExtra, clickExtra };
-}
 
 /**
  * Validate one save attempt against the last accepted snapshot.
@@ -1082,9 +856,8 @@ function starBuffAllowance(prev, newState, claims, actions, elapsedSeconds, nowM
  * Defaults to [] (no issued outcomes — any star claim is rejected).
  * `issuedFarmBreeds` is the player's unconsumed server-issued breed
  * outcomes (issue #79 feedback); a save's farm breed claims must
- * match them, and any new llama that is not a matched breed kid must
- * be a bought base llama. Defaults to [] (no issued outcomes — any
- * breed claim is rejected).
+ * match them. Defaults to [] (no issued outcomes — any breed claim is
+ * rejected).
  */
 export function validateSave(
   prev,
@@ -1113,7 +886,8 @@ export function validateSave(
   const newState = normalizedBody.state;
   const actions = normalizedBody.actionsSinceLastSave;
 
-  // Rule 9 — rate limit: at most one accepted save per 10 seconds.
+  // Rate limit: at most one accepted save per second — flood control
+  // only, now that the leaderboard is gone.
   if (nowMs - prev.savedAtMs < SAVE_RATE_LIMIT_SECONDS * 1000) {
     return fail(
       "RATE_LIMIT",
@@ -1121,7 +895,7 @@ export function validateSave(
     );
   }
 
-  // Rule 2 — monotonicity: counts and totals never decrease, latches only flip false -> true.
+  // Monotonicity: counts and totals never decrease, latches only flip false -> true.
   for (const type of EMPLOYEE_TYPES) {
     if (newState.employees[type] < prevState.employees[type]) {
       return fail("MONOTONIC", `employee count decreased: ${type}`);
@@ -1211,80 +985,11 @@ export function validateSave(
     }
   }
 
-  // Rule 3 — unlocks are real: recompute each unlock from the new snapshot itself.
-  for (const type of EMPLOYEE_TYPES) {
-    if (
-      newState.unlockedEmployees[type] &&
-      !employeeUnlockConditionsMet(type, newState)
-    ) {
-      return fail(
-        "UNLOCK",
-        `employee unlock claimed without meeting conditions: ${type}`
-      );
-    }
-  }
-  for (const projectId of OPEN_SOURCE_IDS) {
-    if (
-      newState.unlockedOpenSourceProjects[projectId] &&
-      !openSourceUnlockConditionsMet(projectId, newState)
-    ) {
-      return fail(
-        "UNLOCK",
-        `open-source unlock claimed without meeting conditions: ${projectId}`
-      );
-    }
-    // A level claimed without meeting the unlock condition is rejected
-    // too (star fix slice): the latch alone does not gate a level —
-    // a save could claim Constellation level 1 with the latch false —
-    // so the level itself must satisfy the conditions. This is what
-    // enforces the Constellation TOTAL_LOC >= 500 unlock on the level
-    // a save claims, not just on the latch it carries. It applies to
-    // every open-source project (same loop); OverReact has no
-    // conditions, and Blocker's 5-junior condition is met by any
-    // legitimate owner.
-    if (
-      newState.openSourceProjects[projectId] > 0 &&
-      !openSourceUnlockConditionsMet(projectId, newState)
-    ) {
-      return fail(
-        "UNLOCK",
-        `open-source level claimed without meeting unlock conditions: ${projectId}`
-      );
-    }
-  }
-  for (const key of FREELANCE_PROJECT_KEYS) {
-    if (
-      newState.unlockedFreelanceProjects[key] &&
-      !freelanceProjectUnlockConditionsMet(key, newState)
-    ) {
-      return fail(
-        "UNLOCK",
-        `freelance unlock claimed without meeting conditions: ${key}`
-      );
-    }
-  }
-
-  // Rule 3, cosmetics (issue #11) — unlocks and equips are real:
-  // every cosmetic NEWLY claimed in this save must have its
-  // hire-count trigger met by the new snapshot itself, and every
-  // equipped cosmetic must be unlocked and belong to the slot it is
-  // equipped in. A cosmetic already unlocked in the previous save is
-  // grandfathered: the trigger rose under it (10 -> 25 hires), and
-  // the MONOTONIC rule above already guarantees the unlocked list
-  // only grows, so an earned cosmetic is never revoked or rejected
-  // for a threshold it met when it was earned. A failure here is a
-  // COSMETIC rejection (409 with the last good state).
-  for (const cosmeticId of newState.unlockedCosmetics ?? []) {
-    if ((prevState.unlockedCosmetics ?? []).includes(cosmeticId)) {
-      continue;
-    }
-    if (!cosmeticTriggerMet(cosmeticId, newState)) {
-      return fail(
-        "COSMETIC",
-        `cosmetic unlock claimed without meeting its trigger: ${cosmeticId}`
-      );
-    }
-  }
+  // Cosmetics (issue #11): only the equip check survives — an equipped
+  // cosmetic must be unlocked and belong to the slot it is equipped in
+  // (state consistency). The trigger-met check for newly unlocked
+  // cosmetics is gone with the leaderboard: the server no longer polices
+  // how a cosmetic was earned. A failure here is a COSMETIC rejection.
   for (const [slot, cosmeticId] of Object.entries(
     newState.equippedCosmetics ?? {}
   )) {
@@ -1298,21 +1003,14 @@ export function validateSave(
     }
   }
 
-  // Llama farm (issue #79) — purchase and breeding. A failure here is
-  // a FARM rejection (409 with the last good state).
+  // Llama farm (issue #79): only the breed-claim match survives. Each
+  // breed claim must match a server-issued, unconsumed outcome, and
+  // every claimed kid must be one of the new llamas in this save. The
+  // purchase and plausibility checks that used to surround this are gone
+  // with the leaderboard — the server no longer polices whether a llama
+  // was bought or bred legitimately; the shape check still bounds the
+  // stalls and types. A failure here is a FARM rejection.
   //
-  // Every llama that appears in this window is either BOUGHT (a base
-  // type the player paid for, into any empty stall) or BRED (a kid the
-  // server rolled in POST /api/farm/breed). The split is decided by
-  // the farm breed claims: a new llama that matches an issued breed
-  // outcome is a bred kid; every other new llama must be a bought base
-  // type, and the money rule below charges llamaPriceCents for each.
-  // A client-injected kid — one the server never rolled — matches no
-  // issued outcome, so it is rejected here, not just by the
-  // plausibility checks. The number of bought llamas is computed here
-  // for the money rule (Rule 7).
-  const farmWasOwned = prevState.farm.owned;
-  const farmIsOwned = newState.farm.owned;
   // New llamas: stalls that were empty in the previous save and hold a
   // llama in this one. A stall's llama never changes or disappears
   // (MONOTONIC, above), so every new llama is one of these.
@@ -1324,9 +1022,6 @@ export function validateSave(
       newFarmLlamas.push({ stallIndex: i, type: newLlama });
     }
   }
-  // Breed claims (issue #79 feedback): each claim must match a
-  // server-issued, unconsumed breed outcome. A failed claim is a FARM
-  // rejection.
   const farmBreedClaims = actions.farmBreedClaims ?? [];
   const farmBreedMatch = matchIssuedFarmBreeds(
     farmBreedClaims,
@@ -1350,55 +1045,9 @@ export function validateSave(
       );
     }
   }
-  // The remaining new llamas are bought. Each must be a base type —
-  // bred types are never for sale, so a non-base "bought" llama is
-  // tampered, not purchased.
-  const boughtFarmLlamas = newFarmLlamas.filter(
-    (llama) =>
-      !bredKids.some((kid) => kid.stallIndex === llama.stallIndex)
-  );
-  for (const llama of boughtFarmLlamas) {
-    if (!LLAMA_BASE_TYPES.includes(llama.type)) {
-      return fail(
-        "FARM",
-        `farm llama bought in stall ${llama.stallIndex} is not a base type: ${llama.type}`
-      );
-    }
-  }
-  const farmBoughtLlamaCount = boughtFarmLlamas.length;
-  if (!farmWasOwned && farmIsOwned) {
-    // Buying the farm: the barn arrives EMPTY (no free llamas —
-    // Brandon: "you have to buy the llamas yourself"). Llamas bought
-    // in the same window as the purchase are allowed (they are the
-    // bought llamas above, base types, paid for in Rule 7), but no kid
-    // can be bred before the farm is owned — the breed endpoint
-    // requires an owned farm, so a bred kid in the purchase window is
-    // forged. The unlocked list must be exactly the types of the
-    // llamas in the barn (the bought ones); no type is unlocked for
-    // free at purchase.
-    if (bredKids.length > 0) {
-      return fail(
-        "FARM",
-        "farm kid bred before the farm was owned"
-      );
-    }
-    const unlocked = [...(newState.farm.unlockedTypes ?? [])].sort();
-    const inBarn = [
-      ...new Set(newFarmLlamas.map((llama) => llama.type)),
-    ].sort();
-    if (
-      unlocked.length !== inBarn.length ||
-      unlocked.some((type, i) => type !== inBarn[i])
-    ) {
-      return fail(
-        "FARM",
-        "farm purchase must unlock exactly the types of the llamas in the barn"
-      );
-    }
-  }
 
   // Release Manager (auto-ships freelance projects). A failure here is
-  // a RELEASE_MANAGER rejection (409 with the last good state).
+  // a RELEASE_MANAGER rejection.
   //
   // Assignments are a strategy choice, not a security boundary: the
   // player assigns each manager to a project, and the sum of the
@@ -1406,15 +1055,10 @@ export function validateSave(
   // unassigned and do nothing). Assignments change freely — there is
   // no monotonic constraint on them.
   //
-  // Auto-ships are a subset of all completions: every auto-ship is a
-  // real completion (it costs LOC and pays money through the LOC and
-  // money rules, which already account for projectsCompleted), so the
-  // auto-ship count for a project can never exceed that project's
-  // completions in the window. And a manager can only auto-ship a
-  // project the player has unlocked — the assignment UI only offers
-  // unlocked projects, and a locked auto-ship here is tampered, not
-  // gameplay. The RATE cap (one ship per manager per interval) needs
-  // the elapsed window, so it lives below, next to the CLICKS rule.
+  // Auto-ships are a subset of all completions: the auto-ship count for
+  // a project can never exceed that project's completions in the
+  // window, and a manager can only auto-ship a project the player has
+  // unlocked. The per-interval RATE cap is gone with the leaderboard.
   const assignedManagers = releaseManagerAssignedCount(
     newState.releaseManagerAssignments
   );
@@ -1443,261 +1087,22 @@ export function validateSave(
     }
   }
 
-  // Time window. Elapsed is clamped at zero (clock skew) and passive
-  // accrual is capped at 8 hours; the click-count cap uses uncapped elapsed.
-  const elapsedSeconds = Math.max(0, (nowMs - prev.savedAtMs) / 1000);
-  const passiveSeconds = Math.min(elapsedSeconds, MAX_OFFLINE_ACCRUAL_SECONDS);
-
-  if (farmWasOwned && farmIsOwned) {
-    // Breeding plausibility (issue #79 feedback): the bred kids in
-    // this window must be no more than the stalls that were empty when
-    // the window started (see farmMaxKidsPerWindow) — a client claiming
-    // more kids than there were empty stalls is tampered, not lucky.
-    // Each bred kid must also sit in a stall with at least two llama
-    // neighbours in the new state, so a kid cannot appear in a stall
-    // that was never between two llamas. Bought llamas are NOT checked
-    // here: a bought llama goes into any empty stall, no neighbours
-    // needed. The issued-outcome match (above) is what makes a kid
-    // real; these checks are the backstop that keeps even an issued
-    // kid plausible.
-    const maxKids = farmMaxKidsPerWindow(prevState.farm.stalls);
-    if (bredKids.length > maxKids) {
-      return fail(
-        "FARM",
-        `${bredKids.length} farm kids born exceeds the maximum ${maxKids}`
-      );
-    }
-    for (const kid of bredKids) {
-      const llamaNeighbours = farmStallNeighbours(kid.stallIndex).filter(
-        (n) => newState.farm.stalls[n]?.llama
-      );
-      if (llamaNeighbours.length < 2) {
-        return fail(
-          "FARM",
-          `farm kid born in stall ${kid.stallIndex} without two llama neighbours`
-        );
-      }
-    }
-  }
-
-  // Rule 5 — clicks: at most 10/sec sustained, plus a small grace.
-  if (actions.clicks > MAX_CLICKS_PER_SECOND * elapsedSeconds + CLICK_GRACE) {
-    return fail(
-      "CLICKS",
-      `${actions.clicks} clicks in ${elapsedSeconds.toFixed(1)}s exceeds the plausible maximum`
-    );
-  }
-
-  // Release Manager rate cap: one ship per manager per interval, plus
-  // one grace ship for a ship event landing on a window boundary (see
-  // maxReleaseManagerShips). The manager count is the max of the
-  // previous and new snapshots, so a manager hired mid-window is not
-  // under-counted and a legitimate ship is never rejected for a hire
-  // that landed after it. A hacked client cannot claim ships faster
-  // than the interval allows — and each claimed ship still costs LOC
-  // through the LOC rule, so even a max-rate claim is paid for.
-  const totalAutoShips = FREELANCE_PROJECT_KEYS.reduce(
-    (sum, key) => sum + (autoShips[key] ?? 0),
-    0
-  );
-  const maxManagers = Math.max(
-    prevState.employees.releaseManager,
-    newState.employees.releaseManager
-  );
-  const maxAutoShips = maxReleaseManagerShips(maxManagers, elapsedSeconds);
-  if (totalAutoShips > maxAutoShips) {
-    return fail(
-      "RELEASE_MANAGER",
-      `${totalAutoShips} auto-ships in ${elapsedSeconds.toFixed(1)}s exceeds the maximum ${maxAutoShips} for ${maxManagers} managers`
-    );
-  }
-
-  // Star claims (issue #29): each claim must match a server-issued,
-  // unconsumed outcome exactly, before the claimed gains are credited
-  // in the LOC/money rules below. A failed claim is a STAR rejection
-  // (409 with the last good state).
-  const starClaims = actions.starClaims ?? [];
-  const starMatch = matchIssuedStarClaims(starClaims, issuedStarClaims, nowMs);
-  if (!starMatch.ok) return fail("STAR", starMatch.detail);
-  const {
-    locNet: starLocNet,
-    locGains: starLocGains,
-    moneyNet: starMoneyNet,
-  } = starTotals(starClaims);
-  const {
-    passiveExtra: starPassiveExtra,
-    clickExtra: starClickExtra,
-  } = starBuffAllowance(
-    normalizedPrev,
-    newState,
-    starClaims,
-    actions,
-    elapsedSeconds,
-    nowMs
-  );
-
-  // Max earnable LOC in the window, credited at the NEW snapshot's rates
-  // (see the deviation note at the top of this file). Star buffs add
-  // their allowance on top of the base passive/click credit, and instant
-  // star gains are credited to the max earnable (losses debit it).
-  const maxPassive =
-    locPerSecond(newState.employees, newState.openSourceProjects) *
-      passiveSeconds +
-    starPassiveExtra;
-  const maxClickLoc =
-    actions.clicks *
-      locPerClick(newState.openSourceProjects, newState.employees) +
-    starClickExtra;
-
-  // LOC spent in the window, from the claimed actions.
-  let projectLocCost = 0;
-  for (const key of FREELANCE_PROJECT_KEYS) {
-    projectLocCost +=
-      actions.projectsCompleted[key] * BALANCE.freelanceProjects[key].loc;
-  }
-  let openSourceLocCost = 0;
-  for (const projectId of OPEN_SOURCE_IDS) {
-    openSourceLocCost += openSourceLevelCosts(
-      projectId,
-      prevState.openSourceProjects[projectId],
-      newState.openSourceProjects[projectId]
-    );
-  }
-
-  // Rule 6 — LOC accounting. The tolerance covers the discrete-tick
-  // error: the client earns passive LOC in whole 1-second GAME_TICKs,
-  // but the server credits it continuously by elapsed wall-clock
-  // seconds. In a window of W seconds the client can fire up to
-  // ceil(W) ticks while the server credits W seconds, so legitimate
-  // play can hold up to one full tick of passive LOC beyond the
-  // continuous credit. That excess is (ceil(W) - W) * locPerSecond,
-  // which approaches one tick as W approaches an integer from below.
-  // The old tolerance (1% of expectedLoc, min 10) collapsed to the
-  // 10 LOC floor exactly when a player ships heavily — shipping
-  // spends LOC, driving expectedLoc toward 0 — while the tick excess
-  // stays up to one tick (the player's LOC/sec, e.g. 150). The save
-  // was then falsely 409'd. The tolerance is therefore at least one
-  // tick of passive LOC at the new snapshot's rate, which is both
-  // necessary and sufficient: the legitimate excess is bounded above
-  // by one tick, and the 1% term still covers fractional rounding.
-  const expectedLoc =
-    prevState.linesOfCode +
-    maxPassive +
-    maxClickLoc +
-    starLocNet -
-    projectLocCost -
-    openSourceLocCost;
-  const oneTickLoc = locPerSecond(
-    newState.employees,
-    newState.openSourceProjects
-  );
-  const tolerance = Math.max(
-    10,
-    0.01 * Math.max(expectedLoc, 0),
-    oneTickLoc
-  );
-  if (newState.linesOfCode > expectedLoc + tolerance) {
-    return fail(
-      "LOC",
-      `linesOfCode ${newState.linesOfCode} exceeds the maximum earnable ${expectedLoc.toFixed(1)} (+${tolerance.toFixed(1)} tolerance)`
-    );
-  }
-  const totalGained = newState.totalLinesOfCode - prevState.totalLinesOfCode;
-  // totalLinesOfCode only ever grows from gains, so only the positive
-  // star LOC counts here (a Lucky loss lowers linesOfCode, not the total).
-  if (totalGained > maxPassive + maxClickLoc + starLocGains + tolerance) {
-    return fail(
-      "LOC",
-      `totalLinesOfCode gained ${totalGained.toFixed(1)} exceeds the maximum earnable ${(maxPassive + maxClickLoc + starLocGains).toFixed(1)} (+${tolerance.toFixed(1)} tolerance)`
-    );
-  }
+  // Total LOC is the lifetime counter; it can never sit below the
+  // current balance. (The tail of the old LOC rule, kept as a
+  // state-consistency check: total only ever grows from gains, and the
+  // current balance is spent from, never below, it.)
   if (newState.totalLinesOfCode < newState.linesOfCode) {
     return fail("LOC", "totalLinesOfCode is less than linesOfCode");
   }
 
-  // Rule 7 — money accounting, exact, no tolerance. Money only moves via
-  // completed projects (in), employee hires (out), and instant star
-  // rewards (in or out, netted in starMoneyNet), in purchase order.
-  // The llama farm purchase (issue #79) is a one-time money-out event:
-  // buying the farm deducts FARM_CONFIG.purchaseCostCents. Llamas
-  // bought in this window (issue #79 feedback — no free llamas, each
-  // base llama is bought separately) deduct FARM_CONFIG.llamaPriceCents
-  // each; the count is the bought llamas computed in the farm rule
-  // above (new llamas that are not matched breed kids). The farm
-  // generates no cash in v1, so there is no passive farm income to
-  // account for here.
-  let expectedMoney = prevState.money + starMoneyNet;
-  if (!farmWasOwned && farmIsOwned) {
-    expectedMoney -= FARM_CONFIG.purchaseCostCents;
-  }
-  expectedMoney -= farmBoughtLlamaCount * FARM_CONFIG.llamaPriceCents;
-  for (const key of FREELANCE_PROJECT_KEYS) {
-    expectedMoney +=
-      actions.projectsCompleted[key] * BALANCE.freelanceProjects[key].reward;
-  }
-  for (const type of EMPLOYEE_TYPES) {
-    const costs = employeePurchaseCosts(
-      type,
-      prevState.employees[type],
-      actions.employeesBought[type]
-    );
-    for (const cost of costs) expectedMoney -= cost;
-  }
-  if (newState.money !== expectedMoney) {
-    return fail(
-      "MONEY",
-      `money ${newState.money} does not match the expected ${expectedMoney}`
-    );
-  }
-
-  // Rule 8 — action deltas agree with the snapshot.
-  for (const type of EMPLOYEE_TYPES) {
-    if (
-      newState.employees[type] - prevState.employees[type] !==
-      actions.employeesBought[type]
-    ) {
-      return fail(
-        "DELTA",
-        `employee delta disagrees with claimed purchases: ${type}`
-      );
-    }
-  }
-  for (const key of FREELANCE_PROJECT_KEYS) {
-    if (
-      newState.freelanceProjectsCompleted[key] -
-        prevState.freelanceProjectsCompleted[key] !==
-      actions.projectsCompleted[key]
-    ) {
-      return fail(
-        "DELTA",
-        `project delta disagrees with claimed completions: ${key}`
-      );
-    }
-    // Release Manager: the cumulative auto-ship delta must match the
-    // claimed auto-ships, same as the completions above.
-    if (
-      newState.autoShipsCompleted[key] -
-        prevState.autoShipsCompleted[key] !==
-      (autoShips[key] ?? 0)
-    ) {
-      return fail(
-        "DELTA",
-        `auto-ship delta disagrees with claimed auto-ships: ${key}`
-      );
-    }
-  }
-  for (const projectId of OPEN_SOURCE_IDS) {
-    if (
-      newState.openSourceProjects[projectId] -
-        prevState.openSourceProjects[projectId] !==
-      actions.openSourceLevelsBought[projectId]
-    ) {
-      return fail(
-        "DELTA",
-        `open-source delta disagrees with claimed levels: ${projectId}`
-      );
-    }
-  }
+  // Star claims (issue #29): each claim must match a server-issued,
+  // unconsumed outcome exactly. This is replay protection for the
+  // server-rolled star system, not leaderboard policing — an issued
+  // outcome can only be claimed once, and the client only ever applies
+  // what the server rolled. A failed claim is a STAR rejection.
+  const starClaims = actions.starClaims ?? [];
+  const starMatch = matchIssuedStarClaims(starClaims, issuedStarClaims, nowMs);
+  if (!starMatch.ok) return fail("STAR", starMatch.detail);
 
   return { ok: true };
 }

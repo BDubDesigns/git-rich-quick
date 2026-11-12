@@ -12,7 +12,6 @@ import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
 import { Farm } from "./components/Farm";
 import { Settings } from "./components/Settings";
-import { Leaderboard } from "./components/Leaderboard";
 import { Email } from "./components/Email";
 import { GameLayout } from "./components/GameLayout";
 import { ScrollAffordanceFrame } from "./components/ScrollAffordances.jsx";
@@ -135,7 +134,6 @@ function App() {
               state.activeTab === "projects") && <OpenSource />}
             {state.activeTab === "farm" && <Farm />}
             {state.activeTab === "settings" && <Settings />}
-            {state.activeTab === "leaderboard" && <Leaderboard />}
             {state.activeTab === "email" && <Email />}
           </ScrollAffordanceFrame>
 
@@ -155,7 +153,6 @@ function App() {
           {state.activeTab === "openSource" && <OpenSource />}
           {state.activeTab === "farm" && <Farm />}
           {state.activeTab === "settings" && <Settings />}
-          {state.activeTab === "leaderboard" && <Leaderboard />}
           {state.activeTab === "email" && <Email />}
         </div>
       )}

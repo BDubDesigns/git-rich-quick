@@ -473,26 +473,29 @@ test("end-to-end: a bought star and a natural star stack — both claims save", 
   }
 });
 
-test("StarBroker unlock: a level without TOTAL_LOC >= 5000 is rejected; a save without the key normalizes", async () => {
+test("StarBroker unlock: a level below TOTAL_LOC 5000 is accepted; a save without the key normalizes (leaderboard killed: unlocks are trusted)", async () => {
   const srv = await startTestServer();
   try {
     // A player at 1000 lifetime LOC (above Constellation's 500, below
-    // StarBroker's 5000) cannot claim StarBroker level 1.
+    // StarBroker's 5000) claims StarBroker level 1 — the server stores
+    // the claim instead of policing the unlock. The fixture is
+    // self-consistent: the level is claimed without deducting its cost,
+    // because affordability is not policed anymore either.
     const poor = await mintPlayer(srv.base);
     const poorStored = await setState(srv, poor, {
       openSourceProjects: { constellation: 1, starBroker: 0 },
       unlockedOpenSourceProjects: { constellation: true, starBroker: false },
       employees: { intern: 10 },
-      linesOfCode: 20000,
+      linesOfCode: 1000,
       totalLinesOfCode: 1000,
     });
     srv.advance(11_000);
-    const rejected = await post(srv.base, "/api/save", {
+    const acceptedPoor = await post(srv.base, "/api/save", {
       playerId: poor,
       state: {
         ...poorStored,
-        linesOfCode: 20000 - 10000 + 110,
-        totalLinesOfCode: 1000 + 110,
+        linesOfCode: 1000,
+        totalLinesOfCode: 1000,
         openSourceProjects: { ...poorStored.openSourceProjects, starBroker: 1 },
         unlockedOpenSourceProjects: {
           ...poorStored.unlockedOpenSourceProjects,
@@ -507,8 +510,7 @@ test("StarBroker unlock: a level without TOTAL_LOC >= 5000 is rejected; a save w
         },
       },
     });
-    assert.equal(rejected.status, 409);
-    assert.equal((await rejected.json()).rule, "UNLOCK");
+    assert.equal(acceptedPoor.status, 200);
 
     // A player at 5000 lifetime LOC can claim it. (The fixture is
     // self-consistent: 20,000 LOC on hand implies 20,000 lifetime

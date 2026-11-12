@@ -188,10 +188,18 @@ test("records a reverted attempt with the server rule on a 409", async () => {
     srv.advance(11_000);
     await engine.requestSave("manual");
 
-    // An impossible LOC jump: the server's LOC rule rejects it.
+    // Build up some total LOC, then send a save that decreases it:
+    // the server's MONOTONIC rule rejects it. (The old LOC jump
+    // — 1e12 LOC from nowhere — is accepted now; the leaderboard is
+    // gone, so the server stores what the client sends.)
     srv.advance(11_000);
-    ref.state.linesOfCode = 1e12;
-    ref.state.totalLinesOfCode = 1e12;
+    ref.state.linesOfCode = 100;
+    ref.state.totalLinesOfCode = 100;
+    await engine.requestSave("manual");
+
+    srv.advance(11_000);
+    ref.state.linesOfCode = 100;
+    ref.state.totalLinesOfCode = 0;
     await engine.requestSave("manual");
 
     const diag = engine.getSaveDiagnostics();
@@ -199,7 +207,7 @@ test("records a reverted attempt with the server rule on a 409", async () => {
     assert.equal(last.trigger, "manual");
     assert.equal(last.outcome, "reverted");
     assert.equal(last.status, 409);
-    assert.match(last.detail, /^LOC: /);
+    assert.match(last.detail, /^MONOTONIC: /);
   } finally {
     engine.stop();
     await srv.stop();
