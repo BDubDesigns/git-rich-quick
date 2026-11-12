@@ -1196,9 +1196,15 @@ export function GameProvider({ children }) {
   // is accepted this session, or init loads an existing save (whose
   // savedAt is reported the same way). Drives the footer's "Saved Xs ago".
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  // Seconds until a rate-limited save retries; null when no retry is
-  // pending. Drives the footer's "Retrying in Ns" countdown.
-  const [retryInSeconds, setRetryInSeconds] = useState(null);
+  // Absolute deadline (ms since epoch) of the rate-limit retry wait;
+  // null when no retry is pending. Drives the footer's "Retrying in Ns"
+  // countdown. Stored as a deadline, not a seconds count, because a
+  // retry can report the same delay twice (e.g. two 429s both saying
+  // 10s): a seconds value would be identical, React would bail out of
+  // the state update, and the footer's countdown would never re-arm,
+  // sticking on "Retrying in 0s". A deadline is always new (it is
+  // Date.now() + delay), so every 429 re-arms the countdown.
+  const [retryEndsAtMs, setRetryEndsAtMs] = useState(null);
 
   // Keep a ref to the latest state for the save engine (avoids stale closures).
   useEffect(() => {
@@ -1216,7 +1222,10 @@ export function GameProvider({ children }) {
       onStatus: (status) => setSaveStatus(status),
       onPlayerId: (id) => setSavePlayerId(id),
       onSavedAt: (timestampMs) => setLastSavedAt(timestampMs),
-      onRetry: (seconds) => setRetryInSeconds(seconds),
+      onRetry: (seconds) =>
+        setRetryEndsAtMs(
+          seconds == null ? null : Date.now() + seconds * 1000
+        ),
     });
   }
 
@@ -1364,7 +1373,7 @@ export function GameProvider({ children }) {
         saveStatus,
         savePlayerId,
         lastSavedAt,
-        retryInSeconds,
+        retryEndsAtMs,
         saveNow,
         getSaveDiagnostics,
         resetProgress,
