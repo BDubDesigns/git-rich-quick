@@ -6,17 +6,27 @@
  * - GET  /api/load?playerId=... — last accepted snapshot, or 404
  * - POST /api/save — validate and store a save
  *
- * Same-origin by default (Slice 3, issue #28): in the browser the base
- * URL is "" (relative), so /api/* goes to the page's own origin. In
- * production and on Vercel previews the rewrite in vercel.json proxies
- * /api/* to the live service, which makes the Better Auth session cookie
- * first-party — Safari accepts it, where it blocked the old cross-site
- * cookie. In local dev the Vite dev-server proxy forwards /api/* to the
- * local backend (see vite.config.js). Override the backend with
- * VITE_SAVE_API_URL to point at a different service directly (e.g.
- * `VITE_SAVE_API_URL=http://localhost:3000 npm run dev`, or the live
- * service from a non-Vercel host). The URL is public, not a secret —
- * there is no auth in v1, only the anonymous player id.
+ * Direct to the live service by default (issue: Vercel rewrite drops
+ * POST bodies). The client used to be same-origin ("") so /api/* went
+ * through the rewrite in vercel.json, which made the Better Auth
+ * session cookie first-party (Safari accepted it, where it blocked the
+ * old cross-site cookie). That rewrite is broken for POSTs: it forwards
+ * GETs fine but never delivers a POST body, so the server waits in
+ * readJsonBody forever and every save/reset/link hangs — the footer
+ * sits on "Saving…" and no progress ever lands, even though the
+ * service itself is healthy (direct POSTs answer in ~1s). So the
+ * browser default is now the live service URL, called directly. The
+ * server already allows cross-origin requests from *.vercel.app
+ * (PR #36 CORS), and the save/load endpoints authenticate by playerId
+ * in the request, not by the session cookie, so they work cross-origin.
+ * The Vercel rewrite stays in vercel.json but the client no longer
+ * relies on it. In local dev the Vite dev-server proxy forwards /api/*
+ * to the local backend (see vite.config.js), so localhost keeps
+ * same-origin. Override the backend with VITE_SAVE_API_URL to point at
+ * a different service directly (e.g. `VITE_SAVE_API_URL=http://localhost:3000
+ * npm run dev`, or the live service from a non-Vercel host). The URL is
+ * public, not a secret — there is no auth in v1, only the anonymous
+ * player id.
  *
  * This module is plain JS (no React) so the sync engine can be tested in
  * Node against a local server. It must not import anything from the
@@ -46,11 +56,18 @@ function resolveApiBaseUrl() {
     return String(override).replace(/\/+$/, "");
   }
   if (typeof window !== "undefined") {
-    // Browser default: same-origin (""), so fetch("/api/...") is relative
-    // to the page origin and goes through the Vercel rewrite (or the Vite
-    // dev-server proxy locally). The auth client resolves the same way:
-    // Better Auth's client falls back to window.location.origin + /api/auth.
-    return "";
+    // Browser default: call the live service directly, EXCEPT on
+    // localhost (local dev), where same-origin ("") keeps the Vite
+    // dev-server proxy forwarding /api/* to the local backend.
+    // The Vercel rewrite is broken for POSTs — it forwards GETs fine
+    // but never delivers a POST body, so the server waits in
+    // readJsonBody forever and every save hangs (the footer sits on
+    // "Saving…" and no progress lands). Direct calls bypass it.
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return "";
+    }
+    return LIVE_API_URL;
   }
   // Node (tests): no page origin, so default to the live service URL.
   // Tests pass their own base URL explicitly; this is only the fallback.
