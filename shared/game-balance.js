@@ -281,7 +281,7 @@ export const BALANCE = Object.freeze({
       ]),
     }),
     // NFT Marketplace: 20000 LOC -> 580000c (29c/LOC). Unlocks after
-    // shipping 10 AI-Powered Dashboards and 500 total projects.
+    // shipping 500 AI-Powered Dashboards and 1000 total projects.
     nftMarketplace: Object.freeze({
       loc: 20000,
       reward: 580000,
@@ -289,13 +289,13 @@ export const BALANCE = Object.freeze({
         Object.freeze({
           type: "SPECIFIC_PROJECT_COUNT",
           projectKey: "aiPoweredDashboard",
-          target: 10,
+          target: 500,
         }),
-        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 500 }),
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 1000 }),
       ]),
     }),
     // Metaverse Real Estate: 60000 LOC -> 1500000c (25c/LOC).
-    // Unlocks after shipping 10 NFT Marketplaces and 1000 total.
+    // Unlocks after shipping 500 NFT Marketplaces and 2000 total.
     metaverseRealEstate: Object.freeze({
       loc: 60000,
       reward: 1500000,
@@ -303,13 +303,13 @@ export const BALANCE = Object.freeze({
         Object.freeze({
           type: "SPECIFIC_PROJECT_COUNT",
           projectKey: "nftMarketplace",
-          target: 10,
+          target: 500,
         }),
-        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 1000 }),
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 2000 }),
       ]),
     }),
     // Quantum To-Do List: 200000 LOC -> 4200000c (21c/LOC). Unlocks
-    // after shipping 10 Metaverse Real Estates and 2000 total.
+    // after shipping 500 Metaverse Real Estates and 4000 total.
     quantumToDoList: Object.freeze({
       loc: 200000,
       reward: 4200000,
@@ -317,9 +317,9 @@ export const BALANCE = Object.freeze({
         Object.freeze({
           type: "SPECIFIC_PROJECT_COUNT",
           projectKey: "metaverseRealEstate",
-          target: 10,
+          target: 500,
         }),
-        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 2000 }),
+        Object.freeze({ type: "TOTAL_PROJECTS_COUNT", target: 4000 }),
       ]),
     }),
   }),

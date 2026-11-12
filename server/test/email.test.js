@@ -425,10 +425,10 @@ test("freelance teaser fires once when the project becomes visible", () => {
 
 test("freelance unlock email fires on the latch flip, not the teaser", () => {
   // Teaser already sent at 5 shipped; now the latch flips at 50.
-  // The jump 5 -> 50 also crosses the Blockchain's 10% visibility
+  // The jump 5 -> 100 also crosses the Blockchain's 10% visibility
   // threshold (20 total projects), so its teaser fires in the same
-  // transition — the never-both rule is per project. 50 total is also
-  // 10% of the NFT Marketplace's 500-total condition, so its teaser
+  // transition — the never-both rule is per project. 100 total is also
+  // 10% of the NFT Marketplace's 1000-total condition, so its teaser
   // fires too.
   const teaser = collectTriggerEmails(
     gameState(),
@@ -450,7 +450,7 @@ test("freelance unlock email fires on the latch flip, not the teaser", () => {
   });
   const next = gameState({
     freelanceProjectsCompleted: {
-      toDoListApp: 50,
+      toDoListApp: 100,
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
     },
@@ -500,16 +500,16 @@ test("blockchain teaser fires on ANY condition at 10% (total projects)", () => {
 });
 
 test("no freelance teaser when visibility and unlock coincide in one jump", () => {
-  // 0 -> 50 To Do List Apps in one transition: the Hobby Website
+  // 0 -> 100 To Do List Apps in one transition: the Hobby Website
   // unlocks outright, so it sends only the unlocked email — no teaser
   // for that project. The Blockchain still sends its teaser, though:
-  // 50/200 total projects is past its 10% visibility threshold, and
+  // 100/200 total projects is past its 10% visibility threshold, and
   // the never-both rule is per project, not global. The NFT
-  // Marketplace teasers too: 50/500 total is exactly its 10%.
+  // Marketplace teasers too: 100/1000 total is exactly its 10%.
   const prev = gameState();
   const next = gameState({
     freelanceProjectsCompleted: {
-      toDoListApp: 50,
+      toDoListApp: 100,
       hobbyWebsite: 0,
       paradigmShiftingBlockchainProject: 0,
     },
