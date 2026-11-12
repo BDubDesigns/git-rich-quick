@@ -139,15 +139,16 @@ test("player mint, save/load round trip, tampered save rejected with last good s
     assert.equal(reloaded.status, 200);
     assert.deepEqual((await reloaded.json()).state, savedState);
 
-    // A tampered save (one cent extra) is rejected with the last good state.
+    // A tampered save (total LOC decreased below the stored total) is
+    // rejected with the last good state.
     const tampered = await post(srv.base, "/api/save", {
       playerId: player.playerId,
-      state: { ...savedState, money: 3001 },
+      state: { ...savedState, totalLinesOfCode: 49 },
       actionsSinceLastSave: zeroActions(),
     });
     assert.equal(tampered.status, 409);
     const tamperedBody = await tampered.json();
-    assert.equal(tamperedBody.rule, "MONEY");
+    assert.equal(tamperedBody.rule, "MONOTONIC");
     assert.deepEqual(tamperedBody.lastGoodState.state, savedState);
 
     // The stored state is untouched by the rejected save.

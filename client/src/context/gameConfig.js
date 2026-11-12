@@ -21,7 +21,6 @@ import { FaPeopleGroup } from "react-icons/fa6";
 import { FaGithub } from "react-icons/fa";
 import { IoSettings } from "react-icons/io5";
 import { MdRocketLaunch } from "react-icons/md";
-import { FaTrophy } from "react-icons/fa";
 import { GiBarn } from "react-icons/gi";
 
 // GITMail logo for the Email tab (cropped envelope, no text — the
@@ -93,7 +92,6 @@ export const NAV_TABS = Object.freeze([
   { id: "projects", label: "Projects", Icon: MdRocketLaunch },
   { id: "openSource", label: "Open Source", Icon: FaGithub },
   { id: "farm", label: "Farm", Icon: GiBarn },
-  { id: "leaderboard", label: "Leaderboard", Icon: FaTrophy },
   { id: "settings", label: "Settings", Icon: IoSettings },
 ]);
 
@@ -133,12 +131,6 @@ export const SECTIONS_CONFIG = Object.freeze({
     displayName: "Inbox",
     description:
       "Mail from the game world: hiring leads, unlock notices, star reports. It's not real email; nobody here knows your address, and HR definitely doesn't.",
-  },
-  leaderboard: {
-    id: "leaderboard",
-    displayName: "Leaderboard",
-    description:
-      "The top 10 accounts, ranked by lifetime LOC. Guests do not make the board. Link a save to an account to claim a spot.",
   },
 });
 

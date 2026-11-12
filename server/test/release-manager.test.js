@@ -306,11 +306,12 @@ test("one auto-ship is accepted (LOC spent, money paid, counts up, auto-ship rec
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("auto-ships past the rate cap are rejected (RELEASE_MANAGER)", () => {
-  // 1 manager, 11s window: the cap is 12 (one per second plus the
-  // grace). Claiming 13 auto-ships is faster than the interval allows.
-  // (11s, not 10s, so the window sits safely past the 10s save rate
-  // limit.)
+test("auto-ships past the old rate cap are accepted (leaderboard killed: no rate cap)", () => {
+  // 1 manager, 11s window: the old cap was 12 (one per second plus the
+  // grace). Claiming 13 auto-ships used to be faster than the interval
+  // allows; the rate cap is gone now.
+  // (11s, not 10s, so the window sits safely past the old 10s save rate
+  // limit — which is 1s now.)
   const prevState = rmUnlockedState(1, {
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
   });
@@ -332,10 +333,10 @@ test("auto-ships past the rate cap are rejected (RELEASE_MANAGER)", () => {
     ),
     T0 + 11_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "RELEASE_MANAGER");
+  assert.deepEqual(result, { ok: true });
 
-  // Same manager, 60s window: the cap is 61. Claiming 62 is too fast.
+  // Same manager, 60s window: the old cap was 61. Claiming 62 is
+  // accepted now too.
   // The player needs enough LOC for 62 ships (62 x 50 = 3100), so the
   // previous state holds 10000 LOC.
   const richPrev = rmUnlockedState(1, {
@@ -360,8 +361,7 @@ test("auto-ships past the rate cap are rejected (RELEASE_MANAGER)", () => {
     ),
     T0 + 60_000
   );
-  assert.equal(richResult.ok, false);
-  assert.equal(richResult.rule, "RELEASE_MANAGER");
+  assert.deepEqual(richResult, { ok: true });
 });
 
 test("auto-ships must be a subset of completions (RELEASE_MANAGER)", () => {
@@ -432,9 +432,10 @@ test("an auto-ship for a locked project is rejected (RELEASE_MANAGER)", () => {
   assert.equal(result.rule, "RELEASE_MANAGER");
 });
 
-test("the auto-ship delta must match the claimed auto-ships (DELTA)", () => {
+test("the auto-ship delta need not match the claimed auto-ships (leaderboard killed: deltas are trusted)", () => {
   // The cumulative auto-ship count went up by 1, but the actions claim
-  // 0 auto-ships: the delta disagrees with the claim.
+  // 0 auto-ships: the delta disagrees with the claim, and the server
+  // stores it anyway now.
   const prevState = rmUnlockedState(1, {
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
   });
@@ -456,14 +457,14 @@ test("the auto-ship delta must match the claimed auto-ships (DELTA)", () => {
     ),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "DELTA");
+  assert.deepEqual(result, { ok: true });
 });
 
-test("an auto-ship the player cannot afford is rejected (LOC)", () => {
+test("an auto-ship the player cannot afford is accepted (leaderboard killed: LOC is trusted)", () => {
   // The player has 40 LOC and claims an auto-ship of the To Do List
-  // App (50 LOC). The LOC rule catches the overspend: the expected
-  // LOC goes below what the player claims to hold.
+  // App (50 LOC). The old LOC rule caught the overspend: the expected
+  // LOC went below what the player claimed to hold. The server stores
+  // it anyway now.
   const prevState = rmUnlockedState(1, {
     linesOfCode: 40,
     releaseManagerAssignments: projectCounts({ toDoListApp: 1 }),
@@ -486,8 +487,7 @@ test("an auto-ship the player cannot afford is rejected (LOC)", () => {
     ),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "LOC");
+  assert.deepEqual(result, { ok: true });
 });
 
 test("Release Manager cosmetic: Ruby Rocket at 25 hires, equippable in its slot", () => {

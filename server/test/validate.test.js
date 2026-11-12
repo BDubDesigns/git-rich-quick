@@ -195,7 +195,7 @@ test("legit play: clicks, then a project, then a hire, then passive", () => {
   assert.deepEqual(r3, { ok: true });
 });
 
-test("tampered money is rejected, exact to the cent", () => {
+test("a save that changes money without actions is accepted (leaderboard killed: money is trusted)", () => {
   const before = stateWith({
     linesOfCode: 60,
     totalLinesOfCode: 110,
@@ -215,8 +215,7 @@ test("tampered money is rejected, exact to the cent", () => {
     body(tampered, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "MONEY");
+  assert.deepEqual(r, { ok: true });
 });
 
 test("inflated LOC is rejected", () => {
@@ -267,7 +266,7 @@ test("decreasing totals and latches are rejected", () => {
   assert.equal(r.rule, "MONOTONIC");
 });
 
-test("claimed unlock without meeting the conditions is rejected", () => {
+test("an unlock claimed without meeting the conditions is accepted (leaderboard killed: unlocks are trusted)", () => {
   const before = stateWith({
     linesOfCode: 60,
     totalLinesOfCode: 110,
@@ -288,19 +287,12 @@ test("claimed unlock without meeting the conditions is rejected", () => {
     body(cheater, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "UNLOCK");
+  assert.deepEqual(r, { ok: true });
 });
 
-test("a Constellation level claimed without 500 lifetime LOC is rejected", () => {
-  // Constellation requires TOTAL_LOC >= 500 (star fix slice). A save
-  // claiming level 1 at 100 lifetime LOC is an UNLOCK violation — the
-  // level itself must satisfy the conditions, not just the latch (a
-  // save could claim the level with the latch false). The latch-only
-  // claim is corrected, not rejected: normalizeSaveState re-derives
-  // the latch from lifetime LOC (the pre-unlock migration), so a
-  // latch claim without the condition is normalized away — but it
-  // grants nothing, because the level is what gates stars.
+test("a Constellation level claimed without 500 lifetime LOC is accepted (leaderboard killed: unlocks are trusted)", () => {
+  // Constellation's TOTAL_LOC >= 500 condition is a client concern now;
+  // the server stores the claimed level instead of policing it.
   const before = stateWith({
     totalLinesOfCode: 100,
     openSourceProjects: { constellation: 0 },
@@ -314,8 +306,7 @@ test("a Constellation level claimed without 500 lifetime LOC is rejected", () =>
     body(cheater, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "UNLOCK");
+  assert.deepEqual(r, { ok: true });
 });
 
 test("Constellation unlock at 500 lifetime LOC passes", () => {
@@ -375,8 +366,9 @@ test("a pre-unlock save at/above 500 lifetime LOC keeps the Constellation unlock
   assert.deepEqual(r, { ok: true });
 });
 
-test("freelance unlock claimed without meeting the conditions is rejected", () => {
-  // Hobby Website needs 50 To Do List Apps shipped; 10 is not enough.
+test("a freelance unlock claimed without meeting the conditions is accepted (leaderboard killed: unlocks are trusted)", () => {
+  // Hobby Website needs 50 To Do List Apps shipped; 10 is not enough —
+  // but the server stores the claimed latch now instead of policing it.
   const before = stateWith({
     freelanceProjectsCompleted: { toDoListApp: 10 },
   });
@@ -389,13 +381,13 @@ test("freelance unlock claimed without meeting the conditions is rejected", () =
     body(cheater, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "UNLOCK");
+  assert.deepEqual(r, { ok: true });
 });
 
-test("blockchain unlock needs BOTH the total and the hobby count", () => {
+test("freelance unlocks are trusted: a latch claim passes with or without the conditions (leaderboard killed)", () => {
   // 200 total projects shipped, but only 10 of them Hobby Websites:
-  // the SPECIFIC_PROJECT_COUNT condition is not met.
+  // the SPECIFIC_PROJECT_COUNT condition is not met — and the server
+  // stores the claimed latch anyway now.
   const before = stateWith({
     freelanceProjectsCompleted: { toDoListApp: 190, hobbyWebsite: 10 },
   });
@@ -411,11 +403,10 @@ test("blockchain unlock needs BOTH the total and the hobby count", () => {
     body(cheater, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "UNLOCK");
+  assert.deepEqual(r, { ok: true });
 
   // 150 To Do List Apps + 50 Hobby Websites = 200 total, 50 hobby:
-  // both conditions met, so the latch flip is accepted.
+  // both conditions met, so the latch flip is accepted too.
   const met = stateWith({
     freelanceProjectsCompleted: { toDoListApp: 150, hobbyWebsite: 50 },
   });
@@ -504,7 +495,7 @@ test("shape violations: NoPilot, level 6, unknown keys, bad types", () => {
   }
 });
 
-test("action deltas must agree with the snapshot", () => {
+test("action deltas need not agree with the snapshot (leaderboard killed: deltas are trusted)", () => {
   const before = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 50,
@@ -512,8 +503,7 @@ test("action deltas must agree with the snapshot", () => {
     freelanceProjectsCompleted: { toDoListApp: 1 },
   });
   // Claims an intern purchase, but the snapshot shows no new intern.
-  // (Money is set to 500, as if the purchase had been paid for, so the
-  // money rule passes and the delta rule is the one that fires.)
+  // The server stores the snapshot and the actions as sent now.
   const snapshot = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 50,
@@ -528,11 +518,10 @@ test("action deltas must agree with the snapshot", () => {
     }),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "DELTA");
+  assert.deepEqual(r, { ok: true });
 });
 
-test("clicks above 10/sec are rejected", () => {
+test("clicks above 10/sec are accepted (leaderboard killed: no click cap)", () => {
   const r = validateSave(
     prev(initialSaveState(), T0),
     body(
@@ -541,21 +530,28 @@ test("clicks above 10/sec are rejected", () => {
     ),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "CLICKS");
+  assert.deepEqual(r, { ok: true });
 });
 
-test("a save within 10s of the last one is rate-limited", () => {
-  const r = validateSave(
+test("a save within 1s of the last one is rate-limited", () => {
+  const tooSoon = validateSave(
     prev(initialSaveState(), T0),
     body(initialSaveState(), zeroActions()),
-    T0 + 5_000
+    T0 + 500
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "RATE_LIMIT");
+  assert.equal(tooSoon.ok, false);
+  assert.equal(tooSoon.rule, "RATE_LIMIT");
+
+  // Past the 1s window the same save is accepted.
+  const ok = validateSave(
+    prev(initialSaveState(), T0),
+    body(initialSaveState(), zeroActions()),
+    T0 + 1_500
+  );
+  assert.deepEqual(ok, { ok: true });
 });
 
-test("offline passive accrual is capped at 8 hours", () => {
+test("offline passive is no longer capped by the server (leaderboard killed: the client reports its own totals)", () => {
   const before = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 50,
@@ -563,7 +559,7 @@ test("offline passive accrual is capped at 8 hours", () => {
     employees: { intern: 1 },
     freelanceProjectsCompleted: { toDoListApp: 1 },
   });
-  // 48h away, one intern: capped at 8h = 28,800 LOC.
+  // 48h away, one intern: the old 8h cap would have allowed 28,800 LOC.
   const capped = stateWith({
     linesOfCode: 28800,
     totalLinesOfCode: 28850,
@@ -578,6 +574,8 @@ test("offline passive accrual is capped at 8 hours", () => {
   );
   assert.deepEqual(ok, { ok: true });
 
+  // Above the old cap is accepted too now — the server stores what the
+  // client reports.
   const over = stateWith({
     linesOfCode: 30000,
     totalLinesOfCode: 30050,
@@ -585,13 +583,12 @@ test("offline passive accrual is capped at 8 hours", () => {
     employees: { intern: 1 },
     freelanceProjectsCompleted: { toDoListApp: 1 },
   });
-  const rejected = validateSave(
+  const accepted = validateSave(
     prev(before, T0),
     body(over, zeroActions()),
     T0 + 48 * 60 * 60 * 1000
   );
-  assert.equal(rejected.ok, false);
-  assert.equal(rejected.rule, "LOC");
+  assert.deepEqual(accepted, { ok: true });
 });
 
 test("buying an OverReact level mid-window does not false-reject", () => {
@@ -622,7 +619,7 @@ test("buying an OverReact level mid-window does not false-reject", () => {
   assert.deepEqual(r, { ok: true });
 });
 
-test("second junior costs the scaled price, exact money", () => {
+test("a second junior hire is accepted regardless of the money in the snapshot (leaderboard killed: money is trusted)", () => {
   const before = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 100,
@@ -647,6 +644,7 @@ test("second junior costs the scaled price, exact money", () => {
   );
   assert.deepEqual(r, { ok: true });
 
+  // A money figure that does not match the scaled price is accepted too.
   const wrongPrice = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 100,
@@ -662,8 +660,7 @@ test("second junior costs the scaled price, exact money", () => {
     }),
     T0 + 60_000
   );
-  assert.equal(r2.ok, false);
-  assert.equal(r2.rule, "MONEY");
+  assert.deepEqual(r2, { ok: true });
 });
 
 test("heavy shipping that drains LOC does not false-reject (tick quantization)", () => {

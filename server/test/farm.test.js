@@ -239,9 +239,9 @@ test("buying the farm deducts $10,000 and leaves the barn empty", () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("buying the farm without enough money is rejected", () => {
+test("buying the farm without enough money is accepted (leaderboard killed: money is trusted)", () => {
   // 500000c is less than the 1000000c farm cost, and the new money does
-  // not deduct it — the MONEY rule catches the unpaid purchase.
+  // not deduct it — the server stores the purchase anyway now.
   const before = stateWith({ money: 500000, farm: emptyFarmState() });
   const after = stateWith({ money: 500000, farm: initialFarmState() });
   const result = validateSave(
@@ -249,8 +249,7 @@ test("buying the farm without enough money is rejected", () => {
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "MONEY");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 test("buying the farm and two llamas in one window is accepted", () => {
@@ -278,7 +277,7 @@ test("buying the farm and two llamas in one window is accepted", () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("buying the farm with a non-base llama is rejected", () => {
+test("buying the farm with a non-base llama is accepted (leaderboard killed: llama types are trusted)", () => {
   const before = stateWith({ money: 2000000, farm: emptyFarmState() });
   let farm = initialFarmState();
   farm = withStall(farm, 0, { llama: "quantum" });
@@ -295,13 +294,12 @@ test("buying the farm with a non-base llama is rejected", () => {
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("buying the farm while claiming an unlocked type with no llama is rejected", () => {
-  // The unlocked list at purchase must be exactly the types of the
-  // llamas in the barn — no type is unlocked for free.
+test("buying the farm while claiming an unlocked type with no llama is accepted (leaderboard killed: unlocks are trusted)", () => {
+  // The unlocked list at purchase used to be exactly the types of the
+  // llamas in the barn — no type unlocked for free. That check is gone.
   const before = stateWith({ money: 2000000, farm: emptyFarmState() });
   const farm = initialFarmState();
   farm.unlockedTypes = ["classic"];
@@ -314,8 +312,7 @@ test("buying the farm while claiming an unlocked type with no llama is rejected"
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 // ---- Buying llamas ----
@@ -336,9 +333,9 @@ test("buying a base llama deducts the price and places it", () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("buying a llama without enough money is rejected", () => {
+test("buying a llama without enough money is accepted (leaderboard killed: money is trusted)", () => {
   // 10000c is less than the 50000c llama price, and the new money does
-  // not deduct it — the MONEY rule catches the unpaid llama.
+  // not deduct it — the server stores the llama anyway now.
   const before = emptyOwnedFarmState(10000);
   const farm = withStall(before.farm, 0, { llama: "classic" });
   farm.unlockedTypes = ["classic"];
@@ -348,13 +345,13 @@ test("buying a llama without enough money is rejected", () => {
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "MONEY");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("buying a non-base llama is rejected", () => {
-  // Bred types are never for sale — a quantum llama that was "bought"
-  // (not bred, no issued outcome) is tampered, not purchased.
+test("buying a non-base llama is accepted (leaderboard killed: llama types are trusted)", () => {
+  // Bred types used to be never for sale — a quantum llama that was
+  // "bought" (not bred, no issued outcome) was tampered, not purchased.
+  // The server stores it now.
   const before = emptyOwnedFarmState(100000);
   const farm = withStall(before.farm, 0, { llama: "quantum" });
   farm.unlockedTypes = ["quantum"];
@@ -367,8 +364,7 @@ test("buying a non-base llama is rejected", () => {
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 // ---- Breeding (server-rolled) ----
@@ -436,13 +432,13 @@ test("filling all four empty stalls in one server-rolled tick is accepted", () =
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a client-injected kid with no issued outcome is rejected", () => {
+test("a llama with no issued outcome is accepted as a bought llama (leaderboard killed: llama origins are trusted)", () => {
   // A spaghetti kid sits in an eligible stall and looks plausible —
   // but the server never rolled it, so there is no breed claim and no
-  // issued outcome. A bred type cannot appear without a server roll.
-  // (A base-type kid without payment is caught by the money rule
-  // instead: it looks exactly like a bought llama the player did not
-  // pay for.)
+  // issued outcome. With no claim attached, it is indistinguishable
+  // from a bought llama, and buying is no longer policed — so the
+  // server stores it. A breed CLAIM that matches no issued outcome is
+  // still rejected (see the claim tests below).
   const before = ownedFarmState(75000);
   const farm = withStall(before.farm, 1, { llama: "spaghetti" });
   farm.unlockedTypes = [...LLAMA_BASE_TYPES, "spaghetti"];
@@ -452,8 +448,7 @@ test("a client-injected kid with no issued outcome is rejected", () => {
     body(after, zeroActions()),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 test("a breed claim that matches no issued outcome is rejected", () => {
@@ -518,11 +513,11 @@ test("a breed claim for an expired issued outcome is rejected", () => {
   assert.equal(result.rule, "FARM");
 });
 
-test("a kid in a stall without two llama neighbours is rejected", () => {
+test("a kid in a stall without two llama neighbours is accepted when the claim matches (leaderboard killed: no plausibility backstop)", () => {
   // A barn with llamas only at stalls 0 and 4: stall 6 has neighbours
   // 3 and 7, both empty, so a kid there was never between two llamas.
-  // Even with a matching issued outcome, the plausibility backstop
-  // rejects it.
+  // The plausibility backstop is gone — a claim that matches the issued
+  // outcome is enough.
   const before = ownedFarmState(75000);
   const sparse = {
     owned: true,
@@ -546,8 +541,7 @@ test("a kid in a stall without two llama neighbours is rejected", () => {
     [issuedBreed(BREED_ID, [{ stallIndex: 6, type: "classic" }])],
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 test("a bought llama and a bred kid in one window are both accepted", () => {

@@ -37,10 +37,6 @@ import {
   matchIssuedStarClaims,
   matchIssuedFarmBreeds,
 } from "./validate.js";
-import {
-  displayNameForUser,
-  normalizeLeaderboardSort,
-} from "./leaderboard.js";
 
 const CREATE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS git_saves (
@@ -429,45 +425,6 @@ export function createStore(pool) {
       };
     },
 
-    /**
-     * Leaderboard (issue #29): the top `limit` ACCOUNTS only (guests
-     * never appear), ranked by `sort` (lifetime | current | cash;
-     * unknown values fall back to lifetime). Scores are derived live
-     * from the DB on each call — no separate update job; a player's
-     * score updates when they save. Only accounts with a linked save
-     * and a lifetime LOC above zero appear. Returns entries of
-     * `{ rank, displayName, lifetimeLoc, currentLoc, money }` — rank,
-     * name, and scores only, never a save or an email.
-     */
-    async getLeaderboard(sort, limit = 10) {
-      const sortKey = normalizeLeaderboardSort(sort);
-      const orderBy =
-        sortKey === "current"
-          ? `(state->>'linesOfCode')::float`
-          : sortKey === "cash"
-            ? `(state->>'money')::int`
-            : `(state->>'totalLinesOfCode')::float`;
-      const res = await pool.query(
-        `SELECT u.name AS user_name, u.email AS user_email,
-                (gs.state->>'totalLinesOfCode')::float AS "lifetimeLoc",
-                (gs.state->>'linesOfCode')::float AS "currentLoc",
-                (gs.state->>'money')::int AS money
-         FROM git_saves gs
-         JOIN "user" u ON u.id = gs.user_id
-         WHERE gs.user_id IS NOT NULL
-           AND (gs.state->>'totalLinesOfCode')::float > 0
-         ORDER BY ${orderBy} DESC
-         LIMIT $1`,
-        [limit]
-      );
-      return res.rows.map((row, index) => ({
-        rank: index + 1,
-        displayName: displayNameForUser(row.user_name, row.user_email),
-        lifetimeLoc: row.lifetimeLoc,
-        currentLoc: row.currentLoc,
-        money: row.money,
-      }));
-    },
 
     /**
      * The next star time for a player, rolling one when none is set, or
@@ -1165,10 +1122,10 @@ export function createStore(pool) {
      * never be replayed against the fresh save. The account link
      * (user_id) is untouched — the player keeps the same playerId and
      * the same link; only the progress goes to 0. A normal save can
-     * never do this: the money rule is exact and the action deltas
-     * forbid going backwards, so the reset has its own path that
-     * bypasses validateSave entirely (the state it writes is
-     * server-generated, so it is valid by construction). One
+     * never do this: monotonicity forbids progress going backwards, so
+     * the reset has its own path that bypasses validateSave entirely
+     * (the state it writes is server-generated, so it is valid by
+     * construction). One
      * transaction against the locked row; the WHERE player_id = $1
      * means it can only ever touch the requesting player's own row.
      * Returns one of:

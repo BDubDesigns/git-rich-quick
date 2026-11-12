@@ -357,13 +357,6 @@ test("end-to-end: a server-issued claim saves, and replaying it is rejected", as
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
-    // Link the player to an account so the leaderboard can see it.
-    await srv.pool.query(
-      `INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, false)`,
-      ["user-e2e", "E2E", "e2e@example.com"]
-    );
-    const link = await srv.store.linkPlayerToUser(playerId, "user-e2e");
-    assert.equal(link.status, "ok");
     const stored = await setState(srv, playerId, {
       openSourceProjects: { constellation: 1 },
       employees: { intern: 1 },
@@ -414,16 +407,13 @@ test("end-to-end: a server-issued claim saves, and replaying it is rejected", as
     });
     assert.equal(saved.status, 200, await saved.text());
 
-    // The leaderboard reflects the save: the account's lifetime LOC
-    // is the stored lifetime LOC plus the passive LOC plus the claimed
-    // star gain.
-    const board = await fetch(`${srv.base}/api/leaderboard`);
-    assert.equal(board.status, 200);
-    const boardData = await board.json();
-    assert.equal(boardData.entries.length, 1);
-    assert.equal(boardData.entries[0].displayName, "E2E");
+    // The load reflects the save: the stored lifetime LOC is the
+    // previous lifetime plus the passive LOC plus the claimed star gain.
+    const loaded = await fetch(`${srv.base}/api/load?playerId=${playerId}`);
+    assert.equal(loaded.status, 200);
+    const loadedState = (await loaded.json()).state;
     assert.equal(
-      boardData.entries[0].lifetimeLoc,
+      loadedState.totalLinesOfCode,
       stored.totalLinesOfCode + passive + Math.max(0, claim.locDelta)
     );
 

@@ -422,7 +422,7 @@ test("a simulated save after seeding is accepted, and a tampered one is rejected
     );
     assert.equal(seeded.status, 200);
 
-    // 11s later (past the 10s rate limit): a no-op save from the
+    // 11s later (past the 1s rate limit): a no-op save from the
     // seeded state is accepted.
     srv.advance(11_000);
     const ok = await post(srv.base, "/api/save", {
@@ -432,12 +432,14 @@ test("a simulated save after seeding is accepted, and a tampered one is rejected
     });
     assert.equal(ok.status, 200);
 
-    // 11s later again: the same state with 100k extra LOC is rejected.
+    // 11s later again: the same state with total LOC decreased is
+    // rejected (MONOTONIC). The old LOC tamper (100k extra LOC) is
+    // accepted now — the leaderboard is gone, so the server stores
+    // what the client sends.
     srv.advance(11_000);
     const tampered = {
       ...state,
-      linesOfCode: state.linesOfCode + 100_000,
-      totalLinesOfCode: state.totalLinesOfCode + 100_000,
+      totalLinesOfCode: state.totalLinesOfCode - 1,
     };
     const bad = await post(srv.base, "/api/save", {
       playerId,
@@ -445,7 +447,7 @@ test("a simulated save after seeding is accepted, and a tampered one is rejected
       actionsSinceLastSave: zeroActions(),
     });
     assert.equal(bad.status, 409);
-    assert.equal((await bad.json()).rule, "LOC");
+    assert.equal((await bad.json()).rule, "MONOTONIC");
   } finally {
     await srv.stop();
   }

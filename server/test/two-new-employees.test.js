@@ -396,7 +396,7 @@ test("cosmetics: one per new tier at 25 hires", () => {
   );
 });
 
-test("hire validation: a Project Manager hire at exactly 500000c passes, short money fails", () => {
+test("hire validation: a Project Manager hire at exactly 500000c passes, and short money is accepted too (leaderboard killed: money is trusted)", () => {
   const before = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 60000,
@@ -436,8 +436,7 @@ test("hire validation: a Project Manager hire at exactly 500000c passes, short m
     }),
     T0 + 60_000
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "MONEY");
+  assert.deepEqual(r, { ok: true });
 });
 
 test("hire validation: a Commit Specialist hire at exactly 500000c passes", () => {
@@ -489,7 +488,7 @@ test("Brandon's live case: 9 Commit Specialists with OverReact L5 is not eaten b
   );
 });
 
-test("click credit: 25 Commit Specialists make each click worth 6 LOC", () => {
+test("click credit: 25 Commit Specialists make each click worth 6 LOC, and claiming more is accepted too (leaderboard killed: LOC is trusted)", () => {
   const before = stateWith({
     linesOfCode: 0,
     totalLinesOfCode: 30000,
@@ -514,8 +513,9 @@ test("click credit: 25 Commit Specialists make each click worth 6 LOC", () => {
   );
   assert.deepEqual(r, { ok: true });
 
-  // Claiming 2000 LOC from those 10 clicks exceeds the max
-  // (60 click + 1200 passive + tolerance) and is rejected.
+  // Claiming 2000 LOC from those 10 clicks exceeds the max the old
+  // LOC cap would have allowed (60 click + 1200 passive + tolerance)
+  // and is accepted now.
   const greedy = stateWith({
     linesOfCode: 2000,
     totalLinesOfCode: 32000,
@@ -528,11 +528,10 @@ test("click credit: 25 Commit Specialists make each click worth 6 LOC", () => {
     body(greedy, { ...zeroActions(), clicks: 10 }),
     T0 + 60_000
   );
-  assert.equal(r2.ok, false);
-  assert.equal(r2.rule, "LOC");
+  assert.deepEqual(r2, { ok: true });
 });
 
-test("legit play: OverReact boosts the Commit Specialist bonus", () => {
+test("legit play: OverReact boosts the Commit Specialist bonus, and claiming more is accepted too (leaderboard killed: LOC is trusted)", () => {
   // 10 interns + 10 specialists (20 employees, TOTAL_LOC 25000 —
   // the CS unlock is met), OverReact L1 already owned, 60s window.
   // Each click is floor((1 + 2) x 2) = 6, not the unscaled
@@ -563,8 +562,9 @@ test("legit play: OverReact boosts the Commit Specialist bonus", () => {
   );
   assert.deepEqual(r, { ok: true });
 
-  // Claiming 2000 LOC from those 10 clicks exceeds the max
-  // (60 click + 600 passive + tolerance) and is rejected.
+  // Claiming 2000 LOC from those 10 clicks exceeds the max the old
+  // LOC cap would have allowed (60 click + 600 passive + tolerance)
+  // and is accepted now.
   const greedy = stateWith({
     linesOfCode: 2000,
     totalLinesOfCode: 27000,
@@ -578,8 +578,7 @@ test("legit play: OverReact boosts the Commit Specialist bonus", () => {
     body(greedy, { ...zeroActions(), clicks: 10 }),
     T0 + 60_000
   );
-  assert.equal(r2.ok, false);
-  assert.equal(r2.rule, "LOC");
+  assert.deepEqual(r2, { ok: true });
 });
 
 test("legit star play: a Sprint on Project Managers scales the boost", () => {
