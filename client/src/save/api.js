@@ -166,8 +166,7 @@ export async function saveGame(baseUrl, body, { keepalive } = {}) {
 /**
  * Reset a player's progress (Danger Zone): POST /api/save/reset, body
  * `{ playerId }`. The server overwrites the player's own save row with
- * the fresh initial state and clears their server-side star state.
- * Returns `{ status, data }`:
+ * the fresh initial state. Returns `{ status, data }`:
  * - 200 `{ ok: true, playerId, savedAt, state }` — the fresh state.
  * - 404 `{ error: "unknown-player" }`.
  * - 400 for a malformed id.
@@ -177,105 +176,5 @@ export async function resetSave(baseUrl, playerId) {
   return request(baseUrl, "/api/save/reset", {
     method: "POST",
     body: { playerId },
-  });
-}
-
-/**
- * Next golden star (issue #29): when the player's next star may spawn.
- * The server rolls the time; the response is
- * `{ nextStarAtMs, secondsUntilStar, constellationLevel, countdownUnlocked,
- *   starBrokerLevel, buyCooldownSecondsRemaining, buyCost }`.
- * `secondsUntilStar` is a duration (null at level 0), so the client
- * schedules from it instead of comparing wall clocks. The StarBroker
- * fields are the buy status for the Buy Star button: the player's
- * StarBroker level, seconds until another star can be bought (0 when
- * ready, null when the player owns no StarBroker), and the LOC cost of
- * the next buy (30x passive LOC/s). Returns
- * `{ status, data }`; 404 for an unknown player. Throws on network failure.
- */
-export async function getNextStar(baseUrl, playerId) {
-  return request(
-    baseUrl,
-    `/api/star/next?playerId=${encodeURIComponent(playerId)}`
-  );
-}
-
-/**
- * Claim the due golden star (issue #29): the server rolls the outcome,
- * records it as an issued outcome, and rolls the next spawn time.
- * Returns `{ status, data }`:
- * - 200 `{ claim, nextStarAtMs, secondsUntilStar }` — apply exactly
- *   this claim (it carries its claimId) and record it for the next save.
- * - 409 `{ error: "no-stars" | "star-not-due" }` — no star to claim.
- * - 404 `{ error: "unknown-player" }`.
- * Throws on network failure.
- */
-export async function claimStar(baseUrl, playerId) {
-  return request(baseUrl, "/api/star/claim", {
-    method: "POST",
-    body: { playerId },
-  });
-}
-
-/**
- * Buy a golden star (StarBroker): the server validates the StarBroker
- * level, the buy cooldown, and affordability against the stored state,
- * deducts the cost (30x passive LOC/s) from the stored state's LOC,
- * and records a pending bought star — without touching the natural
- * star timer, so the bought star stacks with a natural one. The
- * outcome is rolled when the bought star is clicked (claimBoughtStar),
- * not here. Returns `{ status, data }`:
- * - 200 `{ cost, linesOfCode, nextBuyAtMs, boughtStarAtMs,
- *   starBrokerLevel, buyCooldownSeconds }` — deduct the cost locally,
- *   show the bought star, and arm the cooldown from nextBuyAtMs.
- * - 409 `{ error: "no-star-broker" | "no-stars" | "star-buy-cooldown" |
- *   "not-enough-loc" }` — the buy was refused (the cooldown response
- *   carries nextBuyAtMs + cooldownSecondsRemaining).
- * - 404 `{ error: "unknown-player" }`.
- * Throws on network failure.
- */
-export async function buyStar(baseUrl, playerId) {
-  return request(baseUrl, "/api/star/buy", {
-    method: "POST",
-    body: { playerId },
-  });
-}
-
-/**
- * Claim a bought golden star (StarBroker): the server rolls the
- * outcome from the stored state, records it as an issued outcome,
- * and clears the pending bought star. Returns `{ status, data }`:
- * - 200 `{ claim }` — apply exactly this claim (it carries its
- *   claimId) and record it for the next save, same as a natural claim.
- * - 409 `{ error: "no-stars" | "no-bought-star" | "star-not-due" }` —
- *   no bought star to claim (already claimed, never bought, or burned out).
- * - 404 `{ error: "unknown-player" }`.
- * Throws on network failure.
- */
-export async function claimBoughtStar(baseUrl, playerId) {
-  return request(baseUrl, "/api/star/claim-bought", {
-    method: "POST",
-    body: { playerId },
-  });
-}
-
-/**
- * Roll one farm breeding tick server-side (issue #79 feedback): the
- * server rolls the breeding outcome from the sent farm (same
- * mood/lighting odds) and records it as an issued outcome. Returns
- * `{ status, data }`:
- * - 200 `{ breedId, kids }` — kids is the list of `{ stallIndex, type }`
- *   born this tick (empty when nothing was born; breedId is null then).
- *   Apply exactly these kids and record the claim for the next save.
- * - 409 `{ error: "farm-not-owned" | "farm-breed-cooldown" }` — no
- *   farm yet, or the breed was rolled too recently.
- * - 404 `{ error: "unknown-player" }`.
- * - 400 `{ error: "invalid-farm-breed" }` — malformed farm.
- * Throws on network failure.
- */
-export async function breedFarm(baseUrl, playerId, farm) {
-  return request(baseUrl, "/api/farm/breed", {
-    method: "POST",
-    body: { playerId, farm },
   });
 }

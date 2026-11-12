@@ -1,27 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FaStar } from "react-icons/fa";
 import { useGameContext } from "../context/useGameContext";
 import { useFloatingText } from "../hooks/useFloatingText";
 import { EMPLOYEE_CONFIGS } from "../context/gameConfig";
-import { getBaseLocPerSecond, getConstellationLevel, getStarBrokerLevel } from "../context/gameLogic";
-import { STAR_CONFIG, starBrokerBuyCost, starBuffDurationSeconds, starEffectName, starRewardDetail } from "../../../shared/game-balance.js";
-import { formatNumber } from "../../../shared/formatNumber.js";
 import {
-  SAVE_API_URL,
-  getNextStar,
-  claimStar,
-  buyStar,
-  claimBoughtStar,
-} from "../save/api.js";
+  flatEmployeeCounts,
+  getBaseLocPerSecond,
+  getConstellationLevel,
+  getStarBrokerLevel,
+} from "../context/gameLogic";
+import {
+  STAR_CONFIG,
+  rollNextStarAtMs,
+  rollStarEffect,
+  rollStarGood,
+  resolveStarClaim,
+  starBrokerBuyCost,
+  starBrokerCooldownSeconds,
+  starBuffDurationSeconds,
+  starEffectName,
+  starRewardDetail,
+} from "../../../shared/game-balance.js";
+import { formatNumber } from "../../../shared/formatNumber.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
 import { FloatingText } from "./FloatingText.jsx";
 import "./GoldenStar.css";
 
 /** The star's rendered size in px; spawn positions keep it fully on-screen. */
 const STAR_SIZE_PX = 64;
-/** Retry delay (seconds) after a failed next-star / claim request. */
-const STAR_FETCH_RETRY_SECONDS = 30;
 /** localStorage key for the collapsed star bar area (same `grq:` prefix as the player id). */
 const STAR_BARS_COLLAPSED_KEY = "grq:starBarsCollapsed";
 
@@ -108,30 +115,29 @@ function StarEffectBar({ buff, nowMs }) {
 }
 
 /**
- * Golden star (GitNub Constellation, issue #29): fully server-driven.
+ * Golden star (GitNub Constellation, issue #29): fully client-driven.
  *
- * The SERVER owns the schedule and the outcome. The client fetches the
- * next star time (GET /api/star/next) and arms a countdown from the
- * duration the server returns — it never picks its own spawn time, so
- * client/server clock skew cannot shift it. When the countdown hits
- * zero the star appears; clicking it asks the server for the outcome
- * (POST /api/star/claim) and applies exactly the claim the server
- * returns (with its claimId), so a hacked client cannot claim a reward
- * the server never issued. An unclicked star despawns after its
- * lifetime and the client re-fetches (the server rolls a fresh time —
- * the missed window has passed).
+ * The CLIENT owns the schedule and the outcome now (the star
+ * resolution moved local when the leaderboard was killed). The next
+ * star time is persisted in the save state (`state.nextStarAtMs`), so
+ * the countdown survives a reload — the client rolls a fresh time
+ * (shared.rollNextStarAtMs) whenever the schedule needs one: on load
+ * with no schedule, after a claim, and after a despawn. When the
+ * countdown hits zero the star appears; clicking it rolls the outcome
+ * locally (shared.rollStarEffect + rollStarGood + resolveStarClaim,
+ * the same config and odds the server used) and applies it. An
+ * unclicked star despawns after its lifetime and the client rolls a
+ * fresh schedule (the missed window has passed).
  *
- * The countdown display is an unlockable: the server reports
- * `countdownUnlocked` and the client only shows the timer once the
- * player reaches that Constellation level. The star itself still
- * spawns on schedule before then; only the timer is gated. The timer
- * is a thin progress bar under the stats bar that fills left to
- * right as the star approaches, with the small seconds-remaining
- * text inside it.
+ * The countdown display is an unlockable: the client only shows the
+ * timer once the player reaches Constellation level
+ * STAR_CONFIG.countdownUnlockLevel. The star itself still spawns on
+ * schedule before then; only the timer is gated. The timer is a thin
+ * progress bar under the stats bar that fills left to right as the
+ * star approaches, with the small seconds-remaining text inside it.
  */
 export function GoldenStar() {
-  const { state, dispatch, recordStarClaim, savePlayerId, saveNow } =
-    useGameContext();
+  const { state, dispatch, requestClaimSave, saveNow } = useGameContext();
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
     useFloatingText();
   const [star, setStar] = useState(null);
@@ -141,25 +147,13 @@ export function GoldenStar() {
   const [fading, setFading] = useState(false);
   // A BOUGHT star (StarBroker), shown alongside a natural star — the
   // whole point is stacking. Same 30s lifetime, same presentation,
-  // independent click/claim path (claimBoughtStar). Null when none is
-  // pending. boughtStarAtMs is the wall-clock time it appeared, for
-  // the lifetime backstop (the despawn timer freezes in the background).
+  // independent click path (the outcome is rolled locally at click
+  // time, like the natural star). Null when none is pending.
+  // boughtStarAtMs is the wall-clock time it appeared, for the
+  // lifetime backstop (the despawn timer freezes in the background).
   const [boughtStar, setBoughtStar] = useState(null);
   const [boughtFading, setBoughtFading] = useState(false);
   const [boughtStarAtMs, setBoughtStarAtMs] = useState(null);
-  // Buy-star cooldown (StarBroker): the total and the wall-clock time
-  // the current cooldown was armed from (the server's remaining, or
-  // the buy response's cooldown). Derived from the wall clock, like
-  // the star countdown — never from counting ticks. Null = no
-  // cooldown armed (ready to buy, or no StarBroker yet).
-  const [buyCooldownTotalSeconds, setBuyCooldownTotalSeconds] =
-    useState(null);
-  const [buyCooldownStartedAtMs, setBuyCooldownStartedAtMs] =
-    useState(null);
-  // A buy in flight (the Buy button is disabled while one runs, so a
-  // double-tap cannot fire two buys — the server would reject the
-  // second on cooldown anyway, but the button should not lie).
-  const [buyInFlight, setBuyInFlight] = useState(false);
   // Whether the star bar area (countdown, effect bars, buy) is
   // collapsed to a thin strip. A device preference (localStorage, like
   // the sound settings) — never in the server save. Tap the countdown
@@ -172,27 +166,22 @@ export function GoldenStar() {
       return false;
     }
   });
-  // Whether the next-star countdown may be shown (server-gated unlock).
-  const [countdownUnlocked, setCountdownUnlocked] = useState(false);
   // Seconds until the next star appears (null = no star scheduled).
   const [secondsLeft, setSecondsLeft] = useState(null);
   // The total interval the current countdown started from (the
-  // duration the server returned). The progress bar fills from
-  // 0% (just rolled) to 100% (due) as secondsLeft counts down from
-  // this total — it is set from the same server value as secondsLeft,
-  // so the fill and the text can never disagree.
+  // remaining time when it was armed). The progress bar fills from
+  // 0% (just armed) to 100% (due) as secondsLeft counts down from
+  // this total — it is set from the same remaining value as
+  // secondsLeft, so the fill and the text can never disagree.
   const [countdownTotalSeconds, setCountdownTotalSeconds] = useState(null);
   // Client wall-clock time (Date.now()) when the current countdown was
   // armed. The countdown is derived from this + the total (see the tick
   // effect), NOT from counting setInterval ticks — counting ticks drifts
   // behind real time (render time per tick, and background throttling
   // on mobile freezes timers), so a star shown from a drifted countdown
-  // can already be past the server's 30s claim window and the click is
-  // rejected with no reward (the PR #64 regression). The wall clock is
-  // the authority; the interval only triggers re-renders. Elapsed time
-  // is a difference of two client readings, so this is clock-skew
-  // independent (the server's absolute nextStarAtMs is never compared
-  // to the client clock).
+  // can already be past its 30s claim window (the PR #64 regression).
+  // The wall clock is the authority; the interval only triggers
+  // re-renders. Elapsed time is a difference of two client readings.
   const [countdownStartedAtMs, setCountdownStartedAtMs] = useState(null);
   // The header slot the countdown bar portals into (see Header.jsx):
   // the bar sits directly beneath the stats bar instead of floating
@@ -212,57 +201,53 @@ export function GoldenStar() {
   }, []);
   const constellationLevel = getConstellationLevel(state);
   const starBrokerLevel = getStarBrokerLevel(state);
-  const mountedRef = useRef(true);
-  const retryTimerRef = useRef(null);
 
+  // Roll a fresh next-star time and persist it (SET_NEXT_STAR_AT).
+  // The arm effect (below) picks up the new state.nextStarAtMs and
+  // arms the countdown from it. Returns the new time (null at level 0).
+  const rollNextStar = useCallback(() => {
+    const nextAt = rollNextStarAtMs(constellationLevel, Date.now());
+    dispatch({ type: "SET_NEXT_STAR_AT", payload: { nextStarAtMs: nextAt } });
+    return nextAt;
+  }, [constellationLevel, dispatch]);
+
+  // Arm the countdown from the persisted schedule
+  // (state.nextStarAtMs). If there is no schedule (null) and
+  // Constellation is unlocked, roll a fresh one; the effect re-runs
+  // when the persisted value lands and arms from it. The countdown is
+  // derived from the wall clock (the absolute nextStarAtMs minus now),
+  // so it survives a reload. If the scheduled time is more than a star
+  // lifetime in the past, the star's 30s claim window has fully passed
+  // (the tab was closed or backgrounded past it) — roll a fresh
+  // schedule instead of showing a stale star. This matches the old
+  // server behavior (a due star whose window passed was re-rolled).
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    };
-  }, []);
-
-  // Fetch the server's next star time and arm the countdown from the
-  // duration it returns. A failed fetch (offline) retries after a
-  // delay instead of spinning. The response also carries the
-  // StarBroker buy status, which arms (or resyncs) the buy cooldown
-  // from the server's remaining — the server is the authority on when
-  // the next buy is available, the client only counts it down.
-  const fetchNext = useCallback(async () => {
-    if (!savePlayerId || constellationLevel < 1) {
-      setCountdownUnlocked(false);
+    if (constellationLevel < 1) {
+      setStar(null);
       setSecondsLeft(null);
       setCountdownTotalSeconds(null);
       setCountdownStartedAtMs(null);
       return;
     }
-    try {
-      const { status, data } = await getNextStar(SAVE_API_URL, savePlayerId);
-      if (!mountedRef.current) return;
-      if (status !== 200 || !data || data.secondsUntilStar === null) {
-        retryTimerRef.current = setTimeout(
-          () => fetchNext(),
-          STAR_FETCH_RETRY_SECONDS * 1000
-        );
-        return;
-      }
-      setCountdownUnlocked(data.countdownUnlocked);
-      setSecondsLeft(data.secondsUntilStar);
-      setCountdownTotalSeconds(data.secondsUntilStar);
-      setCountdownStartedAtMs(Date.now());
-      if (typeof data.buyCooldownSecondsRemaining === "number") {
-        setBuyCooldownTotalSeconds(data.buyCooldownSecondsRemaining);
-        setBuyCooldownStartedAtMs(Date.now());
-      }
-    } catch {
-      if (!mountedRef.current) return;
-      retryTimerRef.current = setTimeout(
-        () => fetchNext(),
-        STAR_FETCH_RETRY_SECONDS * 1000
-      );
+    if (state.nextStarAtMs === null) {
+      rollNextStar();
+      return;
     }
-  }, [savePlayerId, constellationLevel]);
+    if (
+      Date.now() - state.nextStarAtMs >
+      STAR_CONFIG.starLifetimeSeconds * 1000
+    ) {
+      rollNextStar();
+      return;
+    }
+    const remaining = Math.max(
+      0,
+      Math.ceil((state.nextStarAtMs - Date.now()) / 1000)
+    );
+    setSecondsLeft(remaining);
+    setCountdownTotalSeconds(remaining);
+    setCountdownStartedAtMs(Date.now());
+  }, [constellationLevel, state.nextStarAtMs, rollNextStar]);
 
   // Toggle the star bar area collapsed/expanded, persisting the
   // preference (a device preference, like the sound settings).
@@ -281,31 +266,20 @@ export function GoldenStar() {
     });
   }, []);
 
-  // (Re)fetch when the player or the Constellation level changes.
-  // The countdown is cleared alongside the star: while the next time
-  // is being fetched, no star is due, and the show-star effect must
-  // not re-spawn the cleared star from a stale secondsLeft of 0
-  // (the double-star bug).
-  useEffect(() => {
-    setStar(null);
-    setSecondsLeft(null);
-    setCountdownTotalSeconds(null);
-    setCountdownStartedAtMs(null);
-    fetchNext();
-  }, [fetchNext]);
-
   // Tick once a second while a countdown is armed (a star awaited or
   // shown). The countdown is derived from the wall clock — elapsed time
   // since the countdown was armed — NOT from counting setInterval
   // ticks. Counting ticks drifts behind real time (render time per
   // tick, and background throttling on mobile freezes timers), so a
-  // star shown from a drifted countdown can already be past the
-  // server's 30s claim window and the click is rejected with no reward
-  // (the PR #64 regression: the star just disappears). The wall clock
-  // is the authority; the interval only triggers re-renders. While a
-  // star is shown, the same tick hides it once its window passes (the
-  // despawn timer freezes in the background, so a stale star would
-  // otherwise stay up and eat the click).
+  // star shown from a drifted countdown can already be past its 30s
+  // claim window (the PR #64 regression: the star just disappears).
+  // The wall clock is the authority; the interval only triggers
+  // re-renders. While a star is shown, the same tick hides it once its
+  // window passes (the despawn timer freezes in the background, so a
+  // stale star would otherwise stay up and eat the click). The
+  // countdown is cleared before rolling the fresh schedule, so the
+  // show-star effect cannot re-spawn it from a stale secondsLeft of 0
+  // (the double-star bug).
   useEffect(() => {
     if (countdownStartedAtMs === null || countdownTotalSeconds === null) {
       return undefined;
@@ -316,13 +290,14 @@ export function GoldenStar() {
         countdownStartedAtMs +
         (countdownTotalSeconds + STAR_CONFIG.starLifetimeSeconds) * 1000;
       if (star !== null) {
-        // A shown star whose window passed: hide it and re-fetch.
+        // A shown star whose window passed: hide it and roll a fresh
+        // schedule.
         if (now > windowEndMs) {
           setStar(null);
           setSecondsLeft(null);
           setCountdownTotalSeconds(null);
           setCountdownStartedAtMs(null);
-          fetchNext();
+          rollNextStar();
         }
         return;
       }
@@ -332,7 +307,7 @@ export function GoldenStar() {
       );
     }, 1000);
     return () => clearInterval(id);
-  }, [countdownStartedAtMs, countdownTotalSeconds, star, fetchNext]);
+  }, [countdownStartedAtMs, countdownTotalSeconds, star, rollNextStar]);
 
   // Live timed buffs (frenzy / click / employee) with their expiry
   // still ahead. GAME_TICK drops expired entries from state, but the
@@ -343,19 +318,21 @@ export function GoldenStar() {
     (buff) => buff.expiresAtMs > nowMs
   );
 
-  // Buy-star cooldown remaining (seconds), derived from the wall
-  // clock — the total the server returned (or the buy response's
-  // cooldown) minus the elapsed time since it was armed. Null when no
-  // cooldown is armed: the player never bought (ready), or owns no
-  // StarBroker. The countdown is a difference of two client readings,
-  // so it cannot drift (same wall-clock rule as the star countdown).
+  // Buy-star cooldown (StarBroker): the total for this level and the
+  // wall-clock time the last star was bought (state.lastStarBuyAtMs,
+  // null = never bought). The remaining is derived from the wall
+  // clock — the total minus the elapsed time since the buy — never
+  // from counting ticks. Null when no cooldown is armed: the player
+  // never bought (ready), or owns no StarBroker.
+  const buyCooldownTotalSeconds =
+    starBrokerLevel >= 1 ? starBrokerCooldownSeconds(starBrokerLevel) : null;
   const buyCooldownRemainingSeconds =
-    buyCooldownTotalSeconds === null || buyCooldownStartedAtMs === null
+    buyCooldownTotalSeconds === null || state.lastStarBuyAtMs === null
       ? null
       : Math.max(
           0,
           Math.ceil(
-            buyCooldownTotalSeconds - (nowMs - buyCooldownStartedAtMs) / 1000
+            buyCooldownTotalSeconds - (nowMs - state.lastStarBuyAtMs) / 1000
           )
         );
   const buyCooldownActive =
@@ -380,15 +357,14 @@ export function GoldenStar() {
   // Show the star the moment the countdown hits zero. secondsLeft is
   // null while no star is due (awaiting the next roll), so the guard
   // below only fires on the countdown actually reaching 0 — never on
-  // a star that was just dismissed (click / despawn / refetch), which
+  // a star that was just dismissed (click / despawn / re-roll), which
   // clears the countdown to null first. That clearing is what stops
   // the double-star bug: without it, the effect re-fires while the
-  // claim is still in flight (secondsLeft still 0) and spawns a
-  // second star whose claim the server rejects (409 star-not-due).
-  // Wall-clock backstop: if the star's 30s window already passed
-  // (the tab was backgrounded so long the countdown only just caught
-  // up), do NOT show a star the server will reject — re-fetch for the
-  // next one instead.
+  // claim is still being applied (secondsLeft still 0) and spawns a
+  // second star. Wall-clock backstop: if the star's 30s window already
+  // passed (the tab was backgrounded so long the countdown only just
+  // caught up), do NOT show a star whose window is gone — roll a fresh
+  // schedule instead.
   useEffect(() => {
     if (
       star !== null ||
@@ -401,19 +377,28 @@ export function GoldenStar() {
       countdownStartedAtMs +
       (countdownTotalSeconds + STAR_CONFIG.starLifetimeSeconds) * 1000;
     if (Date.now() > windowEndMs) {
-      fetchNext();
+      setSecondsLeft(null);
+      setCountdownTotalSeconds(null);
+      setCountdownStartedAtMs(null);
+      rollNextStar();
       return undefined;
     }
     setStar(randomStarPosition());
     playStarSpawnSound();
-  }, [star, secondsLeft, countdownStartedAtMs, countdownTotalSeconds, fetchNext]);
+  }, [
+    star,
+    secondsLeft,
+    countdownStartedAtMs,
+    countdownTotalSeconds,
+    rollNextStar,
+  ]);
 
-  // Despawn an unclicked star after its lifetime, then re-fetch the
-  // next star time (the server rolls a fresh one). The star starts
-  // fading starFadeSeconds before it despawns (issue #49). The
-  // countdown is cleared alongside the star, so the show-star effect
-  // does not re-spawn it — without the clearing the star stayed up
-  // ~60s (two 30s windows) instead of its 30s lifetime.
+  // Despawn an unclicked star after its lifetime, then roll a fresh
+  // schedule (the missed window has passed). The star starts fading
+  // starFadeSeconds before it despawns (issue #49). The countdown is
+  // cleared alongside the star, so the show-star effect does not
+  // re-spawn it — without the clearing the star stayed up ~60s (two
+  // 30s windows) instead of its 30s lifetime.
   useEffect(() => {
     if (star === null) return undefined;
     setFading(false);
@@ -432,19 +417,19 @@ export function GoldenStar() {
       setSecondsLeft(null);
       setCountdownTotalSeconds(null);
       setCountdownStartedAtMs(null);
-      fetchNext();
+      rollNextStar();
     }, STAR_CONFIG.starLifetimeSeconds * 1000);
     return () => {
       clearTimeout(fadeId);
       clearTimeout(despawnId);
     };
-  }, [star, fetchNext]);
+  }, [star, rollNextStar]);
 
   // Despawn an unclicked BOUGHT star after its lifetime (same 30s,
   // same fade in the last 5s). Unlike the natural star, there is no
-  // next star to re-fetch — the natural schedule was never touched by
-  // the buy, so it continues on its own. The pending bought star
-  // simply expires server-side (a late claim is rejected).
+  // next star to roll — the natural schedule was never touched by the
+  // buy, so it continues on its own. The pending bought star simply
+  // expires.
   useEffect(() => {
     if (boughtStar === null) return undefined;
     setBoughtFading(false);
@@ -486,16 +471,45 @@ export function GoldenStar() {
     return undefined;
   }, [boughtStar, boughtStarAtMs, nowMs]);
 
-  // Apply a server-issued star claim (natural or bought — the two
-  // claims are the same shape, and the server validates both against
-  // an issued outcome). The claim and the state change are applied in
-  // the same handler, with the exact deltas applied, so the claim and
-  // the state change can never disagree. The floating text appears at
-  // the clicked star's position.
+  // Buy Star button state (StarBroker). The cost is 30x the player's
+  // base passive LOC/s (the same shared formula), recomputed from the
+  // live state so it is never stale as the player hires. The button is
+  // enabled when the player owns StarBroker, the cooldown is ready,
+  // and the player can afford it. The buy is synchronous now (no
+  // server round-trip): the cooldown arms from lastStarBuyAtMs the
+  // moment the buy dispatches, so a double-tap cannot buy twice — the
+  // button disables as soon as the state updates, and the handler
+  // re-checks the cooldown from the live state.
+  const buyCost =
+    starBrokerLevel < 1
+      ? null
+      : starBrokerBuyCost(getBaseLocPerSecond(state));
+  const buyReady =
+    starBrokerLevel >= 1 &&
+    !buyCooldownActive &&
+    buyCost !== null &&
+    state.linesOfCode >= buyCost;
+  const buyText =
+    starBrokerLevel < 1
+      ? ""
+      : buyCooldownActive
+        ? `Buy in ${formatCountdown(buyCooldownRemainingSeconds)}`
+        : buyCost !== null
+          ? `${formatNumber(buyCost)} LOC`
+          : "";
+
+  // Apply a locally-rolled star claim (natural or bought — the two
+  // claims are the same shape). The claim and the state change are
+  // applied in the same handler, with the exact deltas rolled, so the
+  // claim and the state change can never disagree. A prompt save is
+  // requested so the reward persists (a bought-star claim changes no
+  // big-action field, so without it the reward would wait for the 60s
+  // heartbeat). The floating text appears at the clicked star's
+  // position.
   const applyClaim = useCallback(
     (claim, position) => {
       dispatch({ type: "APPLY_STAR_REWARD", payload: { claim } });
-      recordStarClaim(claim);
+      requestClaimSave();
       playStarClickSound(claim.good);
       triggerFloatingText(
         position.x + STAR_SIZE_PX / 2,
@@ -504,117 +518,102 @@ export function GoldenStar() {
         <FaStar size={20} color="#ffd700" />
       );
     },
-    [dispatch, recordStarClaim, triggerFloatingText]
+    [dispatch, requestClaimSave, triggerFloatingText]
   );
 
-  const handleStarClick = useCallback(async () => {
-    if (!star || !savePlayerId) return;
-    // Hide the star immediately so a double-click cannot claim twice;
-    // the server also only issues one outcome per due star. Clear the
-    // countdown too: while the claim is in flight, no star is due, and
-    // the show-star effect must not re-spawn a second star from the
-    // stale secondsLeft of 0 (the double-star bug — the second star's
-    // claim was rejected 409 star-not-due). The claim response arms
-    // the next countdown below; a failed claim re-fetches it.
+  // Roll one star outcome locally, from the shared config and odds
+  // (the same helpers the server used). `locPerSecond` is the base
+  // passive LOC/s — employees + Blocker bonus, no star buffs — the
+  // same value the server priced Lucky rewards from, so a Lucky LOC
+  // reward is identical. `employeeCounts` is the flat employee map
+  // (the claim's Employee effect only boosts a type the player owns).
+  const rollClaim = useCallback(() => {
+    const effect = rollStarEffect(constellationLevel);
+    if (effect === null) return null;
+    const good = rollStarGood();
+    return resolveStarClaim({
+      effect,
+      good,
+      locPerSecond: getBaseLocPerSecond(state),
+      money: state.money,
+      linesOfCode: state.linesOfCode,
+      employeeCounts: flatEmployeeCounts(state),
+    });
+  }, [constellationLevel, state]);
+
+  const handleStarClick = useCallback(() => {
+    if (!star) return;
+    // Hide the star immediately so a double-click cannot claim twice,
+    // and clear the countdown so the show-star effect cannot re-spawn
+    // a second star from the stale secondsLeft of 0 (the double-star
+    // bug). The claim is rolled locally now (no server round-trip), so
+    // it completes synchronously: the outcome is applied and a fresh
+    // schedule is rolled before the handler returns, and the arm effect
+    // re-arms the countdown from the new schedule.
+    const position = star;
     setStar(null);
     setSecondsLeft(null);
     setCountdownTotalSeconds(null);
     setCountdownStartedAtMs(null);
-    try {
-      const { status, data } = await claimStar(SAVE_API_URL, savePlayerId);
-      if (!mountedRef.current) return;
-      if (status !== 200 || !data?.claim) {
-        // Not due (or no stars): re-fetch the schedule.
-        fetchNext();
-        return;
-      }
-      applyClaim(data.claim, star);
-      // Arm the next star from the server's returned time.
-      setSecondsLeft(data.secondsUntilStar);
-      setCountdownTotalSeconds(data.secondsUntilStar);
-      setCountdownStartedAtMs(Date.now());
-    } catch {
-      // Network failure: the claim may or may not have landed, but the
-      // reward is only applied when the server answers, so nothing is
-      // lost — re-fetch the schedule and the star comes again.
-      if (!mountedRef.current) return;
-      fetchNext();
+    const claim = rollClaim();
+    if (claim === null) {
+      rollNextStar();
+      return;
     }
-  }, [star, savePlayerId, applyClaim, fetchNext]);
+    applyClaim(claim, position);
+    rollNextStar();
+  }, [star, rollClaim, applyClaim, rollNextStar]);
 
-  // Buy a golden star (StarBroker). The server validates the level,
-  // the cooldown, and affordability, deducts the cost from the stored
-  // state, and records a pending bought star. The client deducts the
-  // same cost locally (BUY_STAR), shows the bought star, arms the buy
-  // cooldown from the server's answer, and saves promptly so the
-  // deduction persists. The bought star is a separate star from the
-  // natural one — it stacks, and the natural timer is never touched.
-  const handleBuyStar = useCallback(async () => {
-    if (!savePlayerId || buyInFlight) return;
-    setBuyInFlight(true);
-    try {
-      const { status, data } = await buyStar(SAVE_API_URL, savePlayerId);
-      if (!mountedRef.current) return;
-      if (status !== 200 || !data) {
-        // Refused (cooldown / not enough LOC / no StarBroker): resync
-        // the cooldown from the server's answer when it carries one,
-        // and re-fetch the schedule (which carries the buy status).
-        if (typeof data?.cooldownSecondsRemaining === "number") {
-          setBuyCooldownTotalSeconds(data.cooldownSecondsRemaining);
-          setBuyCooldownStartedAtMs(Date.now());
-        }
-        fetchNext();
-        return;
-      }
-      dispatch({ type: "BUY_STAR", payload: { cost: data.cost } });
-      setBoughtStar(randomStarPosition());
-      setBoughtFading(false);
-      setBoughtStarAtMs(Date.now());
-      setBuyCooldownTotalSeconds(data.buyCooldownSeconds);
-      setBuyCooldownStartedAtMs(Date.now());
-      playStarSpawnSound();
-      saveNow();
-    } catch {
-      // Network failure: the buy may or may not have landed — re-fetch
-      // the schedule (which carries the buy status) to resync.
-      if (!mountedRef.current) return;
-      fetchNext();
-    } finally {
-      if (mountedRef.current) setBuyInFlight(false);
-    }
-  }, [savePlayerId, buyInFlight, dispatch, fetchNext, saveNow]);
+  // Buy a golden star (StarBroker). Validated client-side now (the
+  // server no longer polices buys): the player must own StarBroker,
+  // the cooldown must be ready, and the player must afford the 30x
+  // passive LOC/s cost. The client deducts the cost locally (BUY_STAR,
+  // which also arms the buy cooldown from lastStarBuyAtMs), shows the
+  // bought star, and saves promptly so the deduction persists. The
+  // bought star is a separate star from the natural one — it stacks,
+  // and the natural timer is never touched.
+  const handleBuyStar = useCallback(() => {
+    if (starBrokerLevel < 1) return;
+    if (buyCooldownActive) return;
+    if (buyCost === null) return;
+    if (state.linesOfCode < buyCost) return;
+    dispatch({ type: "BUY_STAR", payload: { cost: buyCost } });
+    setBoughtStar(randomStarPosition());
+    setBoughtFading(false);
+    setBoughtStarAtMs(Date.now());
+    playStarSpawnSound();
+    saveNow();
+  }, [
+    starBrokerLevel,
+    buyCooldownActive,
+    buyCost,
+    state.linesOfCode,
+    dispatch,
+    saveNow,
+  ]);
 
   // Claim a bought star: the player clicked the star they bought. The
-  // server rolls the outcome (at click time, like the natural star)
-  // and clears the pending bought star; the client applies exactly
-  // the returned claim, the same way as a natural claim.
-  const handleBoughtStarClick = useCallback(async () => {
-    if (!boughtStar || !savePlayerId) return;
+  // outcome is rolled locally at click time (like the natural star)
+  // and applied the same way.
+  const handleBoughtStarClick = useCallback(() => {
+    if (!boughtStar) return;
     // Hide the bought star immediately so a double-click cannot claim
-    // twice; the server also only issues one outcome per bought star.
+    // twice.
     const position = boughtStar;
     setBoughtStar(null);
     setBoughtFading(false);
     setBoughtStarAtMs(null);
-    try {
-      const { status, data } = await claimBoughtStar(
-        SAVE_API_URL,
-        savePlayerId
-      );
-      if (!mountedRef.current) return;
-      if (status !== 200 || !data?.claim) {
-        // No bought star pending (already claimed / burned out):
-        // nothing to apply.
-        return;
-      }
-      applyClaim(data.claim, position);
-    } catch {
-      // Network failure: the claim may or may not have landed, but the
-      // reward is only applied when the server answers, so nothing is
-      // lost.
-      return;
-    }
-  }, [boughtStar, savePlayerId, applyClaim]);
+    const claim = rollClaim();
+    if (claim === null) return;
+    applyClaim(claim, position);
+  }, [boughtStar, rollClaim, applyClaim]);
+
+  // Whether the next-star countdown may be shown (a client-side
+  // unlock now): the player reaches Constellation level
+  // STAR_CONFIG.countdownUnlockLevel. The star itself still spawns on
+  // schedule before then; only the timer is gated.
+  const countdownUnlocked =
+    constellationLevel >= STAR_CONFIG.countdownUnlockLevel;
 
   const showCountdown =
     countdownUnlocked &&
@@ -623,7 +622,7 @@ export function GoldenStar() {
     secondsLeft > 0;
 
   // Fill proportion for the countdown bar: 0% when the star was just
-  // rolled (secondsLeft == total), 100% when it is due (secondsLeft
+  // armed (secondsLeft == total), 100% when it is due (secondsLeft
   // == 0). Clamped so a stale total can never over/under-fill.
   const countdownFillPct =
     countdownTotalSeconds !== null && countdownTotalSeconds > 0
@@ -637,33 +636,6 @@ export function GoldenStar() {
           )
         )
       : 0;
-
-  // Buy Star button state (StarBroker). The cost is 30x the player's
-  // base passive LOC/s (the same shared formula the server prices a
-  // buy from), recomputed from the live state so it is never stale as
-  // the player hires. The button is enabled when the player owns
-  // StarBroker, the cooldown is ready, the player can afford it, and
-  // no buy is in flight. The cooldown text counts down from the
-  // server's remaining; the server is the authority (a too-early buy
-  // is rejected and the cooldown resyncs from the answer).
-  const buyCost =
-    starBrokerLevel < 1
-      ? null
-      : starBrokerBuyCost(getBaseLocPerSecond(state));
-  const buyReady =
-    starBrokerLevel >= 1 &&
-    !buyCooldownActive &&
-    !buyInFlight &&
-    buyCost !== null &&
-    state.linesOfCode >= buyCost;
-  const buyText =
-    starBrokerLevel < 1
-      ? ""
-      : buyCooldownActive
-        ? `Buy in ${formatCountdown(buyCooldownRemainingSeconds)}`
-        : buyCost !== null
-          ? `${formatNumber(buyCost)} LOC`
-          : "";
 
   return (
     <>

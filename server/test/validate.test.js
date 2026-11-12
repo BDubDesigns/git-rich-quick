@@ -725,11 +725,14 @@ test("heavy shipping that drains LOC does not false-reject (tick quantization)",
 });
 
 /**
- * A star claim with the fields the client sends; overrides win.
- * Each claim gets a distinct claimId (the server-issued outcome id,
- * issue #29). A legit test passes the SAME claim object as the save's
- * claim and as the issued outcome (4th arg to validateSave); a
- * rejection test passes a different (or no) issued outcome.
+ * A star claim with the fields the client used to send; overrides win.
+ * The claim is INERT now (the star resolution moved client-side, so
+ * the server strips starClaims in normalizeActions and never validates
+ * one — validateSave takes no issued-outcome argument anymore). The
+ * tests below still carry one to prove a save with a claim attached
+ * (even an inflated, tampered, or stale one) is stored, not rejected;
+ * the 4th argument, where present, is ignored. Each claim gets a
+ * distinct claimId.
  */
 let claimCounter = 0;
 function starClaim(overrides) {
@@ -1021,15 +1024,12 @@ test("legit star play: shooting stars burst", () => {
   assert.deepEqual(r, { ok: true });
 });
 
-test("an issued star outcome older than 300s is rejected, even if it matches exactly", () => {
-  // Star-claim-expiry fix: an issued outcome stays valid 300s after
-  // issue (plus 5s grace), decoupled from the star's 30s on-screen
-  // lifetime. The claim below matches the issued outcome exactly and
-  // is unconsumed, but it was issued 360s before the save, so the save
-  // is a STAR rejection — a stale outcome cannot be claimed late by a
-  // tampered client. The store attaches issuedAtMs to the issued
-  // outcome (from star_issues.issued_at); the save's claim does not
-  // carry it, and sameStarClaim ignores it.
+test("a star claim older than 300s is ignored and the state still saves (no issued outcomes anymore)", () => {
+  // The old star-claim-expiry fix rejected an issued outcome older
+  // than 300s. There are no issued outcomes now — the claim is
+  // stripped by normalizeActions and the save stores the state. The
+  // claim below would have been stale under the old rule; the state
+  // (360s of passive + 35 lucky LOC) is well-formed, so it saves.
   const before = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1053,16 +1053,16 @@ test("an issued star outcome older than 300s is rejected, even if it matches exa
     T0 + 360_000,
     [issued]
   );
-  assert.equal(r.ok, false);
-  assert.equal(r.rule, "STAR");
+  assert.deepEqual(r, { ok: true });
 });
 
 test("an issued star outcome inside its 300s window still saves", () => {
   // Same claim as above, but issued at the window start and saved at
-  // the window end — 60s after issue, inside the 300s + 5s grace —
-  // so it passes. This is the legitimate-play side of the expiry: the
-  // client saves a claim promptly (star-claim save), or delayed 60s
-  // by a deploy restart or network failure, well inside it.
+  // the window end — 60s after issue. The claim is inert now (stripped
+  // by normalizeActions), so the window is moot; the state is
+  // well-formed, so it saves. This is the legitimate-play side of the
+  // old expiry: the client saves a claim promptly, or delayed 60s by
+  // a deploy restart or network failure.
   const before = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1143,7 +1143,11 @@ test("buying Constellation levels 4-5 and OverReact level 4 passes validation", 
   );
 });
 
-test("inflated star claims are rejected", () => {
+test("inflated star claims are ignored and the state still saves (no claim validation anymore)", () => {
+  // The old STAR rule rejected a claim whose amounts exceeded the
+  // server's caps. There is no claim validation now — the claim is
+  // stripped and the state is stored, however large the numbers in it
+  // claim to be. The state itself is well-formed, so it saves.
   const before = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1170,14 +1174,17 @@ test("inflated star claims are rejected", () => {
       body(after, { ...zeroActions(), starClaims: [claim] }),
       T0 + 60_000
     );
-    assert.equal(r.ok, false);
-    assert.equal(r.rule, "STAR");
+    assert.deepEqual(r, { ok: true });
   }
 });
 
-test("star claims for locked effects, at level 0, or beyond the issued outcomes are rejected", () => {
+test("star claims for locked effects, at level 0, or beyond the issued outcomes are ignored and the state still saves", () => {
+  // The old STAR rule rejected a claim for an effect the server never
+  // issued (locked at that level, level 0, or more claims than issued
+  // outcomes). There are no issued outcomes now — the claim is
+  // stripped and the state is stored.
   // Frenzy unlocks at L3; the server never issues it at L1, so a
-  // claim for it has no matching issued outcome.
+  // claim for it used to have no matching issued outcome.
   const beforeL1 = constellationState(1, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1202,8 +1209,7 @@ test("star claims for locked effects, at level 0, or beyond the issued outcomes 
     }),
     T0 + 60_000
   );
-  assert.equal(locked.ok, false);
-  assert.equal(locked.rule, "STAR");
+  assert.deepEqual(locked, { ok: true });
 
   // Level 0 means no stars at all.
   const beforeL0 = constellationState(0, {
@@ -1224,12 +1230,11 @@ test("star claims for locked effects, at level 0, or beyond the issued outcomes 
     }),
     T0 + 60_000
   );
-  assert.equal(levelZero.ok, false);
-  assert.equal(levelZero.rule, "STAR");
+  assert.deepEqual(levelZero, { ok: true });
 
   // More claims than issued outcomes: the server issued two stars,
-  // the save claims three — the third has no issued outcome to match.
-  // (The spawn cap is now enforced at issuance, not here.)
+  // the save claims three — the third used to have no issued outcome
+  // to match.
   const issuedA = starClaim({ locDelta: 10 });
   const issuedB = starClaim({ locDelta: 10 });
   const tooMany = validateSave(
@@ -1241,14 +1246,13 @@ test("star claims for locked effects, at level 0, or beyond the issued outcomes 
     T0 + 60_000,
     [issuedA, issuedB]
   );
-  assert.equal(tooMany.ok, false);
-  assert.equal(tooMany.rule, "STAR");
+  assert.deepEqual(tooMany, { ok: true });
 });
 
-test("a tampered star claim (same claimId, different content) is rejected", () => {
-  // The server issued a valid outcome; the save presents the same
-  // claimId with different content. The content must match the issued
-  // outcome exactly, so every tamper is a STAR rejection.
+test("a tampered star claim (same claimId, different content) is ignored and the state still saves", () => {
+  // The old STAR rule required the saved claim's content to match the
+  // issued outcome exactly. There are no issued outcomes now — the
+  // claim is stripped and the state is stored, whatever it says.
   const before = constellationState(3, {
     linesOfCode: 0,
     totalLinesOfCode: 0,
@@ -1297,8 +1301,7 @@ test("a tampered star claim (same claimId, different content) is rejected", () =
       T0 + 60_000,
       [issued]
     );
-    assert.equal(r.ok, false);
-    assert.equal(r.rule, "STAR");
+    assert.deepEqual(r, { ok: true });
   }
 });
 

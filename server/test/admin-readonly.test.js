@@ -277,25 +277,20 @@ test("admin rejected-saves lists rejections most recent first with rule, detail,
 
     const playerId = await mintPlayer(srv.base);
     srv.advance(11_000);
-    // A tampered save: a farm breed claim with no issued outcome is
-    // rejected (FARM). The old LOC tamper (100k extra LOC) is accepted
-    // now — the leaderboard is gone, so the server stores what it sends.
+    // A tampered save: totalLinesOfCode below linesOfCode (the LOC
+    // consistency rule) is rejected (409 LOC). The old farm-breed-claim
+    // tamper is gone — a breed claim with no issued outcome is stripped
+    // now, not a FARM rejection. The old LOC tamper (100k extra LOC)
+    // is accepted now — the leaderboard is gone, so the server stores
+    // what it sends.
     const state = initialSaveState();
     const bad = await post(srv.base, "/api/save", {
       playerId,
-      state,
-      actionsSinceLastSave: {
-        ...zeroActions(),
-        farmBreedClaims: [
-          {
-            breedId: "123e4567-e89b-42d3-a456-426614174000",
-            kids: [{ stallIndex: 0, type: "classic" }],
-          },
-        ],
-      },
+      state: { ...state, linesOfCode: 100, totalLinesOfCode: 50 },
+      actionsSinceLastSave: zeroActions(),
     });
     assert.equal(bad.status, 409);
-    assert.equal((await bad.json()).rule, "FARM");
+    assert.equal((await bad.json()).rule, "LOC");
 
     // A second rejection, a malformed save (SHAPE).
     srv.advance(11_000);
@@ -323,7 +318,7 @@ test("admin rejected-saves lists rejections most recent first with rule, detail,
       body.rejections[0].rejectedAt,
       new Date(T0 + 22_000).toISOString()
     );
-    assert.equal(body.rejections[1].rule, "FARM");
+    assert.equal(body.rejections[1].rule, "LOC");
     assert.equal(
       body.rejections[1].rejectedAt,
       new Date(T0 + 11_000).toISOString()

@@ -26,8 +26,7 @@ import { formatMoney } from "../../../shared/formatNumber.js";
  * the barn. An empty stall with two llamas beside it can produce a
  * kid, usually one of the parents' types, sometimes a brand-new type.
  * Llamas have no genders — any two can breed. Breeding is rolled on
- * the server (POST /api/farm/breed) every breedingTickSeconds, not on
- * the client.
+ * the client (shared.rollFarmBreeding) every breedingTickSeconds.
  *
  * There is no llama icon in react-icons, so the stalls render the
  * llama emoji. It is a game about llamas; the emoji is the point.

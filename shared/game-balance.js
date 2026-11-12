@@ -429,9 +429,9 @@ export const BALANCE = Object.freeze({
     // for a star, especially stacked with a natural one). It has no
     // numeric bonus (type STAR, value 0): no LOC formula reads it —
     // the bought-star mechanic lives in STARBROKER_CONFIG and the
-    // /api/star/buy endpoint. A bought star never touches the natural
-    // star timer: the whole point is stacking a bought star with a
-    // natural one. Unlock: TOTAL_LOC >= STARBROKER_UNLOCK_TOTAL_LOC
+    // client (the buy is local now). A bought star never touches the
+    // natural star timer: the whole point is stacking a bought star
+    // with a natural one. Unlock: TOTAL_LOC >= STARBROKER_UNLOCK_TOTAL_LOC
     // (5000) — a later-game power than Constellation (500). Level
     // costs mirror Constellation's scale; tuning values.
     starBroker: Object.freeze({
@@ -563,10 +563,10 @@ export function maxReleaseManagerShips(managerCount, elapsedSeconds) {
  * Feedback (Brandon, Nov 10): the farm is a cool first mini-game
  * unlock, so it costs $10,000, not $250. No free llamas — the barn
  * arrives empty and you buy llamas yourself. Breeding is slow (a
- * 60s tick, not 5s) and the roll happens on the SERVER, not the
- * client: POST /api/farm/breed rolls the outcome and records it as an
- * issued outcome, and a save only accepts kids that match an issued
- * outcome. See store.breedFarm and matchIssuedFarmBreeds.
+ * 60s tick, not 5s) and the roll happens on the CLIENT now (it used
+ * to be server-rolled and issued): the client rolls the outcome from
+ * the shared odds (rollFarmBreeding) and the save carries the new
+ * kid in the farm stalls.
  */
 export const FARM_CONFIG = Object.freeze({
   /**
@@ -587,23 +587,12 @@ export const FARM_CONFIG = Object.freeze({
   /** Columns in the stall grid (used for orthogonal adjacency). */
   gridCols: 3,
   /**
-   * How often the breeding check runs, in seconds. The client calls
-   * POST /api/farm/breed on this interval and the server rolls. 60s,
-   * not 5s — a kid every few minutes at the v1 odds, not a kid every
-   * few seconds. Tuning value.
+   * How often the breeding check runs, in seconds. The client rolls
+   * (shared.rollFarmBreeding) on this interval. 60s, not 5s — a kid
+   * every few minutes at the v1 odds, not a kid every few seconds.
+   * Tuning value.
    */
   breedingTickSeconds: 60,
-  /**
-   * How long an already-issued breed outcome stays valid at save time,
-   * in seconds. Mirrors the star-claim-expiry fix: the outcome is
-   * issued at breed time, and the save carrying the kids can be delayed
-   * past the breed by a deploy restart, a network failure, or 10s
-   * rate-limit retries. 300s covers a deploy restart plus retries; a
-   * genuinely stale claim (older than 300s + 5s grace) is still
-   * rejected, and the outcome is consumed on accept so it cannot be
-   * replayed.
-   */
-  issuedBreedValidSeconds: 300,
 });
 
 /**
@@ -852,21 +841,6 @@ export const STAR_CONFIG = Object.freeze({
   /** How long an unclicked star stays on screen, in seconds. */
   starLifetimeSeconds: 30,
   /**
-   * How long an already-issued star outcome stays valid at save time,
-   * in seconds (star-claim-expiry fix). This is deliberately LONGER
-   * than starLifetimeSeconds and decoupled from it: the star's
-   * on-screen lifetime is 30s, but the outcome is issued at CLICK
-   * time, and the save carrying the claim can be delayed past 30s by
-   * a deploy restart (the prompt save hits a restarting server and
-   * retries on the 60s heartbeat), a network failure, or 10s
-   * rate-limit retries — a legitimate claim then bounced as expired
-   * and the reward was lost on revert. 300s covers a deploy restart
-   * plus retries; a genuinely stale claim (older than 300s + 5s
-   * grace) is still rejected, and the claim is consumed on accept so
-   * it cannot be replayed.
-   */
-  issuedOutcomeValidSeconds: 300,
-  /**
    * How long before despawn the star starts fading out, in seconds
    * (issue #49): the fade is the "click me now or lose me" signal.
    * The CSS fade-out duration in GoldenStar.css must match this.
@@ -875,13 +849,12 @@ export const STAR_CONFIG = Object.freeze({
   /** Chance a clicked star is a good outcome (vs bad). */
   goodChance: 0.75,
   /**
-   * Constellation level that unlocks the next-star countdown display
-   * (issue #29). The server tells the client when the next star is
-   * coming; the client only SHOWS that countdown once the player
-   * reaches this level. Default 2 (early enough to be reachable, late
-   * enough to be a reward) — adjustable, NOT a locked decision.
-   * The star itself still spawns on schedule before this level; only
-   * the timer display is gated.
+   * Constellation level that unlocks the next-star countdown display.
+   * The client only SHOWS that countdown once the player reaches
+   * this level. Default 2 (early enough to be reachable, late enough
+   * to be a reward) — adjustable, NOT a locked decision. The star
+   * itself still spawns on schedule before this level; only the timer
+   * display is gated.
    */
   countdownUnlockLevel: 2,
   /** Spawn interval range (seconds) per Constellation level, index level-1. */
@@ -985,9 +958,10 @@ export function starSpawnIntervalSeconds(constellationLevel) {
 /**
  * Roll the next star spawn time (ms since epoch) for a Constellation
  * level, from the level's spawn interval. Pure; `rng` is injectable.
- * Returns null at level 0 (no stars). The server owns this roll
- * (issue #29): it decides when the next star appears and tells the
- * client, so the client never picks its own spawn time.
+ * Returns null at level 0 (no stars). The CLIENT owns this roll now
+ * (the star resolution moved local when the leaderboard was killed):
+ * it rolls the next spawn time and stores it in the save state, so
+ * the countdown survives a reload.
  */
 export function rollNextStarAtMs(constellationLevel, nowMs, rng = Math.random) {
   const interval = starSpawnIntervalSeconds(constellationLevel);
@@ -1058,8 +1032,8 @@ export function resolveLuckyReward({
 }
 
 /**
- * Resolve a clicked star into a claim record — the shape the server
- * validates and the client applies. Pure; `rng` is injectable.
+ * Resolve a clicked star into a claim record — the outcome the client
+ * applies. Pure; `rng` is injectable.
  *
  * Claim shape:
  *   { effect, good, locDelta, moneyDelta, multiplier, durationSeconds, employeeType }
@@ -1621,6 +1595,14 @@ export function initialSaveState() {
     // no farm field at all — normalizeSaveState backfills it to the
     // empty (unbought) farm, so old saves keep validating.
     farm: emptyFarmState(),
+    // Golden-star schedule (client-rolled now): the wall-clock time
+    // the next natural star is due (null = no star scheduled, e.g.
+    // Constellation level 0), and the wall-clock time the last
+    // StarBroker star was bought (null = never bought; the buy
+    // cooldown runs from it). The client rolls and persists them;
+    // the server only bounds the shape.
+    nextStarAtMs: null,
+    lastStarBuyAtMs: null,
   };
 }
 
@@ -1913,30 +1895,39 @@ export function normalizeSaveState(state) {
     }
     next.farm = farm;
   }
+  // Golden-star timers (client-rolled now): a save from before this
+  // slice has neither field. Default a MISSING field to null (no star
+  // scheduled, never bought) so the save keeps validating — the client
+  // rolls a fresh schedule on load when Constellation is unlocked. A
+  // present-but-wrong value is left alone so the shape check rejects
+  // it, the same rule as the farm backfill above.
+  if (next.nextStarAtMs === undefined) next.nextStarAtMs = null;
+  if (next.lastStarBuyAtMs === undefined) next.lastStarBuyAtMs = null;
   return next;
 }
 
 /**
- * Fill in the star-era fields on an actions object that predates them
- * (a client from before the star slice): the starClaims list, and the
- * constellation key in openSourceLevelsBought. Same rule as
- * normalizeSaveState: only the new fields are defaulted.
+ * Fill in the fields on an actions object that predates them (a client
+ * from before a later slice): the constellation / starBroker keys in
+ * openSourceLevelsBought, the new employee keys in employeesBought,
+ * the big-project keys in projectsCompleted, and autoShips. Same rule
+ * as normalizeSaveState: only the new fields are defaulted.
+ *
+ * The star/farm claim keys (starClaims, farmBreedClaims) are gone:
+ * the client rolls those outcomes locally now and they arrive inside
+ * the save state, so they are no longer part of the actions at all.
+ * An actions object that still carries them (an old client bundle)
+ * has them stripped here, so it still validates against the new
+ * 5-key shape instead of 400ing on a deploy.
  */
-export function normalizeStarActions(actions) {
+export function normalizeActions(actions) {
   if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
     return actions;
   }
   const next = { ...actions };
-  if (!Array.isArray(next.starClaims)) {
-    next.starClaims = [];
-  }
-  if (!Array.isArray(next.farmBreedClaims)) {
-    // Farm breed claims (server-rolled breeding, issue #79 feedback):
-    // a client from before server-side breeding shipped has no
-    // farmBreedClaims key. Default it to [] instead of failing the
-    // shape check, same pattern as starClaims above.
-    next.farmBreedClaims = [];
-  }
+  // Legacy claim keys: drop them (see the doc comment above).
+  delete next.starClaims;
+  delete next.farmBreedClaims;
   if (
     next.openSourceLevelsBought &&
     typeof next.openSourceLevelsBought === "object" &&
@@ -2011,7 +2002,7 @@ export function normalizeStarActions(actions) {
     // Release Manager auto-ships (per project, this window): a client
     // from before the Release Manager shipped has no autoShips key.
     // Default it to all-zero instead of failing the shape check, same
-    // pattern as the starClaims default above.
+    // pattern as the open-source migration above.
     const autoShips = {};
     for (const projectKey of FREELANCE_PROJECT_KEYS) {
       autoShips[projectKey] = 0;
