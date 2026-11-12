@@ -41,10 +41,66 @@ function shortId(id) {
   return `${id.slice(0, 8)}…${id.slice(-4)}`;
 }
 
+/**
+ * Plain-text diagnostics dump for support (Copy diagnostics). Compact
+ * and greppable, newest attempt first. No em dashes in the copy.
+ */
+function buildDiagnosticsText({ attempts, saveStatus, lastSavedAt, playerId }) {
+  const lines = [
+    "Git Rich Quick diagnostics",
+    `Version ${APP_COMMIT}${buildTimeLabel() ? ` · built ${buildTimeLabel()}` : ""}`,
+    `Player ${playerId ?? "—"}`,
+    `Save status: ${saveStatus} · last saved: ${
+      lastSavedAt ? new Date(lastSavedAt).toISOString() : "never"
+    }`,
+    "Save attempts (newest first):",
+  ];
+  if (!attempts || attempts.length === 0) {
+    lines.push("(no save attempts recorded yet)");
+  } else {
+    for (let i = attempts.length - 1; i >= 0; i -= 1) {
+      const a = attempts[i];
+      lines.push(
+        `${a.at} | ${a.trigger} | ${a.outcome} | HTTP ${a.status ?? "—"} | ${a.detail ?? "—"}`
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Copy text to the clipboard. Prefers the async clipboard API; falls
+ * back to a hidden textarea + execCommand for contexts without it
+ * (older browsers, non-secure contexts).
+ */
+async function copyText(text) {
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === "function"
+  ) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
 export function Settings() {
   const { data: session, isPending } = useSession();
   const user = session?.user ?? null;
-  const { resetProgress, savePlayerId } = useGameContext();
+  const { resetProgress, savePlayerId, getSaveDiagnostics } =
+    useGameContext();
 
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
   const [email, setEmail] = useState("");
@@ -62,6 +118,27 @@ export function Settings() {
   // `resetBusy` is separate from the auth `busy` above.
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+
+  // Diagnostics copy: brief "Copied." confirmation, auto-cleared.
+  const [diagCopied, setDiagCopied] = useState(false);
+  useEffect(() => {
+    if (!diagCopied) return undefined;
+    const id = setTimeout(() => setDiagCopied(false), 2000);
+    return () => clearTimeout(id);
+  }, [diagCopied]);
+
+  async function handleCopyDiagnostics() {
+    const text = buildDiagnosticsText(getSaveDiagnostics());
+    try {
+      await copyText(text);
+      setDiagCopied(true);
+    } catch {
+      setMessage({
+        kind: "error",
+        text: "Could not copy the diagnostics. Try again.",
+      });
+    }
+  }
 
   async function handleResetConfirm() {
     setResetBusy(true);
@@ -479,6 +556,21 @@ export function Settings() {
             </div>
           </>
         )}
+      </section>
+
+      {/* Diagnostics: the save-attempt log, so a stuck save can be
+          inspected instead of guessed at. Copy the dump and send it to
+          support. */}
+      <section className="panel flex flex-col gap-2 p-3">
+        <h3 className="m-0 text-sm text-[#cccccc]">Diagnostics</h3>
+        <p className="m-0 text-xs">
+          If a save is stuck, copy this and send it to support.
+        </p>
+        <div>
+          <Button type="button" onClick={handleCopyDiagnostics}>
+            {diagCopied ? "Copied." : "Copy diagnostics"}
+          </Button>
+        </div>
       </section>
 
       {/* Version: the deployed build, so a player can confirm which
