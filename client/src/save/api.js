@@ -62,6 +62,20 @@ export const SAVE_API_URL = resolveApiBaseUrl();
 /** localStorage key for the anonymous player id. The ONLY thing stored locally. */
 export const PLAYER_ID_KEY = "grq:playerId";
 
+/**
+ * Default timeout for every save-service request. Fetch has no built-in
+ * timeout, so without this a stalled request hangs forever: SaveSync
+ * stays in "saving" (its _inFlight flag never clears, since _doSave
+ * never reaches its finally) and every later save just queues behind
+ * it, so the footer sits on "Saving…" and no progress ever lands.
+ * A timeout turns a stall into an ordinary network failure, which the
+ * engine already handles (status "offline", keep the actions, retry on
+ * the next heartbeat). 15s is generous — the service normally answers
+ * in under a second — but short enough that a hung save recovers
+ * instead of sticking the UI.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 async function request(baseUrl, path, { method = "GET", body, keepalive } = {}) {
   const res = await fetch(`${baseUrl}${path}`, {
     method,
@@ -69,6 +83,7 @@ async function request(baseUrl, path, { method = "GET", body, keepalive } = {}) 
     body: body ? JSON.stringify(body) : undefined,
     // keepalive lets a page-hide save finish after the tab unloads.
     keepalive: keepalive ? true : undefined,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   let data = null;
   const text = await res.text();
