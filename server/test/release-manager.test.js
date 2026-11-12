@@ -31,7 +31,7 @@ import {
   initialSaveState,
   maxReleaseManagerShips,
   normalizeSaveState,
-  normalizeStarActions,
+  normalizeActions,
   releaseManagerAssignedCount,
 } from "../../shared/game-balance.js";
 
@@ -77,8 +77,6 @@ function zeroActions(overrides = {}) {
     projectsCompleted: projectCounts(),
     autoShips: projectCounts(),
     openSourceLevelsBought: { ...OPEN_SOURCE_ZERO },
-    starClaims: [],
-    farmBreedClaims: [],
     ...overrides,
   };
 }
@@ -221,11 +219,11 @@ test("initial state has empty assignments and zero auto-ships; old saves backfil
   assert.equal(normalized.employees.releaseManager, 0);
   assert.equal(normalized.unlockedEmployees.releaseManager, false);
 
-  // An old client's actions lack autoShips; normalizeStarActions
+  // An old client's actions lack autoShips; normalizeActions
   // backfills it to all-zero.
   const oldActions = zeroActions();
   delete oldActions.autoShips;
-  assert.deepEqual(normalizeStarActions(oldActions).autoShips, projectCounts());
+  assert.deepEqual(normalizeActions(oldActions).autoShips, projectCounts());
 });
 
 test("hiring a Release Manager is accepted (money deducted, count up)", () => {

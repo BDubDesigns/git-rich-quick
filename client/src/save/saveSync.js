@@ -7,7 +7,7 @@
  *
  * Rules it enforces (from the Slice 1 spec + server contract):
  * - localStorage holds ONLY the anonymous playerId, never currency.
- * - 429 (rate limit, one accepted save per 10s): keep the actions and
+ * - 429 (rate limit, one accepted save per 1s): keep the actions and
  *   retry after the server's retry delay. Never reset the accumulator.
  *   While waiting, the engine reports status "retrying" and the delay
  *   (via onRetry) so the footer can show a countdown instead of a bare
@@ -24,11 +24,13 @@
  * counted from dispatches, so a reducer-rejected action (e.g. buying
  * with too little money) can never be counted. Clicks are the one
  * exception: WRITE_CODE always applies, so they are counted directly.
- * Star claims are the other exception: a claim carries its effect,
- * good/bad roll, and amounts, which no state delta can reconstruct, so
- * the star UI records them explicitly via recordStarClaim. Like clicks,
- * they reset on an accepted save (200) or a revert (409) and are kept
- * on a rate limit (429) so the retry sends them with the longer window.
+ * A star claim is a prompt save (the claim's reward is in the state,
+ * and the star schedule re-rolls — both are big-action fields — but a
+ * bought-star claim changes neither, so the star UI also asks for a
+ * prompt save explicitly via requestClaimSave). Golden-star outcomes
+ * and farm kids are rolled client-side now, so they arrive inside the
+ * ordinary save payload — there is nothing to record or validate
+ * against a server-issued outcome anymore.
  *
  * Framework-free (plain JS, no React) so it can be tested in Node
  * against a local save server. The React adapter lives in GameContext,
@@ -67,7 +69,7 @@ export const DEFAULT_RETRY_AFTER_SECONDS = 10;
  * The footer uses it to grey out "Save now" until a manual save can
  * actually land, instead of letting the user tap it into a 429 retry.
  */
-export const SAVE_RATE_LIMIT_SECONDS = 10;
+export const SAVE_RATE_LIMIT_SECONDS = 1;
 
 /** localStorage key for the save-attempt diagnostics log. */
 const SAVE_ATTEMPTS_KEY = "grq:saveAttempts";
@@ -183,21 +185,12 @@ export class SaveSync {
     // Clicks since the baseline. Only WRITE_CODE increments this, and it
     // always applies, so the count is exact.
     this.clicks = 0;
-    // Golden-star claims since the baseline. Only the star UI records
-    // these (recordStarClaim), with the effect and amounts the server
-    // validates. Reset on an accepted save or a revert, kept on a 429.
-    this.starClaims = [];
-    // Farm breed claims since the baseline (issue #79 feedback). Only
-    // the farm breed handler records these (recordFarmBreed), with the
-    // breedId and kids the server rolled. Reset on an accepted save or
-    // a revert, kept on a 429. A kid being born changes the farm llama
-    // count, which is a big-action save trigger, so no separate
-    // prompt-save flag is needed — the big-action path saves promptly.
-    this.farmBreedClaims = [];
-    // A prompt save is pending for the recorded claims (star fix
-    // slice). Set by recordStarClaim, cleared when noteState starts
-    // the save — one prompt attempt per claim, not one per tick.
-    this._starClaimSavePending = false;
+    // A prompt save is pending for a golden-star claim (natural or
+    // bought). Set by requestClaimSave, cleared when noteState starts
+    // the save — one prompt attempt per claim, not one per tick. The
+    // claim itself needs no record anymore: the star is rolled
+    // client-side, so the reward is just part of the save state.
+    this._claimSavePending = false;
     this.initialized = false;
     // True when init could not reach the server: play locally from the
     // initial state and retry the load before the first save.
@@ -438,32 +431,21 @@ export class SaveSync {
   }
 
   /**
-   * Record one golden-star claim (a clicked star's resolved outcome).
-   * The claim is the shape `resolveStarClaim` returns in
-   * shared/game-balance.js; the server validates it and credits it in
-   * the LOC/money rules. Call it in the same handler that dispatches
-   * the reward, with the exact deltas applied, so the claim and the
-   * state change can never disagree. Marks a prompt save as pending —
-   * noteState requests it once the state change propagates
-   * (star-claim-expiry fix: the issued outcome stays valid 300s after
-   * issue).
+   * Ask for a prompt save after a golden-star claim (a clicked star's
+   * resolved outcome, natural or bought). The claim's reward is in
+   * the state already (LOC/money or a buff), so there is nothing to
+   * record — this only marks a prompt save as pending. noteState
+   * requests it once the state change propagates. Call it in the same
+   * handler that dispatches the reward, so the claim and the state
+   * change can never disagree. A natural claim also re-rolls the star
+   * schedule (a big-action field), so it would save promptly anyway;
+   * this flag is what covers a bought-star claim, which changes no
+   * big-action field (no schedule change, no buff unless it rolls
+   * one) — without it, a bought Lucky claim would wait for the 60s
+   * heartbeat.
    */
-  recordStarClaim(claim) {
-    this.starClaims.push({ ...claim });
-    this._starClaimSavePending = true;
-  }
-
-  /**
-   * Record one farm breed claim (a server-rolled breeding tick's kids).
-   * The claim is `{ breedId, kids }` (kids is the list of
-   * `{ stallIndex, type }` the server rolled); the server validates it
-   * and the save only accepts kids that match an issued outcome. Call
-   * it in the same handler that dispatches the breed result, with the
-   * exact kids applied, so the claim and the state change can never
-   * disagree.
-   */
-  recordFarmBreed(claim) {
-    this.farmBreedClaims.push({ ...claim });
+  requestClaimSave() {
+    this._claimSavePending = true;
   }
 
   /**
@@ -471,7 +453,7 @@ export class SaveSync {
    * save when a big action actually happened (a hire, an open-source
    * level) — not on ticks, failed actions, or project completions.
    * Ship is deliberately excluded: it's a rapid-fire action, and saving
-   * on every Ship spams the 10s rate limit. Ship progress is saved by
+   * on every Ship spams the 1s rate limit. Ship progress is saved by
    * the heartbeat and the keepalive instead.
    */
   noteState(clientState) {
@@ -480,25 +462,22 @@ export class SaveSync {
       this._lastSeenBig = big;
       return;
     }
-    // A golden-star claim must reach the server promptly: the issued
-    // outcome stays valid 300s after issue (star-claim-expiry fix),
-    // and the claim only reaches the server in a save. The big-action
-    // email trigger does not cover it — when the inbox is full (25
-    // emails), a new email deletes the oldest, the count stays 25, and
-    // no big-action save fires, so the claim would wait for the 60s
-    // heartbeat. Request one prompt save per claim (recordStarClaim
-    // sets the flag); the save splices the claims out on success, so
-    // it fires once. No save is started while one is in flight (the
-    // flag stays set, so the next state change retries it) or while a
-    // rate-limit retry is already scheduled, so a rate-limited or
-    // offline claim does not spam a save on every tick.
+    // A golden-star claim must reach the server promptly: the reward
+    // (LOC/money or a buff) is in the state, but a bought-star claim
+    // changes no big-action field, so without this the claim would
+    // wait for the 60s heartbeat — and a tab close before then loses
+    // it. Request one prompt save per claim (requestClaimSave sets
+    // the flag); the flag clears when the save starts, so it fires
+    // once. No save is started while one is in flight (the flag stays
+    // set, so the next state change retries it) or while a rate-limit
+    // retry is already scheduled, so a rate-limited or offline claim
+    // does not spam a save on every tick.
     if (
-      this._starClaimSavePending &&
-      this.starClaims.length > 0 &&
+      this._claimSavePending &&
       !this._inFlight &&
       this._retryTimer == null
     ) {
-      this._starClaimSavePending = false;
+      this._claimSavePending = false;
       this.requestSave("star-claim");
     } else if (bigActionIncreased(this._lastSeenBig, big)) {
       this.requestSave("big-action");
@@ -568,9 +547,7 @@ export class SaveSync {
       const initial = initialSaveState();
       this.baseline = initial;
       this.clicks = 0;
-      this.starClaims = [];
-      this.farmBreedClaims = [];
-      this._starClaimSavePending = false;
+      this._claimSavePending = false;
       this._lastSeenBig = bigActionFields(initial);
       this.needsLoad = false;
       this.restore(initial);
@@ -691,8 +668,6 @@ export class SaveSync {
               this.restore(data.state);
               this._lastSeenBig = bigActionFields(data.state);
               this.clicks = 0;
-              this.starClaims = [];
-              this.farmBreedClaims = [];
               this.needsLoad = false;
               // Same as init's load: report when the server last saved.
               const savedAtMs = Date.parse(data.savedAt);
@@ -728,8 +703,6 @@ export class SaveSync {
       const current = this.getState();
       const saveState = stateToSaveState(current);
       const sentClicks = this.clicks;
-      const sentStarClaimCount = this.starClaims.length;
-      const sentFarmBreedClaimCount = this.farmBreedClaims.length;
       const actions = {
         clicks: sentClicks,
         employeesBought: diffCounts(
@@ -758,12 +731,6 @@ export class SaveSync {
           saveState.openSourceProjects,
           OPEN_SOURCE_IDS
         ),
-        // A copy: claims recorded while this save is in flight stay
-        // queued for the next save (same as clicks, below).
-        starClaims: [...this.starClaims],
-        // Farm breed claims (issue #79 feedback): same copy pattern
-        // as the star claims above.
-        farmBreedClaims: [...this.farmBreedClaims],
       };
 
       let result;
@@ -785,13 +752,9 @@ export class SaveSync {
       if (result.status === 200) {
         // Accepted: the sent state is the new baseline. Only subtract the
         // clicks that were sent — clicks made while the save was in flight
-        // stay counted for the next save. Same for star claims: drop the
-        // sent ones, keep any claimed while the save was in flight.
-        // Same for farm breed claims.
+        // stay counted for the next save.
         this.baseline = saveState;
         this.clicks = Math.max(0, this.clicks - sentClicks);
-        this.starClaims.splice(0, sentStarClaimCount);
-        this.farmBreedClaims.splice(0, sentFarmBreedClaimCount);
         this._clearRetryTimer();
         this.onRetry(null);
         this._reportSavedAt(Date.now());
@@ -833,8 +796,6 @@ export class SaveSync {
           this._lastSeenBig = bigActionFields(lastGood.state);
         }
         this.clicks = 0;
-        this.starClaims = [];
-        this.farmBreedClaims = [];
         this._clearRetryTimer();
         this.onRetry(null);
         this.setStatus("error");
@@ -907,8 +868,6 @@ export class SaveSync {
     this.restore(minted.state);
     this._lastSeenBig = bigActionFields(minted.state);
     this.clicks = 0;
-    this.starClaims = [];
-    this.farmBreedClaims = [];
     this.needsLoad = false;
   }
 }

@@ -11,7 +11,6 @@ import {
 // the engine reads and restores.
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
-import { SAVE_API_URL, breedFarm } from "../save/api.js";
 
 // Shared balance numbers — the reducer uses them for bulk pricing
 // (BUY_EMPLOYEE). Display configs live in gameConfig.js.
@@ -155,6 +154,15 @@ const initialState = {
   // Expired entries are dropped by the GAME_TICK.
   activeStarEffects: [],
 
+  // Golden-star schedule (client-rolled now). nextStarAtMs is the
+  // wall-clock time the next natural star is due (null = no star
+  // scheduled, e.g. Constellation level 0); lastStarBuyAtMs is the
+  // wall-clock time the last StarBroker star was bought (null = never
+  // bought; the buy cooldown runs from it). Both are saved with the
+  // game state, so the countdown and the cooldown survive a reload.
+  nextStarAtMs: null,
+  lastStarBuyAtMs: null,
+
   // In-game inbox (issue #31). Plain records, owned by the email
   // module (client/src/email/email.js). Saved with the game state.
   emails: [],
@@ -169,9 +177,10 @@ const initialState = {
   // farmBreedDue are transient (not saved) — farmBreedTicks counts
   // GAME_TICKs toward the next breeding check, which runs every
   // FARM_CONFIG.breedingTickSeconds, and farmBreedDue is set when a
-  // check is due so the provider's breed effect calls the server
-  // (POST /api/farm/breed) and dispatches FARM_BREED_RESULT. The roll
-  // is server-side (issue #79 feedback), never in the reducer.
+  // check is due so the provider's breed effect rolls it locally
+  // (shared.rollFarmBreeding, the same odds the server used) and
+  // dispatches FARM_BREED_RESULT. The roll is client-side now — the
+  // server never sees a breed, only the kids in the next save.
   farm: shared.emptyFarmState(),
   farmBreedTicks: 0,
   farmBreedDue: false,
@@ -477,18 +486,17 @@ function gameReducer(state, action) {
       return withEmailTriggers(state, latched);
     }
 
-    // Apply a server-rolled breeding result (issue #79 feedback).
-    // Payload: { kids } — the list of { stallIndex, type } the server
-    // rolled in POST /api/farm/breed. A kid is placed only if its stall
-    // is still empty (a llama bought into that stall after the breed
-    // call wins — the kid is then never born, and its issued outcome
-    // simply goes unconsumed). New types join the unlocked list. The
-    // breed claim itself is recorded with the save engine by the
-    // provider's breed effect, in the same handler that dispatches
-    // this, so the claim and the state change can never disagree. The
-    // farmBreedDue flag is cleared here: the next breeding check is
-    // due after another breedingTickSeconds ticks. A payload with no
-    // kids (a no-birth tick) just clears the flag.
+    // Apply a locally-rolled breeding result (issue #79 feedback).
+    // Payload: { kids } — the list of { stallIndex, type } the
+    // provider's breed effect rolled (shared.rollFarmBreeding, the
+    // same odds the server used). A kid is placed only if its stall
+    // is still empty (a llama bought into that stall after the roll
+    // wins — the kid is then never born; the reducer is the
+    // authority, so the roll and the state can never disagree).
+    // New types join the unlocked list. The farmBreedDue flag is
+    // cleared here: the next breeding check is due after another
+    // breedingTickSeconds ticks. A payload with no kids (a no-birth
+    // tick) just clears the flag.
     case "FARM_BREED_RESULT": {
       const { kids } = action.payload ?? {};
       const farm = state.farm ?? shared.emptyFarmState();
@@ -598,12 +606,11 @@ function gameReducer(state, action) {
 
       // Llama farm breeding (issue #79 feedback): every
       // FARM_CONFIG.breedingTickSeconds ticks, a breeding check is due.
-      // The ROLL is server-side (POST /api/farm/breed) — the reducer
-      // only counts the ticks and raises the farmBreedDue flag, and the
-      // provider's breed effect calls the server and dispatches
-      // FARM_BREED_RESULT with the kids the server rolled. Nothing is
-      // rolled here, so a tampered client cannot invent llamas: the
-      // save only accepts kids that match a server-issued outcome.
+      // The ROLL is client-side now (shared.rollFarmBreeding) — the
+      // reducer only counts the ticks and raises the farmBreedDue flag,
+      // and the provider's breed effect rolls the kids and dispatches
+      // FARM_BREED_RESULT with them. The server just stores the kids
+      // inside the ordinary save payload.
       const farm = state.farm ?? shared.emptyFarmState();
       const breedTicks = (state.farmBreedTicks ?? 0) + 1;
       let nextBreedTicks = breedTicks;
@@ -734,16 +741,15 @@ function gameReducer(state, action) {
       return withEmailTriggers(state, contributed);
     }
 
-    // Buy a golden star (StarBroker). The payload is the buy response
-    // from the server ({ cost }): the server already deducted the cost
-    // from the STORED state's LOC and recorded a pending bought star,
-    // so the client deducts the same cost from its local LOC here —
-    // the next save then validates (prev already has the deduction,
-    // and this state has it too, plus earnings since). The bought star
-    // itself is shown by the star UI (GoldenStar), which owns the
-    // pending star's lifetime; this action only moves the LOC. No
-    // unlock or email triggers: spending LOC cannot unlock anything
-    // (unlocks read totalLinesOfCode and counts, which do not move).
+    // Buy a golden star (StarBroker). The payload is the cost the
+    // star UI validated client-side (30x passive LOC/s, flat at every
+    // level): the client deducts it from its local LOC here, and
+    // records when the buy happened — the buy cooldown runs from
+    // lastStarBuyAtMs. The bought star itself is shown by the star UI
+    // (GoldenStar), which owns the pending star's lifetime; this
+    // action only moves the LOC and arms the cooldown. No unlock or
+    // email triggers: spending LOC cannot unlock anything (unlocks read
+    // totalLinesOfCode and counts, which do not move).
     case "BUY_STAR": {
       const { cost } = action.payload ?? {};
       if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
@@ -752,15 +758,39 @@ function gameReducer(state, action) {
       return {
         ...state,
         linesOfCode: Math.max(0, state.linesOfCode - cost),
+        lastStarBuyAtMs: Date.now(),
+      };
+    }
+
+    // Set the next natural star's due time (client-rolled now).
+    // Payload: { nextStarAtMs } — the wall-clock time (ms since epoch)
+    // the next star is due, or null for no star scheduled (level 0).
+    // The star UI rolls it (shared.rollNextStarAtMs) whenever the
+    // schedule needs one: on load with no schedule, after a claim, and
+    // after a despawn. It is a big-action field, so setting it saves
+    // promptly and the countdown survives a reload.
+    case "SET_NEXT_STAR_AT": {
+      const { nextStarAtMs } = action.payload ?? {};
+      const nextAt =
+        nextStarAtMs === null ||
+        (typeof nextStarAtMs === "number" &&
+          Number.isFinite(nextStarAtMs) &&
+          nextStarAtMs >= 0)
+          ? nextStarAtMs
+          : state.nextStarAtMs;
+      return {
+        ...state,
+        nextStarAtMs: nextAt ?? null,
       };
     }
 
     // Apply a golden-star claim (issue #33). The payload is the claim
     // `resolveStarClaim` returns in shared/game-balance.js: instant
     // LOC/money deltas for Lucky / Shooting Stars, or a timed buff for
-    // Frenzy / Click / Employee. The caller also records the claim with
-    // the save engine (recordStarClaim) in the same handler, so the
-    // claim and the state change can never disagree.
+    // Frenzy / Click / Employee. The caller rolls the claim locally
+    // (GoldenStar) and asks the save engine for a prompt save
+    // (requestClaimSave) in the same handler, so the claim and the
+    // state change can never disagree.
     // A Lucky loss lowers linesOfCode but not totalLinesOfCode (the
     // cumulative total never decreases). A timed buff replaces any live
     // buff of the same (effect, employeeType) — buffs never stack.
@@ -1253,20 +1283,16 @@ export function GameProvider({ children }) {
     return saveSyncRef.current.resetProgress();
   }, []);
 
-  // Record one golden-star claim with the save engine (issue #33). The
-  // star UI calls this in the same handler that dispatches
-  // APPLY_STAR_REWARD, with the exact claim applied, so the claim and
-  // the state change can never disagree.
-  const recordStarClaim = useCallback((claim) => {
-    saveSyncRef.current.recordStarClaim(claim);
-  }, []);
-
-  // Record one farm breed claim with the save engine (issue #79
-  // feedback). The breed effect calls this in the same handler that
-  // dispatches FARM_BREED_RESULT, with the exact kids applied, so the
-  // claim and the state change can never disagree.
-  const recordFarmBreed = useCallback((claim) => {
-    saveSyncRef.current.recordFarmBreed(claim);
+  // Ask the save engine for a prompt save after a golden-star claim
+  // (natural or bought). The star UI calls this in the same handler
+  // that dispatches APPLY_STAR_REWARD, so the claim's reward persists
+  // promptly instead of waiting for the 60s heartbeat. The engine
+  // requests the save once the state change propagates (noteState),
+  // so the save carries the claimed state, never the pre-claim one.
+  // There is no claim to record anymore — the server never validates
+  // a claim; the reward is just part of the save state.
+  const requestClaimSave = useCallback(() => {
+    saveSyncRef.current.requestClaimSave();
   }, []);
 
   // Wrap dispatch so clicks are counted exactly. WRITE_CODE always applies
@@ -1303,66 +1329,23 @@ export function GameProvider({ children }) {
   }, [state]);
 
   // Farm breeding (issue #79 feedback): when the reducer raises
-  // farmBreedDue (one breeding interval has passed), call the server
-  // (POST /api/farm/breed) and apply exactly the kids it rolled. The
-  // roll is server-side — the client never rolls breeding locally.
-  // A no-kid tick (breedId null) just clears the flag. A failed call
-  // (network, or a 409 cooldown) also clears the flag: the next
-  // breeding interval raises it again, so breeding is delayed, not
-  // lost. The effect runs on every farmBreedDue change and on every
-  // state change while it is due, so a breed due before the playerId
-  // is known (fresh session, still minting) fires once the playerId
-  // lands. A guard ref keeps two overlapping calls from racing.
-  const breedInFlightRef = useRef(false);
+  // farmBreedDue (one breeding interval has passed), roll the kid
+  // locally (shared.rollFarmBreeding, the same odds the server used)
+  // and dispatch FARM_BREED_RESULT. The roll is client-side now — the
+  // server never sees a breed, only the kids in the next save. A
+  // no-kid tick just clears the flag. The effect is synchronous (no
+  // network call), so there is nothing in flight to guard and nothing
+  // to fail; a breed due before the farm is owned is a no-op in the
+  // reducer (it clears the flag). The farm kids are a big-action
+  // field, so a birth saves promptly via noteState.
   useEffect(() => {
-    if (!state.farmBreedDue || !savePlayerId || breedInFlightRef.current) {
+    if (!state.farmBreedDue) {
       return;
     }
-    breedInFlightRef.current = true;
     const farm = state.farm ?? shared.emptyFarmState();
-    breedFarm(SAVE_API_URL, savePlayerId, farm)
-      .then(({ status, data }) => {
-        breedInFlightRef.current = false;
-        if (status !== 200 || !data) {
-          // Not owned, cooldown, or a bad request: clear the flag so
-          // the next interval tries again.
-          dispatch({ type: "FARM_BREED_RESULT", payload: { kids: [] } });
-          return;
-        }
-        const kids = Array.isArray(data.kids) ? data.kids : [];
-        // Only record a claim when kids were actually born (and a
-        // breedId was issued). Which kids apply is decided against the
-        // LATEST farm (stateRef, not the farm the effect closed over):
-        // the reducer applies a kid only if its stall is still empty,
-        // and the claim must list exactly the kids that will be
-        // applied — a kid whose stall was filled after the breed call
-        // is never born and is never claimed. Reading stateRef here
-        // (at response time) and dispatching immediately keeps the
-        // claim and the reducer's state in agreement.
-        const latestFarm = stateRef.current.farm ?? shared.emptyFarmState();
-        const appliedKids = kids.filter((kid) => {
-          const stall = latestFarm.stalls[kid?.stallIndex];
-          return (
-            stall &&
-            stall.llama === null &&
-            typeof kid?.stallIndex === "number" &&
-            shared.LLAMA_TYPES.includes(kid.type)
-          );
-        });
-        if (data.breedId && appliedKids.length > 0) {
-          recordFarmBreed({ breedId: data.breedId, kids: appliedKids });
-        }
-        dispatch({ type: "FARM_BREED_RESULT", payload: { kids } });
-      })
-      .catch(() => {
-        breedInFlightRef.current = false;
-        // Network failure: the roll may or may not have landed, but
-        // nothing is applied when the server does not answer, so
-        // nothing is lost — clear the flag and the next interval
-        // tries again.
-        dispatch({ type: "FARM_BREED_RESULT", payload: { kids: [] } });
-      });
-  }, [state.farmBreedDue, state.farm, savePlayerId, recordFarmBreed]);
+    const kids = shared.rollFarmBreeding(farm.stalls, farm.unlockedTypes);
+    dispatch({ type: "FARM_BREED_RESULT", payload: { kids } });
+  }, [state.farmBreedDue, state.farm]);
 
   return (
     <GameContext.Provider
@@ -1376,8 +1359,7 @@ export function GameProvider({ children }) {
         saveNow,
         getSaveDiagnostics,
         resetProgress,
-        recordStarClaim,
-        recordFarmBreed,
+        requestClaimSave,
       }}
     >
       {children}

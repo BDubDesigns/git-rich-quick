@@ -18,15 +18,18 @@
  * - CONSISTENCY: an equipped cosmetic must be unlocked and in the
  *   right slot; Release Manager assignments cannot exceed managers
  *   owned and auto-ships are a subset of completions for unlocked
- *   projects; a claimed star outcome or farm breed must match a
- *   server-issued, unconsumed outcome (replay protection for the
- *   server-rolled star/breed systems, not leaderboard policing).
+ *   projects. Star outcomes and farm kids are rolled client-side now:
+ *   they arrive inside the ordinary save payload (star rewards in
+ *   linesOfCode/money/activeStarEffects, farm kids in the farm stalls),
+ *   so they are stored, never matched against a server-issued outcome.
+ *   There is nothing left to claim against.
  *
  * Everything else the old validator computed — the LOC cap, the exact
  * money accounting, the click cap, the action deltas, the unlock
  * recomputation, the cosmetic triggers, the farm purchase/plausibility
- * checks, the auto-ship rate cap — is gone. The client is trusted with
- * its own numbers now; the server stores what it sends.
+ * checks, the auto-ship rate cap, the star/farm claim matching — is
+ * gone. The client is trusted with its own numbers now; the server
+ * stores what it sends.
  *
  * Deliberate deviations, documented here and in the PR:
  *
@@ -37,27 +40,17 @@
  *    returns the rule; the HTTP layer maps SHAPE -> 400, RATE_LIMIT -> 429,
  *    everything else -> 409.
  *
- * 2. GOLDEN STARS (issue #33, server-rolled in issue #29) are decided
- *    by the SERVER, not the client. The client asks the server for a
- *    star outcome (POST /api/star/claim); the server rolls the effect,
- *    good/bad, and reward from the player's stored state, records the
- *    issued outcome (with a claimId) in `star_issues`, and returns it.
- *    The client applies exactly that claim and reports it in
- *    `actionsSinceLastSave.starClaims`. The server validates each claim
- *    against the issued outcomes (see `matchIssuedStarClaims`): the
- *    claimId must match an unconsumed issued outcome and the content
- *    must be identical — a forged or inflated claim has no issued row
- *    and is rejected. The server also rolls the next spawn time and
- *    tells the client, so the client never picks its own spawn time.
- *    The LOC and money rules then credit the claimed star gains (and
- *    debit the claimed losses) and add the buff allowance to the max
- *    earnable, so a legitimate star reward never false-rejects. A
- *    hacked client can no longer claim the maximum reward on every
- *    spawn: it can only claim what the server actually issued, once.
- *    The claim shape carries a claimId (a UUID); a claim without one
- *    is malformed (an old client bundle that predates the server roll
- *    will 400 on a star claim until it reloads — the save itself is
- *    not lost, and the next heartbeat retries with fresh state).
+ * 2. GOLDEN STARS (issue #33) are decided by the CLIENT now, not the
+ *    server. The client rolls the effect, good/bad, and reward from
+ *    shared/game-balance.js (the same pure helpers the server used)
+ *    and applies it to its own state; the next save carries the
+ *    result in the ordinary payload. The server never sees a claim
+ *    and never issues one — there is no `star_issues` table and no
+ *    claim matching anymore. A star reward is just LOC/money/buffs
+ *    in the save, like any other gain. The same applies to farm
+ *    breeding (issue #79): the client rolls the kid locally from
+ *    the shared odds, and the save carries the new llama in the
+ *    farm stalls.
  *
  * 3. COSMETICS (issue #11): the server no longer checks whether a
  *    newly claimed cosmetic's hire-count trigger is met — how a
@@ -69,15 +62,16 @@
  *
  * Star-era fields are backward-compatible: a save (or client) from
  * before Constellation shipped lacks `constellation` in the
- * open-source maps, `activeStarEffects` on the state, and `starClaims`
- * in the actions. Those are defaulted (constellation 0 / unlocked,
- * no active buffs, no claims) by `normalizeSaveState` /
- * `normalizeStarActions` before any check runs, so old saves keep
- * validating. Only the new fields are defaulted — a missing old
- * field is still a shape error. The same applies to the later
- * fields: `unlockedFreelanceProjects` (issue #19) is derived from
- * the shipped counts, and `unlockedCosmetics` / `equippedCosmetics`
- * (issue #11) are derived / defaulted the same way.
+ * open-source maps, `activeStarEffects` on the state, and the star
+ * timers (`nextStarAtMs`, `lastStarBuyAtMs`). Those are defaulted
+ * (constellation 0 / unlocked, no active buffs, no scheduled star,
+ * never bought) by `normalizeSaveState` / `normalizeActions` before
+ * any check runs, so old saves keep validating. Only the new fields
+ * are defaulted — a missing old field is still a shape error. The
+ * same applies to the later fields: `unlockedFreelanceProjects`
+ * (issue #19) is derived from the shipped counts, and
+ * `unlockedCosmetics` / `equippedCosmetics` (issue #11) are derived
+ * / defaulted the same way.
  *
  * Pure function: no I/O, no clock of its own. `prev` is the last accepted
  * snapshot `{ state, savedAtMs }`; for a brand-new player the store passes
@@ -95,12 +89,10 @@ import {
   FREELANCE_PROJECT_KEYS,
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
-  STAR_CONFIG,
-  STAR_EFFECT_IDS,
   canEquipCosmetic,
   findCosmetic,
   normalizeSaveState,
-  normalizeStarActions,
+  normalizeActions,
   releaseManagerAssignedCount,
 } from "../../shared/game-balance.js";
 
@@ -143,7 +135,7 @@ function isCountMap(obj, keys) {
  * Rule 1 — shape. Only known keys, right types, no negatives, levels
  * 0 to each project's own max (5 for all three projects now), NoPilot
  * frozen at 0 (no buy action exists for it in v1). Star-era fields
- * (activeStarEffects, starClaims) are validated here too.
+ * (activeStarEffects, the star timers) are validated here too.
  */
 /**
  * Shape-check a bare save state (no playerId, no actions). Extracted from
@@ -172,6 +164,8 @@ function checkStateShape(state) {
       "unlockedCosmetics",
       "equippedCosmetics",
       "farm",
+      "nextStarAtMs",
+      "lastStarBuyAtMs",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -230,6 +224,24 @@ function checkStateShape(state) {
   for (const entry of state.activeStarEffects) {
     const entryError = activeStarEffectError(entry);
     if (entryError) return entryError;
+  }
+  // Golden-star schedule (client-rolled now): the wall-clock time the
+  // next natural star is due (null = no star scheduled, e.g. level 0),
+  // and the wall-clock time the last StarBroker star was bought (null
+  // = never bought; the buy cooldown runs from it). Both are nullable
+  // ms-since-epoch numbers; the client rolls and persists them, the
+  // server only bounds the shape.
+  if (
+    state.nextStarAtMs !== null &&
+    (!Number.isInteger(state.nextStarAtMs) || state.nextStarAtMs < 0)
+  ) {
+    return "nextStarAtMs must be null or a non-negative integer (ms since epoch)";
+  }
+  if (
+    state.lastStarBuyAtMs !== null &&
+    (!Number.isInteger(state.lastStarBuyAtMs) || state.lastStarBuyAtMs < 0)
+  ) {
+    return "lastStarBuyAtMs must be null or a non-negative integer (ms since epoch)";
   }
   // In-game inbox (issue #31). The client caps the inbox at
   // EMAIL_CONFIG.maxInboxEmails and deletes the oldest past it, so a
@@ -315,9 +327,8 @@ function checkStateShape(state) {
   // stalls (exactly FARM_CONFIG.stallCount entries, each { llama,
   // lighting } with a llama that is null or a known type id and a
   // lighting that is a known color), and unlockedTypes (known type ids
-  // only, no duplicates). Whether a claimed kid matches a
-  // server-issued breed outcome is the FARM rule in validateSave, not
-  // the shape; how a llama was bought or bred is not policed anymore.
+  // only, no duplicates). How a llama was bought or bred is not
+  // policed anymore — the shape check only bounds the stalls and types.
   if (
     state.farm === null ||
     typeof state.farm !== "object" ||
@@ -400,8 +411,6 @@ function checkActionsShape(actions) {
       "projectsCompleted",
       "autoShips",
       "openSourceLevelsBought",
-      "starClaims",
-      "farmBreedClaims",
     ])
   ) {
     return "actionsSinceLastSave has unknown or missing keys";
@@ -427,20 +436,6 @@ function checkActionsShape(actions) {
     !isCountMap(actions.openSourceLevelsBought, OPEN_SOURCE_IDS)
   ) {
     return "actions.openSourceLevelsBought must be non-negative integer counts";
-  }
-  if (!Array.isArray(actions.starClaims)) {
-    return "actions.starClaims must be an array";
-  }
-  for (const claim of actions.starClaims) {
-    const claimError = starClaimShapeError(claim);
-    if (claimError) return claimError;
-  }
-  if (!Array.isArray(actions.farmBreedClaims)) {
-    return "actions.farmBreedClaims must be an array";
-  }
-  for (const claim of actions.farmBreedClaims) {
-    const claimError = farmBreedClaimShapeError(claim);
-    if (claimError) return claimError;
   }
   return null;
 }
@@ -581,294 +576,14 @@ function emailEntryError(entry) {
   );
 }
 
-/** Shape of one starClaims entry. Semantic checks live in matchIssuedStarClaims. */
-function starClaimShapeError(claim) {
-  if (claim === null || typeof claim !== "object" || Array.isArray(claim)) {
-    return "starClaims entries must be objects";
-  }
-  if (
-    !hasExactKeys(claim, [
-      "effect",
-      "good",
-      "locDelta",
-      "moneyDelta",
-      "multiplier",
-      "durationSeconds",
-      "employeeType",
-      "claimId",
-    ])
-  ) {
-    return "starClaims entries have unknown or missing keys";
-  }
-  if (!STAR_EFFECT_IDS.includes(claim.effect)) {
-    return `unknown star effect: ${claim.effect}`;
-  }
-  if (typeof claim.good !== "boolean") {
-    return "starClaims good must be a boolean";
-  }
-  // The claimId ties the claim to the server-issued outcome (issue
-  // #29). Without it the server cannot tell a real claim from a
-  // forged one, so a missing or malformed claimId is a shape error.
-  if (typeof claim.claimId !== "string" || !UUID_RE.test(claim.claimId)) {
-    return "starClaims claimId must be a UUID string";
-  }
-  if (!isInt(claim.locDelta) || !isInt(claim.moneyDelta)) {
-    return "starClaims locDelta and moneyDelta must be integers";
-  }
-  const isInstant = claim.effect === "lucky" || claim.effect === "shootingStars";
-  if (isInstant) {
-    if (claim.multiplier !== null || claim.durationSeconds !== null) {
-      return "instant star effects carry no multiplier or duration";
-    }
-    if (claim.employeeType !== null) {
-      return "instant star effects carry no employeeType";
-    }
-  } else {
-    if (typeof claim.multiplier !== "number" || !Number.isFinite(claim.multiplier)) {
-      return "timed star effects need a numeric multiplier";
-    }
-    if (!isInt(claim.durationSeconds)) {
-      return "timed star effects need an integer durationSeconds";
-    }
-    if (claim.effect === "employee") {
-      if (!EMPLOYEE_TYPES.includes(claim.employeeType)) {
-        return "employee star claims need a valid employeeType";
-      }
-    } else if (claim.employeeType !== null) {
-      return "employeeType must be null for non-employee star claims";
-    }
-  }
-  return null;
-}
-
-/**
- * Whether two star claims are the same outcome: the effect, good/bad
- * roll, instant deltas, and (for timed buffs) multiplier, duration,
- * and employee type must all match. The claimId is compared by the
- * caller, not here.
- */
-function sameStarClaim(a, b) {
-  return (
-    a.effect === b.effect &&
-    a.good === b.good &&
-    a.locDelta === b.locDelta &&
-    a.moneyDelta === b.moneyDelta &&
-    a.multiplier === b.multiplier &&
-    a.durationSeconds === b.durationSeconds &&
-    a.employeeType === b.employeeType
-  );
-}
-
-/**
- * Shape of one farmBreedClaims entry. Semantic checks live in
- * matchIssuedFarmBreeds. A claim is one server-rolled breeding tick:
- * the breedId that ties it to the issued outcome, and the kids the
- * client actually applied (each a stall index + a llama type).
- */
-function farmBreedClaimShapeError(claim) {
-  if (claim === null || typeof claim !== "object" || Array.isArray(claim)) {
-    return "farmBreedClaims entries must be objects";
-  }
-  if (!hasExactKeys(claim, ["breedId", "kids"])) {
-    return "farmBreedClaims entries have unknown or missing keys";
-  }
-  // The breedId ties the claim to the server-issued outcome (issue
-  // #79 feedback). Without it the server cannot tell a real breed
-  // from a forged one, so a missing or malformed breedId is a shape
-  // error.
-  if (typeof claim.breedId !== "string" || !UUID_RE.test(claim.breedId)) {
-    return "farmBreedClaims breedId must be a UUID string";
-  }
-  if (!Array.isArray(claim.kids)) {
-    return "farmBreedClaims kids must be an array";
-  }
-  for (const kid of claim.kids) {
-    if (kid === null || typeof kid !== "object" || Array.isArray(kid)) {
-      return "farmBreedClaims kids must be objects";
-    }
-    if (!hasExactKeys(kid, ["stallIndex", "type"])) {
-      return "farmBreedClaims kids have unknown or missing keys";
-    }
-    if (
-      !isInt(kid.stallIndex) ||
-      kid.stallIndex < 0 ||
-      kid.stallIndex >= FARM_CONFIG.stallCount
-    ) {
-      return "farmBreedClaims kid stallIndex must be a stall index";
-    }
-    if (!LLAMA_TYPES.includes(kid.type)) {
-      return `farmBreedClaims kid has an unknown llama type: ${kid.type}`;
-    }
-  }
-  return null;
-}
-
-/**
- * Whether a claimed kid matches an issued kid: same stall, same type.
- * The breedId is compared by the caller, not here.
- */
-function sameFarmKid(a, b) {
-  return a.stallIndex === b.stallIndex && a.type === b.type;
-}
-
-/**
- * Match a save's farm breed claims against the server-issued outcomes
- * (issue #79 feedback). `issued` is the player's unconsumed issued
- * breed outcomes (each carrying its breedId and its kids list), as the
- * store read them. Returns `{ ok: true, breedIds, kids }` (the issued
- * breedIds this save consumes, and the kids it applied), or
- * `{ ok: false, detail }` when a claim has no matching issued outcome.
- *
- * Each claim must match exactly one distinct issued outcome — same
- * breedId — and every kid in the claim must be one of the kids the
- * server rolled in that outcome (same stall, same type). A claim may
- * apply FEWER kids than were issued (a kid's stall can be filled by a
- * llama purchase in the same window, so that kid is never born), but
- * never more, and never a kid the server did not roll — so a forged,
- * inflated, or replayed breed is rejected. The whole issued outcome
- * is consumed when the save is accepted, even for the kids that were
- * never applied: those kids are gone, their stall is occupied now.
- *
- * An issued outcome EXPIRES issuedBreedValidSeconds after it was
- * issued (same reasoning as the star-claim-expiry fix: a prompt save
- * delayed by a deploy restart, a network failure, or rate-limit
- * retries still lands inside the window): a claim for an outcome older
- * than that is rejected even if it matches exactly and is unconsumed.
- * The store attaches `issuedAtMs` to each issued entry (from
- * farm_breed_issues.issued_at); entries without one — synthetic test
- * data that does not model issue time — skip the expiry check. `nowMs`
- * is the save time; when it is null the expiry check is skipped too.
- */
-export function matchIssuedFarmBreeds(claims, issued, nowMs = null) {
-  const unused = [...issued];
-  const breedIds = [];
-  const kids = [];
-  for (const claim of claims) {
-    const index = unused.findIndex(
-      (issuedOutcome) => issuedOutcome.breedId === claim.breedId
-    );
-    if (index === -1) {
-      return {
-        ok: false,
-        detail: `farm breed ${claim.breedId} does not match a server-issued outcome`,
-      };
-    }
-    const issuedOutcome = unused[index];
-    if (
-      nowMs !== null &&
-      typeof issuedOutcome.issuedAtMs === "number" &&
-      nowMs >
-        issuedOutcome.issuedAtMs +
-          FARM_CONFIG.issuedBreedValidSeconds * 1000 +
-          STAR_CLOCK_SKEW_GRACE_MS
-    ) {
-      return {
-        ok: false,
-        detail: `farm breed ${claim.breedId} expired: an issued outcome is only valid for ${FARM_CONFIG.issuedBreedValidSeconds}s after issue`,
-      };
-    }
-    for (const kid of claim.kids) {
-      if (!issuedOutcome.kids.some((issuedKid) => sameFarmKid(issuedKid, kid))) {
-        return {
-          ok: false,
-          detail: `farm breed ${claim.breedId} has a kid the server did not roll: stall ${kid.stallIndex} ${kid.type}`,
-        };
-      }
-      kids.push({ stallIndex: kid.stallIndex, type: kid.type });
-    }
-    breedIds.push(unused[index].breedId);
-    unused.splice(index, 1);
-  }
-  return { ok: true, breedIds, kids };
-}
-
-/**
- * Match a save's star claims against the server-issued outcomes
- * (issue #29). `issued` is the player's unconsumed issued outcomes
- * (each carrying its claimId), as the store read them. Returns
- * `{ ok: true, claimIds }` (the issued claimIds this save consumes),
- * or `{ ok: false, detail }` when a claim has no matching issued
- * outcome. Each claim must match exactly one distinct issued outcome
- * — same claimId and identical content — so a forged, inflated, or
- * replayed claim (an already-consumed outcome) is rejected. The
- * issued outcome is, by construction, an effect the server rolled
- * from the unlocked pool with in-range amounts and the exact
- * multiplier/duration, so matching it implies all of those checks;
- * there is no separate plausibility pass anymore. The spawn cap is
- * enforced at issuance (the server only issues a star when one is
- * due), not here.
- *
- * An issued outcome EXPIRES issuedOutcomeValidSeconds after it was
- * issued (star-claim-expiry fix — decoupled from the star's 30s
- * on-screen lifetime, so a prompt save delayed by a deploy restart,
- * a network failure, or rate-limit retries still lands inside the
- * window): a claim for an outcome older than that is rejected even
- * if it matches exactly and is unconsumed, so a stale outcome cannot
- * be claimed late by a tampered client. The store attaches
- * `issuedAtMs` to each issued entry (from star_issues.issued_at);
- * entries without one — synthetic test data that does not model issue
- * time — skip the expiry check. `nowMs` is the save time; when it is
- * null the expiry check is skipped too.
- */
-export function matchIssuedStarClaims(claims, issued, nowMs = null) {
-  const unused = [...issued];
-  const claimIds = [];
-  for (const claim of claims) {
-    const index = unused.findIndex(
-      (issuedClaim) =>
-        issuedClaim.claimId === claim.claimId &&
-        sameStarClaim(issuedClaim, claim)
-    );
-    if (index === -1) {
-      return {
-        ok: false,
-        detail: `star claim ${claim.claimId} does not match a server-issued outcome`,
-      };
-    }
-    const issuedClaim = unused[index];
-    if (
-      nowMs !== null &&
-      typeof issuedClaim.issuedAtMs === "number" &&
-      nowMs >
-        issuedClaim.issuedAtMs +
-          STAR_CONFIG.issuedOutcomeValidSeconds * 1000 +
-          STAR_CLOCK_SKEW_GRACE_MS
-    ) {
-      return {
-        ok: false,
-        detail: `star claim ${claim.claimId} expired: an issued outcome is only valid for ${STAR_CONFIG.issuedOutcomeValidSeconds}s after issue`,
-      };
-    }
-    claimIds.push(unused[index].claimId);
-    unused.splice(index, 1);
-  }
-  return { ok: true, claimIds };
-}
-
-/** Clock-skew grace for server-issued claim expiry (used by the star/farm claim matchers below). */
-const STAR_CLOCK_SKEW_GRACE_MS = 5000;
-
 /**
  * Validate one save attempt against the last accepted snapshot.
  * Returns `{ ok: true }` or `{ ok: false, rule, detail }`.
- * `issuedStarClaims` is the player's unconsumed server-issued star
- * outcomes (issue #29); a save's star claims must match them exactly.
- * Defaults to [] (no issued outcomes — any star claim is rejected).
- * `issuedFarmBreeds` is the player's unconsumed server-issued breed
- * outcomes (issue #79 feedback); a save's farm breed claims must
- * match them. Defaults to [] (no issued outcomes — any breed claim is
- * rejected).
  */
-export function validateSave(
-  prev,
-  body,
-  nowMs,
-  issuedStarClaims = [],
-  issuedFarmBreeds = []
-) {
+export function validateSave(prev, body, nowMs) {
   // Star-era fields are backward-compatible: default them on states and
   // actions that predate Constellation, so old saves keep validating.
-  // normalizeSaveState / normalizeStarActions return non-objects
+  // normalizeSaveState / normalizeActions return non-objects
   // unchanged, so a malformed body still fails the shape check below.
   const normalizedPrev = {
     ...(prev ?? {}),
@@ -877,7 +592,7 @@ export function validateSave(
   const normalizedBody = {
     ...(body ?? {}),
     state: normalizeSaveState(body?.state),
-    actionsSinceLastSave: normalizeStarActions(body?.actionsSinceLastSave),
+    actionsSinceLastSave: normalizeActions(body?.actionsSinceLastSave),
   };
   const shapeError = checkShape(normalizedBody);
   if (shapeError) return fail("SHAPE", shapeError);
@@ -1003,49 +718,6 @@ export function validateSave(
     }
   }
 
-  // Llama farm (issue #79): only the breed-claim match survives. Each
-  // breed claim must match a server-issued, unconsumed outcome, and
-  // every claimed kid must be one of the new llamas in this save. The
-  // purchase and plausibility checks that used to surround this are gone
-  // with the leaderboard — the server no longer polices whether a llama
-  // was bought or bred legitimately; the shape check still bounds the
-  // stalls and types. A failure here is a FARM rejection.
-  //
-  // New llamas: stalls that were empty in the previous save and hold a
-  // llama in this one. A stall's llama never changes or disappears
-  // (MONOTONIC, above), so every new llama is one of these.
-  const newFarmLlamas = [];
-  for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
-    const prevLlama = prevState.farm.stalls[i]?.llama ?? null;
-    const newLlama = newState.farm.stalls[i]?.llama ?? null;
-    if (prevLlama === null && newLlama !== null) {
-      newFarmLlamas.push({ stallIndex: i, type: newLlama });
-    }
-  }
-  const farmBreedClaims = actions.farmBreedClaims ?? [];
-  const farmBreedMatch = matchIssuedFarmBreeds(
-    farmBreedClaims,
-    issuedFarmBreeds,
-    nowMs
-  );
-  if (!farmBreedMatch.ok) return fail("FARM", farmBreedMatch.detail);
-  const bredKids = farmBreedMatch.kids;
-  // Every bred kid must be one of the new llamas (same stall, same
-  // type) — the claim is only valid if the client actually applied the
-  // kid the server rolled.
-  for (const kid of bredKids) {
-    if (
-      !newFarmLlamas.some(
-        (llama) => llama.stallIndex === kid.stallIndex && llama.type === kid.type
-      )
-    ) {
-      return fail(
-        "FARM",
-        `farm breed claim for stall ${kid.stallIndex} ${kid.type} does not match the new llamas`
-      );
-    }
-  }
-
   // Release Manager (auto-ships freelance projects). A failure here is
   // a RELEASE_MANAGER rejection.
   //
@@ -1094,15 +766,6 @@ export function validateSave(
   if (newState.totalLinesOfCode < newState.linesOfCode) {
     return fail("LOC", "totalLinesOfCode is less than linesOfCode");
   }
-
-  // Star claims (issue #29): each claim must match a server-issued,
-  // unconsumed outcome exactly. This is replay protection for the
-  // server-rolled star system, not leaderboard policing — an issued
-  // outcome can only be claimed once, and the client only ever applies
-  // what the server rolled. A failed claim is a STAR rejection.
-  const starClaims = actions.starClaims ?? [];
-  const starMatch = matchIssuedStarClaims(starClaims, issuedStarClaims, nowMs);
-  if (!starMatch.ok) return fail("STAR", starMatch.detail);
 
   return { ok: true };
 }

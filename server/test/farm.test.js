@@ -1,23 +1,25 @@
 /**
  * Tests for the llama farm mini-game (issue #79): the purchase, llama
- * buying, and the server-rolled breeding rules, plus the old-save
+ * buying, and the client-side breeding rules, plus the old-save
  * migration that backfills the farm.
  *
  * Key numbers (issue #79 feedback): farm costs 1000000c ($10,000); 9
- * stalls in a 3x3 grid; breeding check every 60s, rolled on the SERVER
- * (POST /api/farm/breed) — the client never rolls breeding. The barn
+ * stalls in a 3x3 grid; breeding check every 60s, rolled on the CLIENT
+ * (shared.rollFarmBreeding, the same odds the server used) — the
+ * server never sees a breed, only the kids in the next save. The barn
  * arrives EMPTY (no free llamas); base llamas cost 50000c ($500) each
  * in the shop, and bred types come only from breeding. A kid can only
  * be born in a stall with at least two llama neighbours, and no more
  * kids can be born in a window than there were empty stalls when the
- * window started (each kid fills a distinct empty stall). A save only
- * accepts a kid that matches a server-issued breed outcome — a
- * client-injected kid is rejected.
+ * window started (each kid fills a distinct empty stall). The server
+ * stores whatever kid the client sends, as long as the state is
+ * well-formed (MONOTONIC still holds a stall's llama, so a kid cannot
+ * overwrite or vanish one) — kid origins are not policed anymore.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateSave, matchIssuedFarmBreeds } from "../src/validate.js";
+import { validateSave } from "../src/validate.js";
 import {
   FARM_CONFIG,
   LLAMA_BASE_TYPES,
@@ -35,8 +37,6 @@ import {
 
 const T0 = 1_700_000_000_000;
 const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
-const BREED_ID = "123e4567-e89b-42d3-a456-426614174001";
-const BREED_ID_2 = "123e4567-e89b-42d3-a456-426614174002";
 
 function zeroActions() {
   return {
@@ -63,8 +63,6 @@ function zeroActions() {
       constellation: 0,
       starBroker: 0,
     },
-    starClaims: [],
-    farmBreedClaims: [],
   };
 }
 
@@ -130,25 +128,9 @@ function withStall(farm, index, stall) {
   return { ...farm, stalls };
 }
 
-/** One issued breed outcome, as the store would read it. */
-function issuedBreed(breedId, kids, issuedAtMs = T0) {
-  return { breedId, kids, issuedAtMs };
-}
-
-/** One farm breed claim, as the client would send it. */
-function breedClaim(breedId, kids) {
-  return { breedId, kids };
-}
-
-/** validateSave with the given issued farm breeds (no star claims). */
-function validateWithBreeds(before, after, actions, issuedBreeds, nowMs) {
-  return validateSave(
-    prev(before, T0),
-    body(after, actions),
-    nowMs,
-    [],
-    issuedBreeds
-  );
+/** validateSave with no actions (a save carrying no deltas). */
+function validate(before, after, nowMs) {
+  return validateSave(prev(before, T0), body(after, zeroActions()), nowMs);
 }
 
 // ---- Shared breeding helpers ----
@@ -369,46 +351,28 @@ test("buying a non-base llama is accepted (leaderboard killed: llama types are t
 
 // ---- Breeding (server-rolled) ----
 
-test("a server-rolled kid born in an eligible stall is accepted", () => {
+test("a locally-rolled kid born in an eligible stall is accepted", () => {
   const before = ownedFarmState(75000);
   // A classic kid in stall 1: its neighbours (0, 2, 4) are all llamas.
+  // The kid arrives in the save state (the client rolled it); there
+  // is no claim to attach — the server stores the state.
   const farm = withStall(before.farm, 1, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
-  ];
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
-    T0 + 60_000
-  );
+  const result = validate(before, after, T0 + 60_000);
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a server-rolled kid of a brand-new type is accepted and unlocks the type", () => {
+test("a locally-rolled kid of a brand-new type is accepted and unlocks the type", () => {
   const before = ownedFarmState(75000);
   // A spaghetti kid in stall 1: a new type, so the unlocked list grows.
   const farm = withStall(before.farm, 1, { llama: "spaghetti" });
   farm.unlockedTypes = [...LLAMA_BASE_TYPES, "spaghetti"];
   const after = stateWith({ money: 75000, farm });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 1, type: "spaghetti" }]),
-  ];
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "spaghetti" }])],
-    T0 + 60_000
-  );
+  const result = validate(before, after, T0 + 60_000);
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("filling all four empty stalls in one server-rolled tick is accepted", () => {
+test("filling all four empty stalls in one locally-rolled tick is accepted", () => {
   // 4 kids, 4 empty stalls, one breed tick: exactly at the cap.
   const before = ownedFarmState(75000);
   let farm = before.farm;
@@ -416,29 +380,15 @@ test("filling all four empty stalls in one server-rolled tick is accepted", () =
     farm = withStall(farm, index, { llama: "classic" });
   }
   const after = stateWith({ money: 75000, farm });
-  const kids = [1, 3, 5, 7].map((stallIndex) => ({
-    stallIndex,
-    type: "classic",
-  }));
-  const actions = zeroActions();
-  actions.farmBreedClaims = [breedClaim(BREED_ID, kids)];
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, kids)],
-    T0 + 60_000
-  );
+  const result = validate(before, after, T0 + 60_000);
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a llama with no issued outcome is accepted as a bought llama (leaderboard killed: llama origins are trusted)", () => {
-  // A spaghetti kid sits in an eligible stall and looks plausible —
-  // but the server never rolled it, so there is no breed claim and no
-  // issued outcome. With no claim attached, it is indistinguishable
-  // from a bought llama, and buying is no longer policed — so the
-  // server stores it. A breed CLAIM that matches no issued outcome is
-  // still rejected (see the claim tests below).
+test("a kid in the state is accepted with no claim attached (breeding is client-side: kid origins are trusted)", () => {
+  // A spaghetti kid sits in an eligible stall. There is no breed claim
+  // and no issued outcome anywhere — the server never rolled it, and
+  // it never will. The kid is indistinguishable from a bought llama,
+  // and buying is no longer policed — so the server stores it.
   const before = ownedFarmState(75000);
   const farm = withStall(before.farm, 1, { llama: "spaghetti" });
   farm.unlockedTypes = [...LLAMA_BASE_TYPES, "spaghetti"];
@@ -451,73 +401,44 @@ test("a llama with no issued outcome is accepted as a bought llama (leaderboard 
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a breed claim that matches no issued outcome is rejected", () => {
+test("a kid is accepted even though its breedId matches no issued outcome (there are no issued outcomes anymore)", () => {
+  // The old FARM rule rejected a claim whose breedId matched nothing
+  // the server issued. The claim mechanism is gone: the kid is in the
+  // state, the state is well-formed, and the server stores it.
   const before = ownedFarmState(75000);
   const farm = withStall(before.farm, 1, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
-  ];
-  // The issued outcome is a DIFFERENT breedId: the claim is forged.
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID_2, [{ stallIndex: 1, type: "classic" }])],
-    T0 + 60_000
-  );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  const result = validate(before, after, T0 + 60_000);
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a breed claim for a kid the server did not roll is rejected", () => {
+test("a kid the server never rolled is accepted (breeding is client-side: the server cannot know what was rolled)", () => {
+  // The old FARM rule rejected a kid that was not one the server
+  // rolled. The server rolls nothing now — the client rolls, and the
+  // save carries the result. A kid in a well-formed state is stored.
   const before = ownedFarmState(75000);
   const farm = withStall(before.farm, 1, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
-  ];
-  // The issued outcome rolled a DIFFERENT kid (stall 3, drama): the
-  // claim's kid is not one the server rolled.
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, [{ stallIndex: 3, type: "drama" }])],
-    T0 + 60_000
-  );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  const result = validate(before, after, T0 + 60_000);
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a breed claim for an expired issued outcome is rejected", () => {
+test("a kid is accepted regardless of when it was born (no issued-outcome expiry anymore)", () => {
+  // The old FARM rule rejected a claim past the 300s validity + 5s
+  // grace. There is no issued outcome to expire now — the kid is in
+  // the state, and the state is stored whenever it arrives.
   const before = ownedFarmState(75000);
   const farm = withStall(before.farm, 1, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
-  ];
-  // Issued at T0, saved at T0 + 400s: past the 300s validity + 5s
-  // grace, so the outcome is stale even though it matches exactly.
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }], T0)],
-    T0 + 400_000
-  );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "FARM");
+  const result = validate(before, after, T0 + 400_000);
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-test("a kid in a stall without two llama neighbours is accepted when the claim matches (leaderboard killed: no plausibility backstop)", () => {
+test("a kid in a stall without two llama neighbours is accepted (breeding is client-side: no plausibility backstop)", () => {
   // A barn with llamas only at stalls 0 and 4: stall 6 has neighbours
   // 3 and 7, both empty, so a kid there was never between two llamas.
-  // The plausibility backstop is gone — a claim that matches the issued
-  // outcome is enough.
+  // The plausibility backstop is gone — a kid in a well-formed state
+  // is stored, wherever it sits.
   const before = ownedFarmState(75000);
   const sparse = {
     owned: true,
@@ -530,23 +451,13 @@ test("a kid in a stall without two llama neighbours is accepted when the claim m
   const beforeSparse = stateWith({ money: 75000, farm: sparse });
   const farm = withStall(sparse, 6, { llama: "classic" });
   const after = stateWith({ money: 75000, farm });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 6, type: "classic" }]),
-  ];
-  const result = validateWithBreeds(
-    beforeSparse,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, [{ stallIndex: 6, type: "classic" }])],
-    T0 + 60_000
-  );
+  const result = validate(beforeSparse, after, T0 + 60_000);
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 test("a bought llama and a bred kid in one window are both accepted", () => {
-  // Stall 1 gets a bred classic kid (issued), stall 5 gets a bought
-  // drama llama (base type, paid for). The money deducts the llama.
+  // Stall 1 gets a bred classic kid, stall 5 gets a bought drama
+  // llama (base type, paid for). The money deducts the llama.
   const before = ownedFarmState(75000);
   let farm = withStall(before.farm, 1, { llama: "classic" });
   farm = withStall(farm, 5, { llama: "drama" });
@@ -554,59 +465,8 @@ test("a bought llama and a bred kid in one window are both accepted", () => {
     money: 75000 - FARM_CONFIG.llamaPriceCents,
     farm,
   });
-  const actions = zeroActions();
-  actions.farmBreedClaims = [
-    breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }]),
-  ];
-  const result = validateWithBreeds(
-    before,
-    after,
-    actions,
-    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
-    T0 + 60_000
-  );
+  const result = validate(before, after, T0 + 60_000);
   assert.equal(result.ok, true, JSON.stringify(result));
-});
-
-// ---- Breed matcher ----
-
-test("matchIssuedFarmBreeds accepts an exact claim and returns its kids", () => {
-  const result = matchIssuedFarmBreeds(
-    [breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
-    [issuedBreed(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
-    T0 + 60_000
-  );
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.breedIds, [BREED_ID]);
-  assert.deepEqual(result.kids, [{ stallIndex: 1, type: "classic" }]);
-});
-
-test("matchIssuedFarmBreeds accepts a claim that applies fewer kids than issued", () => {
-  // The server rolled two kids; the client only applied one (the
-  // other's stall was filled by a purchase). The claim is valid for
-  // the kid it applied.
-  const issued = [
-    issuedBreed(BREED_ID, [
-      { stallIndex: 1, type: "classic" },
-      { stallIndex: 3, type: "drama" },
-    ]),
-  ];
-  const result = matchIssuedFarmBreeds(
-    [breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
-    issued,
-    T0 + 60_000
-  );
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.kids, [{ stallIndex: 1, type: "classic" }]);
-});
-
-test("matchIssuedFarmBreeds rejects a claim with no matching outcome", () => {
-  const result = matchIssuedFarmBreeds(
-    [breedClaim(BREED_ID, [{ stallIndex: 1, type: "classic" }])],
-    [issuedBreed(BREED_ID_2, [{ stallIndex: 1, type: "classic" }])],
-    T0 + 60_000
-  );
-  assert.equal(result.ok, false);
 });
 
 // ---- Monotonic farm rules ----
@@ -730,7 +590,11 @@ test("an unbought farm holding llamas is a shape error", () => {
   assert.equal(result.rule, "SHAPE");
 });
 
-test("a farm breed claim with a malformed breedId is a shape error", () => {
+test("a legacy farm breed claim key in the actions is ignored (old clients still validate)", () => {
+  // A client from before the client-side breeding move still sends
+  // farmBreedClaims (even a malformed one). normalizeActions strips
+  // the whole key before the shape check, so the save validates
+  // instead of 400ing on the deploy window.
   const before = ownedFarmState(75000);
   const after = stateWith({ money: 75000, farm: before.farm });
   const actions = zeroActions();
@@ -742,8 +606,7 @@ test("a farm breed claim with a malformed breedId is a shape error", () => {
     body(after, actions),
     T0 + 60_000
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "SHAPE");
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 // ---- Old-save migration ----

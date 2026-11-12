@@ -233,67 +233,39 @@ test("reset keeps the account link and the same playerId", async () => {
   }
 });
 
-test("reset clears server-side star state and consumes issued outcomes", async () => {
+test("reset restores the star timers to null (the schedule lives in the save state now)", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
+    // A player with Constellation L1 and a live star schedule (a
+    // natural star due, and a StarBroker buy on cooldown). The timers
+    // live in the save state now (nextStarAtMs / lastStarBuyAtMs) —
+    // there are no server-side star columns or issued outcomes to
+    // clear anymore.
     await setState(srv, playerId, {
       linesOfCode: 5000,
       totalLinesOfCode: 5000,
       openSourceProjects: { constellation: 1, starBroker: 1 },
+      nextStarAtMs: T0 + 120_000,
+      lastStarBuyAtMs: T0,
     });
-    // Roll a next star so next_star_at_ms is set, and plant a
-    // pending bought star + an unconsumed issued outcome (test setup,
-    // not the star path — the star endpoints are covered by their own
-    // tests).
-    const next = await fetch(
-      `${srv.base}/api/star/next?playerId=${playerId}`
-    );
-    assert.equal(next.status, 200);
-    const nextBody = await next.json();
-    assert.notEqual(nextBody.nextStarAtMs, null);
-    await srv.pool.query(
-      `UPDATE git_saves
-       SET last_star_buy_at_ms = $1, bought_star_at_ms = $1
-       WHERE player_id = $2`,
-      [T0, playerId]
-    );
-    const claimId = randomUUID();
-    await srv.pool.query(
-      `INSERT INTO star_issues (claim_id, player_id, claim, issued_at)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        claimId,
-        playerId,
-        JSON.stringify({ effect: "lucky", good: true }),
-        new Date(T0).toISOString(),
-      ]
-    );
 
     const res = await post(srv.base, "/api/save/reset", { playerId });
     assert.equal(res.status, 200);
 
-    const row = await srv.pool.query(
-      `SELECT next_star_at_ms, last_star_buy_at_ms, bought_star_at_ms
-       FROM git_saves WHERE player_id = $1`,
-      [playerId]
+    // The reset restores the fresh initial state — no star scheduled,
+    // never bought (Constellation level 0, so the client hides the
+    // star UI and rolls a fresh schedule only if the player re-unlocks
+    // it).
+    const loaded = await fetch(
+      `${srv.base}/api/load?playerId=${playerId}`
     );
-    assert.equal(row.rows[0].next_star_at_ms, null);
-    assert.equal(row.rows[0].last_star_buy_at_ms, null);
-    assert.equal(row.rows[0].bought_star_at_ms, null);
-    const issues = await srv.pool.query(
-      `SELECT consumed_at FROM star_issues WHERE claim_id = $1`,
-      [claimId]
-    );
-    assert.notEqual(issues.rows[0].consumed_at, null);
-
-    // The next-star endpoint now reports no stars (fresh state has
-    // Constellation level 0), so the client hides the star UI.
-    const after = await fetch(
-      `${srv.base}/api/star/next?playerId=${playerId}`
-    );
-    assert.equal(after.status, 200);
-    assert.equal((await after.json()).nextStarAtMs, null);
+    assert.equal(loaded.status, 200);
+    const state = (await loaded.json()).state;
+    assert.equal(state.nextStarAtMs, null);
+    assert.equal(state.lastStarBuyAtMs, null);
+    assert.equal(state.openSourceProjects.constellation, 0);
+    assert.equal(state.openSourceProjects.starBroker, 0);
   } finally {
     await srv.stop();
   }

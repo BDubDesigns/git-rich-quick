@@ -7,8 +7,9 @@
  * `{ id: level }`). These are thin adapters — the numbers come from the
  * reducer, never invented here.
  *
- * The 14 game fields are saved, including the timed golden-star buffs
- * (activeStarEffects), the in-game inbox (emails, issue #31), and the
+ * The 19 game fields are saved, including the timed golden-star buffs
+ * (activeStarEffects), the star schedule timers (nextStarAtMs /
+ * lastStarBuyAtMs), the in-game inbox (emails, issue #31), and the
  * cosmetics (unlockedCosmetics / equippedCosmetics, issue #11). UI state (activeTab, selectedPanes,
  * clickHistory, currentCPS, uiState) is NOT saved and is reset to the
  * initial values on restore.
@@ -105,10 +106,17 @@ export function stateToSaveState(clientState) {
       })),
       unlockedTypes: [...(clientState.farm?.unlockedTypes ?? [])],
     },
+    // Golden-star schedule (client-rolled now). The wall-clock time
+    // the next natural star is due (null = no star scheduled) and the
+    // wall-clock time the last StarBroker star was bought (null =
+    // never bought). Persisted so the countdown and the buy cooldown
+    // survive a reload; a missing value defaults to null.
+    nextStarAtMs: clientState.nextStarAtMs ?? null,
+    lastStarBuyAtMs: clientState.lastStarBuyAtMs ?? null,
   };
 }
 
-/** Server flat save shape -> the 14 game fields in client reducer shape. */
+/** Server flat save shape -> the 19 game fields in client reducer shape. */
 export function saveStateToGameFields(saveState) {
   return {
     linesOfCode: saveState.linesOfCode,
@@ -221,6 +229,13 @@ export function saveStateToGameFields(saveState) {
         unlockedTypes,
       };
     })(),
+    // Golden-star schedule (client-rolled now). A save from before
+    // this slice has neither field — default both to null (no star
+    // scheduled, never bought), the same way the server's
+    // normalizeSaveState does on save. The star UI rolls a fresh
+    // schedule on load when Constellation is unlocked.
+    nextStarAtMs: saveState.nextStarAtMs ?? null,
+    lastStarBuyAtMs: saveState.lastStarBuyAtMs ?? null,
   };
 }
 
@@ -249,15 +264,6 @@ export function emptyActions() {
       acc[key] = 0;
       return acc;
     }, {}),
-    // Golden-star claims since the last accepted save. The server
-    // validates each claim (effect unlocked, amounts in range, count
-    // capped by the spawn rate) and credits it in the LOC/money rules.
-    starClaims: [],
-    // Farm breed claims since the last accepted save (issue #79
-    // feedback). The server validates each claim's kids against a
-    // server-issued breed outcome; any new llama that is not a matched
-    // breed kid must be a bought base llama.
-    farmBreedClaims: [],
   };
 }
 
@@ -280,7 +286,7 @@ export function diffCounts(baseline, current, keys) {
  * level, new email, cosmetic unlock/equip). Used to trigger a save on big actions. Project completions
  * (Ship) are deliberately NOT here: Ship is a rapid-fire action (the
  * player smashes it to sell LOC for cash as fast as possible), so
- * saving on every Ship would spam the 10s rate limit. Ship progress
+ * saving on every Ship would spam the 1s rate limit. Ship progress
  * is still saved by the 60s heartbeat and by the keepalive on tab
  * hide/unload. A new email IS here: mail arrives rarely (unlocks,
  * star rewards), and the inbox should persist promptly. A cosmetic
@@ -323,6 +329,14 @@ export function bigActionFields(saveState) {
     releaseManagerAssignments: JSON.stringify(
       saveState.releaseManagerAssignments ?? {}
     ),
+    // Golden-star schedule (client-rolled now): the next star's due
+    // time and the last StarBroker buy time. A new schedule (a claim,
+    // a despawn, the first roll after unlock) or a new buy is a
+    // meaningful state change, so it saves promptly — the countdown
+    // and the buy cooldown survive a tab close. Compared as raw
+    // values (a timestamp, or null): any change is a big action.
+    nextStarAtMs: saveState.nextStarAtMs ?? null,
+    lastStarBuyAtMs: saveState.lastStarBuyAtMs ?? null,
   };
 }
 
@@ -378,6 +392,10 @@ export function isInitialSaveState(saveState) {
   if ((saveState.farm?.stalls ?? []).some((stall) => stall.llama !== null))
     return false;
   if ((saveState.farm?.unlockedTypes ?? []).length !== 0) return false;
+  // Golden-star schedule (client-rolled now): a fresh save has no
+  // star scheduled and has never bought one.
+  if ((saveState.nextStarAtMs ?? null) !== null) return false;
+  if ((saveState.lastStarBuyAtMs ?? null) !== null) return false;
   return true;
 }
 
@@ -417,6 +435,13 @@ export function bigActionIncreased(prev, next) {
     (next.releaseManagerAssignments ?? "") !==
     (prev.releaseManagerAssignments ?? "")
   )
+    return true;
+  // Golden-star schedule (client-rolled now): any change to the next
+  // star's due time (a claim, a despawn, the first roll) or to the
+  // last buy time is a big action, like an equip.
+  if ((next.nextStarAtMs ?? null) !== (prev.nextStarAtMs ?? null))
+    return true;
+  if ((next.lastStarBuyAtMs ?? null) !== (prev.lastStarBuyAtMs ?? null))
     return true;
   return false;
 }
