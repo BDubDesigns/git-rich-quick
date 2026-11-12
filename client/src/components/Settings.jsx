@@ -26,6 +26,7 @@ import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
+import { APP_COMMIT, buildTimeLabel } from "../version.js";
 import {
   getSoundVolume,
   setSoundVolume,
@@ -479,6 +480,15 @@ export function Settings() {
           </>
         )}
       </section>
+
+      {/* Version: the deployed build, so a player can confirm which
+          code they are running — e.g. whether a fix has actually
+          reached them, or their browser is holding an old cached
+          bundle. The commit is the short git hash of the deploy. */}
+      <p className="m-0 text-center text-xs opacity-60">
+        Version {APP_COMMIT}
+        {buildTimeLabel() ? ` · built ${buildTimeLabel()}` : ""}
+      </p>
     </SectionLayout>
   );
 }
