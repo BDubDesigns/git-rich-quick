@@ -69,6 +69,38 @@ export const DEFAULT_RETRY_AFTER_SECONDS = 10;
  */
 export const SAVE_RATE_LIMIT_SECONDS = 10;
 
+/** localStorage key for the save-attempt diagnostics log. */
+const SAVE_ATTEMPTS_KEY = "grq:saveAttempts";
+/** How many save attempts the diagnostics log keeps (newest 20). */
+const SAVE_ATTEMPTS_MAX = 20;
+
+/**
+ * Short greppable detail for a thrown error: the timeout name for a
+ * stalled request, otherwise the message (fetch failures read
+ * "Failed to fetch"). Used in the diagnostics log so a network failure
+ * is identifiable without opening the console.
+ */
+function errorDetail(err) {
+  if (!err) return "unknown error";
+  if (err.name === "TimeoutError") return "TimeoutError";
+  if (err.message) return String(err.message);
+  return String(err.name ?? err);
+}
+
+/**
+ * Short greppable detail for a server rejection: "RULE: detail"
+ * (e.g. "SHAPE: freelanceProjectsCompleted has a null value"), the
+ * rule alone when there is no detail, or the server's error string.
+ */
+function rejectionDetail(data) {
+  if (!data || typeof data !== "object") return "rejected";
+  if (data.rule) {
+    return data.detail ? `${data.rule}: ${data.detail}` : String(data.rule);
+  }
+  if (data.error) return String(data.error);
+  return "rejected";
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -184,10 +216,91 @@ export class SaveSync {
     this._lastSeenBig = null;
     this._onVisibilityChange = null;
     this._onPageHide = null;
+    // Diagnostics: the current status and last-saved time (for the
+    // snapshot), and the save-attempt log (last 20, persisted so a
+    // stuck save can be inspected after a reload).
+    this._saveStatus = "loading";
+    this._lastSavedAtMs = null;
+    this._saveAttempts = this._loadSaveAttempts();
   }
 
   setStatus(status) {
+    this._saveStatus = status;
     this.onStatus(status);
+  }
+
+  // Record when a save was accepted (or an existing save was loaded)
+  // so the diagnostics snapshot reports the real last-saved time.
+  _reportSavedAt(timestampMs) {
+    this._lastSavedAtMs = timestampMs;
+    this.onSavedAt(timestampMs);
+  }
+
+  // Load the persisted save-attempt log (last 20). A missing,
+  // malformed, or unreadable value just means an empty log.
+  _loadSaveAttempts() {
+    try {
+      const raw = this.storage.getItem(SAVE_ATTEMPTS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter(
+          (e) =>
+            e &&
+            typeof e === "object" &&
+            typeof e.at === "string" &&
+            typeof e.trigger === "string" &&
+            typeof e.outcome === "string"
+        )
+        .slice(-SAVE_ATTEMPTS_MAX);
+    } catch {
+      return [];
+    }
+  }
+
+  // Append one save attempt to the diagnostics log (capped at 20,
+  // oldest dropped) and persist it. Storage failures (private mode,
+  // quota) are swallowed: the log stays in-memory only.
+  _recordSaveAttempt({ trigger, outcome, status, detail }) {
+    const entry = {
+      at: new Date().toISOString(),
+      trigger,
+      outcome,
+      status: typeof status === "number" ? status : null,
+      detail: detail ? String(detail) : null,
+    };
+    this._saveAttempts.push(entry);
+    if (this._saveAttempts.length > SAVE_ATTEMPTS_MAX) {
+      this._saveAttempts.splice(
+        0,
+        this._saveAttempts.length - SAVE_ATTEMPTS_MAX
+      );
+    }
+    try {
+      this.storage.setItem(
+        SAVE_ATTEMPTS_KEY,
+        JSON.stringify(this._saveAttempts)
+      );
+    } catch {
+      // Storage unavailable: in-memory only, do not throw.
+    }
+  }
+
+  /**
+   * Diagnostics snapshot for Settings (Copy diagnostics): the save
+   * attempt log (chronological, oldest first), the current save
+   * status, the last accepted save time (ms since epoch, null when
+   * never), and the player id. A fresh copy each call, so the caller
+   * cannot mutate the engine's log.
+   */
+  getSaveDiagnostics() {
+    return {
+      attempts: this._saveAttempts.map((a) => ({ ...a })),
+      saveStatus: this._saveStatus,
+      lastSavedAt: this._lastSavedAtMs,
+      playerId: this.playerId,
+    };
   }
 
   /** Start: init (mint/load), then the 60s heartbeat. Safe to call twice. */
@@ -279,7 +392,7 @@ export class SaveSync {
           // report it so the footer shows the real relative time
           // ("Saved 5m ago") instead of the "Progress saved" fallback.
           const savedAtMs = Date.parse(data.savedAt);
-          if (!Number.isNaN(savedAtMs)) this.onSavedAt(savedAtMs);
+          if (!Number.isNaN(savedAtMs)) this._reportSavedAt(savedAtMs);
           this.setStatus("saved");
           return;
         }
@@ -432,11 +545,23 @@ export class SaveSync {
         result = await resetSave(this.apiBaseUrl, this.playerId);
       } catch (err) {
         console.warn("[save] reset failed (network):", err);
+        this._recordSaveAttempt({
+          trigger: "reset",
+          outcome: "offline",
+          status: null,
+          detail: errorDetail(err),
+        });
         this.setStatus("error");
         return { ok: false, error: "network" };
       }
       if (result.status !== 200) {
         console.warn(`[save] reset failed (HTTP ${result.status})`);
+        this._recordSaveAttempt({
+          trigger: "reset",
+          outcome: "error",
+          status: result.status,
+          detail: `HTTP ${result.status}`,
+        });
         this.setStatus("error");
         return { ok: false, error: `http-${result.status}` };
       }
@@ -449,8 +574,14 @@ export class SaveSync {
       this._lastSeenBig = bigActionFields(initial);
       this.needsLoad = false;
       this.restore(initial);
-      this.onSavedAt(Date.now());
+      this._reportSavedAt(Date.now());
       this.setStatus("saved");
+      this._recordSaveAttempt({
+        trigger: "reset",
+        outcome: "reset",
+        status: 200,
+        detail: null,
+      });
       return { ok: true };
     } finally {
       this._resetting = false;
@@ -534,6 +665,18 @@ export class SaveSync {
     this._inFlight = true;
     this.setStatus("saving");
     let outcome = "done";
+    // Diagnostics for this attempt: each branch sets the outcome as
+    // it is decided; the finally records it, so every completion is
+    // logged (success, rate-limit, revert, error, network failure) even
+    // though the branches return early.
+    let attemptOutcome = null;
+    let attemptStatus = null;
+    let attemptDetail = null;
+    const note = (o, s, d) => {
+      attemptOutcome = o;
+      attemptStatus = s ?? null;
+      attemptDetail = d ?? null;
+    };
     try {
       // Offline at init: load the server state before saving, so we never
       // overwrite a real save with a local initial state.
@@ -553,7 +696,8 @@ export class SaveSync {
               this.needsLoad = false;
               // Same as init's load: report when the server last saved.
               const savedAtMs = Date.parse(data.savedAt);
-              if (!Number.isNaN(savedAtMs)) this.onSavedAt(savedAtMs);
+              if (!Number.isNaN(savedAtMs)) this._reportSavedAt(savedAtMs);
+              note("saved", 200, "adopted server state");
               this.setStatus("saved");
               return;
             }
@@ -568,12 +712,14 @@ export class SaveSync {
               await this._mintFresh();
             } catch (err) {
               console.warn("[save] could not mint a fresh player:", err);
+              note("offline", null, errorDetail(err));
               this.setStatus("offline");
               return;
             }
           }
         } catch (err) {
           console.warn("[save] still offline, skipping save:", err);
+          note("offline", null, errorDetail(err));
           this.setStatus("offline");
           return;
         }
@@ -630,6 +776,7 @@ export class SaveSync {
       } catch (err) {
         // Network failure: keep everything, retry on the next heartbeat.
         console.warn("[save] save failed (network):", err);
+        note("offline", null, errorDetail(err));
         this.setStatus("offline");
         outcome = "offline";
         return;
@@ -647,7 +794,8 @@ export class SaveSync {
         this.farmBreedClaims.splice(0, sentFarmBreedClaimCount);
         this._clearRetryTimer();
         this.onRetry(null);
-        this.onSavedAt(Date.now());
+        this._reportSavedAt(Date.now());
+        note("saved", 200, null);
         this.setStatus("saved");
         return;
       }
@@ -661,6 +809,7 @@ export class SaveSync {
         const retryAfter =
           result.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS;
         console.info(`[save] rate-limited, retrying in ${retryAfter}s`);
+        note("rate-limited", 429, `retry in ${retryAfter}s`);
         if (this._scheduleRetry(retryAfter)) {
           this.onRetry(retryAfter);
         }
@@ -677,6 +826,7 @@ export class SaveSync {
           `[save] save rejected (${result.data?.rule}: ${result.data?.detail}); reverting to the last good state`,
           { sentState: saveState, sentActions: actions }
         );
+        note("reverted", 409, rejectionDetail(result.data));
         if (lastGood) {
           this.baseline = lastGood.state;
           this.restore(lastGood.state);
@@ -697,9 +847,11 @@ export class SaveSync {
           await this._mintFresh();
         } catch (err) {
           console.warn("[save] could not mint a fresh player:", err);
+          note("offline", null, errorDetail(err));
           this.setStatus("offline");
           return;
         }
+        note("error", 404, rejectionDetail(result.data));
         this.setStatus("error");
         return;
       }
@@ -711,12 +863,28 @@ export class SaveSync {
           `[save] save rejected as malformed (${result.data?.rule}: ${result.data?.detail})`,
           { sentState: saveState, sentActions: actions }
         );
+        note("error", 400, rejectionDetail(result.data));
         this.setStatus("error");
         return;
       }
       console.warn(`[save] unexpected save status ${result.status}`);
+      note(
+        "error",
+        result.status,
+        result.data
+          ? rejectionDetail(result.data)
+          : `HTTP ${result.status}`
+      );
       this.setStatus("error");
     } finally {
+      if (attemptOutcome) {
+        this._recordSaveAttempt({
+          trigger: reason,
+          outcome: attemptOutcome,
+          status: attemptStatus,
+          detail: attemptDetail,
+        });
+      }
       this._inFlight = false;
       // Flush a save that was requested while this one was in flight —
       // unless the outcome was a rate limit, which already scheduled a retry.

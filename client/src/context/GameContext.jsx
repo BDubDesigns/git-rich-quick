@@ -1227,6 +1227,15 @@ export function GameProvider({ children }) {
     saveSyncRef.current.requestSave("manual");
   }, []);
 
+  // Diagnostics snapshot for Settings (Copy diagnostics): a fresh
+  // snapshot from the engine, taken when the player taps the button.
+  // The engine owns the log; this is just a read-through, not a
+  // second instance and not reactive state (the log changes on every
+  // save, and Settings only needs it on demand).
+  const getSaveDiagnostics = useCallback(() => {
+    return saveSyncRef.current.getSaveDiagnostics();
+  }, []);
+
   // Wipe all progress back to 0 (Settings Danger Zone): the server
   // overwrites the player's own save row with the fresh initial state
   // and the engine restores that state locally. The player keeps the
@@ -1357,6 +1366,7 @@ export function GameProvider({ children }) {
         lastSavedAt,
         retryInSeconds,
         saveNow,
+        getSaveDiagnostics,
         resetProgress,
         recordStarClaim,
         recordFarmBreed,
