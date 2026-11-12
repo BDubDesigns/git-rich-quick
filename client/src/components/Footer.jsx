@@ -34,10 +34,9 @@ function formatSavedAgo(savedAtMs, nowMs) {
 // rate limit has passed since the last accepted save, so tapping it can't
 // just land in a 429 retry — when it's enabled, a manual save will land.
 function SaveStatus() {
-  const { saveStatus, lastSavedAt, retryInSeconds, saveNow } =
+  const { saveStatus, lastSavedAt, retryEndsAtMs, saveNow } =
     useGameContext();
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [retryEndsAtMs, setRetryEndsAtMs] = useState(null);
   const showRelative = saveStatus === "saved" && lastSavedAt != null;
   const showRetry = saveStatus === "retrying";
   // Seconds until a manual save can land (server allows one per 10s).
@@ -53,17 +52,11 @@ function SaveStatus() {
         );
   const onCooldown = cooldownSeconds != null && cooldownSeconds > 0;
 
-  // Arm the countdown when a retry wait starts (re-arms if a later 429
-  // reports a new delay). The engine's retry timer fires at the same
-  // deadline, so the two stay in sync.
-  useEffect(() => {
-    if (!showRetry || retryInSeconds == null) return undefined;
-    setRetryEndsAtMs(Date.now() + retryInSeconds * 1000);
-    return undefined;
-  }, [showRetry, retryInSeconds]);
-
   // Tick the relative time while a successful save is being shown, the
   // retry countdown while waiting to retry, and the button cooldown.
+  // The retry deadline comes from context (an absolute timestamp the
+  // engine sets on every 429), so there is no local re-arm effect to
+  // go stale: the countdown is always derived from the latest deadline.
   useEffect(() => {
     if (!showRelative && !showRetry && !onCooldown) return undefined;
     setNowMs(Date.now());
