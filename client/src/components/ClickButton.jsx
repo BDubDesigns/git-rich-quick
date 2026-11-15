@@ -14,10 +14,18 @@ import { KeyPressButton } from "./KeyPressButton";
  * return <ClickButton />
  */
 export function ClickButton() {
-  const { dispatch, state } = useGameContext();
+  const { dispatch, state, measureTapLatency } = useGameContext();
   const locPerClick = calculateLOCPerClick(state);
 
-  const handleClick = () => {
+  const handleClick = (event) => {
+    // Tap-latency diagnostics (PR #101): measure the tap before the
+    // dispatch, so the captured context (star on screen, save status)
+    // is the pre-tap state. The instrument counts the tap and checks
+    // the frame after the dispatch, when the new LOC is painted.
+    // event.timeStamp is when the browser created the tap event; a
+    // missing event falls back to the handler time inside the
+    // instrument. This call only records; the game plays identically.
+    measureTapLatency(event?.timeStamp);
     dispatch({ type: "WRITE_CODE" });
   };
 
