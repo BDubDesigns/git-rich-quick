@@ -5,6 +5,7 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 
 import { BouncyButton } from "./BouncyButton.jsx";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
+import { Panel } from "./Panel.jsx";
 import { employeeReturnsLine } from "../context/gameLogic.js";
 
 export function EmployeeCard({
@@ -41,7 +42,7 @@ export function EmployeeCard({
   // card so both cards agree.
   const returnsLine = employeeReturnsLine(config, effectMultiplier);
   return (
-    <div className={`panel px-3 pb-1 flex flex-col gap-1 m-0 ${tintClass}`}>
+    <Panel className={`px-3 pb-1 flex flex-col gap-1 m-0 ${tintClass}`}>
       <div className="flex items-center gap-4">
         {/* Left: JSDoc block — name, description, cost multiplier, LOC/s.
             The multiplier is the per-hire cost scaling (cost =
@@ -86,6 +87,6 @@ export function EmployeeCard({
           </BouncyButton>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }

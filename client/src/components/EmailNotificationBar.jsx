@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
+import { Panel } from "./Panel.jsx";
 
 /** A horizontal swipe longer than this dismisses the bar. */
 const SWIPE_DISMISS_PX = 60;
@@ -83,7 +84,7 @@ export function EmailNotificationBar() {
       className="absolute bottom-full left-0 right-0 z-50 mb-2 cursor-pointer"
       style={{ transform: `translateX(${dragX}px)` }}
     >
-      <div className="panel flex items-center gap-2 px-3 py-2">
+      <Panel className="flex items-center gap-2 px-3 py-2">
         <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-blue-400" />
         <span className="flex-1 min-w-0 truncate text-sm">
           <span className="font-bold">{email.sender}</span>
@@ -97,7 +98,7 @@ export function EmailNotificationBar() {
         >
           ✕
         </button>
-      </div>
+      </Panel>
     </div>
   );
 }

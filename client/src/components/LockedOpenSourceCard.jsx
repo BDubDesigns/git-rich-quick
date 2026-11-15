@@ -10,6 +10,7 @@ import {
   JsDocLine,
   JsDocUnlockRequirements,
 } from "./JsDocBlock.jsx";
+import { Panel } from "./Panel.jsx";
 
 export function LockedOpenSourceCard({
   projectId,
@@ -22,7 +23,7 @@ export function LockedOpenSourceCard({
   // cooldown — so the bonus line names the cooldown, not "+0 STAR".
   const isStarBroker = projectId === "starBroker";
   return (
-    <div className="panel locked px-3 pb-1 flex flex-col gap-1 m-0">
+    <Panel className="locked px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Two-column layout */}
       <div className="flex items-center gap-4">
         {/* Left: Content */}
@@ -56,6 +57,6 @@ export function LockedOpenSourceCard({
           <div>({formatNumber(locCost)} LOC)</div>
         </Button>
       </div>
-    </div>
+    </Panel>
   );
 }

@@ -2,6 +2,7 @@ import { useGameContext } from "../context/useGameContext.js";
 import { highlightAmounts, unreadEmailCount } from "../email/email.js";
 import gitmailBanner from "../img/gitmail-banner.png";
 import { Button } from "./Button.jsx";
+import { Panel } from "./Panel.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 
 /** "5m ago", "2h ago", "3d ago" for an email's arrival time. */
@@ -67,7 +68,7 @@ export function Email() {
   if (selectedEmail) {
     return (
       <SectionLayout sectionId="email">
-        <div className="panel flex flex-col gap-3 px-3 py-3">
+        <Panel className="flex flex-col gap-3 px-3 py-3">
           <div className="flex items-center justify-between gap-2">
             <Button onClick={() => dispatch({ type: "CLOSE_EMAIL" })}>
               ← Back to inbox
@@ -96,7 +97,7 @@ export function Email() {
             text={selectedEmail.body}
             className="text-sm whitespace-pre-line"
           />
-        </div>
+        </Panel>
       </SectionLayout>
     );
   }
@@ -110,7 +111,7 @@ export function Email() {
           while mail is unread. The bar uses the same px-3 py-2
           padding as the list rows so nothing is cramped against
           the edges. */}
-      <div className="panel flex flex-col gap-1">
+      <Panel className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <img
             src={gitmailBanner}
@@ -178,7 +179,7 @@ export function Email() {
               </span>
             </button>
           ))}
-      </div>
+      </Panel>
     </SectionLayout>
   );
 }

@@ -19,6 +19,7 @@ import {
   JsDocLine,
   JsDocUnlockRequirements,
 } from "./JsDocBlock.jsx";
+import { Panel } from "./Panel.jsx";
 import { employeeReturnsLine } from "../context/gameLogic.js";
 
 export function LockedEmployeeCard({ config, progress }) {
@@ -28,7 +29,7 @@ export function LockedEmployeeCard({ config, progress }) {
   // (gameLogic.js), shared with the unlocked card so both cards agree.
   const returnsLine = employeeReturnsLine(config);
   return (
-    <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
+    <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
       <div className="flex items-center gap-4">
         {/* Left: JSDoc block — name, description, cost multiplier, LOC/s,
             then the unlock requirements. The description is new here (the
@@ -58,6 +59,6 @@ export function LockedEmployeeCard({ config, progress }) {
           <div>({formatMoney(config.baseCost)})</div>
         </Button>
       </div>
-    </div>
+    </Panel>
   );
 }

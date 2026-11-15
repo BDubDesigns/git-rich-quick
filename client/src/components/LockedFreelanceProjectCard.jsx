@@ -9,10 +9,11 @@ import {
   JsDocLine,
   JsDocUnlockRequirements,
 } from "./JsDocBlock.jsx";
+import { Panel } from "./Panel.jsx";
 
 export function LockedFreelanceProjectCard({ project, progress }) {
   return (
-    <div className="panel locked px-3 pb-1 flex flex-col gap-1 m-0">
+    <Panel className="locked px-3 pb-1 flex flex-col gap-1 m-0">
       <div className="flex items-center gap-4">
         {/* Left: Content */}
         <div className="flex-1">
@@ -38,6 +39,6 @@ export function LockedFreelanceProjectCard({ project, progress }) {
           <div>({formatNumber(project.loc)} LOC)</div>
         </Button>
       </div>
-    </div>
+    </Panel>
   );
 }

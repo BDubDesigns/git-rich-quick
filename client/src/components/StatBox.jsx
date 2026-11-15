@@ -19,6 +19,7 @@ import {
 import { StatDisplay } from "./StatDisplay.jsx";
 import { EmployeeCountIcon } from "./EmployeeCountIcon.jsx";
 import { PassiveAnimationLayer } from "./PassiveAnimationLayer.jsx";
+import { Panel } from "./Panel.jsx";
 
 /**
  * StatBox Component
@@ -55,7 +56,7 @@ export function StatBox() {
   return (
     <>
       <div className="mx-2 select-none">
-        <div className="flex justify-items-normal items-center gap-6 mt-2 py-2 px-6 w-full panel mb-2">
+        <Panel className="flex justify-items-normal items-center gap-6 mt-2 py-2 px-6 w-full mb-2">
           {/* Game stat displays: LOC currency */}
           <StatDisplay
             icon={
@@ -93,7 +94,7 @@ export function StatBox() {
             icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
             value={`${formatNumber(locPerSecond)}/s`}
           />
-        </div>
+        </Panel>
       </div>
 
       {/* Floating text animation layer for passive LOC generation

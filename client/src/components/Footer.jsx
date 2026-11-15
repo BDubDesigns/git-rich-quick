@@ -4,6 +4,7 @@ import { ClickButton } from "./ClickButton";
 import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";
 import { EmailNotificationBar } from "./EmailNotificationBar";
+import { Panel } from "./Panel.jsx";
 import { SAVE_RATE_LIMIT_SECONDS } from "../save/saveSync.js";
 
 // Save status (Slice 2, server-authoritative saves). The engine reports it
@@ -110,18 +111,18 @@ export function Footer() {
       <EmailNotificationBar />
       {/* Mobile: Stacked (nav + commit button) */}
       <div className="lg:hidden">
-        <div className="panel flex justify-evenly gap-4 mt-1 py-4 bg-[#181818]">
+        <Panel className="flex justify-evenly gap-4 mt-1 py-4 bg-[#181818]">
           <NavBar />
-        </div>
-        <div className="text-center mt-2 pb-5 panel">
+        </Panel>
+        <Panel className="text-center mt-2 pb-5">
           <CPSMeter />
           <ClickButton />
           <SaveStatus />
-        </div>
+        </Panel>
       </div>
 
       {/* Desktop: Horizontal (nav left, commit button right) */}
-      <div className="hidden lg:flex lg:items-center lg:justify-between lg:gap-4 lg:py-3 lg:px-4 panel bg-[#181818]">
+      <Panel className="hidden lg:flex lg:items-center lg:justify-between lg:gap-4 lg:py-3 lg:px-4 bg-[#181818]">
         {/* Nav on left */}
 
         {/* Commit button on right */}
@@ -137,7 +138,7 @@ export function Footer() {
             <SaveStatus />
           </div>
         </span>
-      </div>
+      </Panel>
     </div>
   );
 }

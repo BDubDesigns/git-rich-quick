@@ -10,6 +10,7 @@ import {
   unlockedStarEffects,
 } from "../../../shared/game-balance.js";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
+import { Panel } from "./Panel.jsx";
 
 /**
  * Star info for a Constellation level: the spawn interval and the
@@ -89,7 +90,7 @@ export function OpenSourceCard({
         : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
 
   return (
-    <div className="panel px-3 pb-1 flex flex-col gap-1 m-0">
+    <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Two-column layout */}
       <div className="flex items-center gap-4">
         {/* Left: Content */}
@@ -190,6 +191,6 @@ export function OpenSourceCard({
           </ActionButton>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }
