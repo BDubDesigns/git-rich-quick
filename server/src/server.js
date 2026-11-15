@@ -33,6 +33,15 @@
  *   and audit logging; see admin.js for the guardrail distinction
  *   (seed is test-player-only, read-only endpoints are per-player
  *   debugging by explicit playerId).
+ * - POST /api/admin/prune-inactive-saves — admin prune (issue #25):
+ *   delete guest rows whose last save is older than the 3-month
+ *   inactivity window. Bearer token required, audit-logged. Body
+ *   `{ dryRun?: boolean }`, default true: a dry run reports what
+ *   WOULD be deleted and deletes nothing; only an explicit
+ *   `{ "dryRun": false }` deletes. Account-linked rows are never
+ *   touched. The same job also runs on a daily in-process schedule
+ *   (see prune.js); this endpoint is the manual trigger and the safe
+ *   way to verify before the first live run.
  *
  * Status mapping: malformed bodies are 400, unknown players are 404,
  * validation failures are 409 with the last good state, and a save that
@@ -55,6 +64,9 @@
  * BETTER_AUTH_SECRET (required in production), BETTER_AUTH_URL (public API
  * URL, default http://localhost:3000), ADMIN_TOKEN (bearer token for the
  * /api/admin/* endpoints; when unset, admin endpoints answer 501).
+ * Prune (issue #25): PRUNE_INACTIVITY_DAYS (default 90), PRUNE_INTERVAL_MS
+ * (default 24h), PRUNE_INITIAL_DELAY_MS (default 1h), PRUNE_DRY_RUN
+ * ("true" runs the scheduled job in dry-run/log-only mode; default live).
  * `clock` is injectable for tests; production uses Date.now. `auth` is
  * injectable for tests; production builds it from the pool (see main()).
  * `adminToken` is injectable for tests; production reads ADMIN_TOKEN.
@@ -66,6 +78,13 @@ import { Pool } from "pg";
 import { toNodeHandler } from "better-auth/node";
 import { createAuth } from "./auth.js";
 import { createStore } from "./store.js";
+import {
+  GUEST_PRUNE_INACTIVITY_DAYS,
+  PRUNE_INITIAL_DELAY_MS,
+  PRUNE_INTERVAL_MS,
+  pruneInactiveGuestSaves,
+  startPruneScheduler,
+} from "./prune.js";
 import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
 import { TEST_ACCOUNT_EMAIL, isAdminAuthorized } from "./admin.js";
 
@@ -369,6 +388,65 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     });
   }
 
+  /**
+   * Admin prune (issue #25): POST /api/admin/prune-inactive-saves —
+   * delete guest rows whose last save is older than the 3-month
+   * inactivity window. Bearer token required, audit-logged. Body
+   * `{ dryRun?: boolean }`; when omitted or empty the run is a DRY
+   * RUN (reports what would be deleted, deletes nothing) — only an
+   * explicit `{ "dryRun": false }` deletes. Account-linked rows are
+   * never touched (enforced in the store query). 400 for a malformed
+   * body or a non-boolean dryRun.
+   */
+  async function handleAdminPrune(req, res) {
+    if (!requireAdmin(req, res, "prune-inactive-saves")) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (body === null) body = {};
+    if (
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      (body.dryRun !== undefined && typeof body.dryRun !== "boolean")
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-prune",
+        detail: "body must be an object with optional boolean dryRun",
+      });
+      return;
+    }
+    const dryRun = body.dryRun ?? true;
+    const result = await pruneInactiveGuestSaves(store, {
+      nowMs: clock(),
+      dryRun,
+    });
+    auditAdmin("prune-inactive-saves", {
+      status: "ok",
+      dryRun,
+      cutoff: iso(result.cutoffMs),
+      ...(dryRun
+        ? { wouldDelete: result.wouldDelete }
+        : { deleted: result.deleted }),
+    });
+    sendJson(res, 200, {
+      ok: true,
+      dryRun,
+      cutoff: iso(result.cutoffMs),
+      ...(dryRun
+        ? { wouldDelete: result.wouldDelete }
+        : { deleted: result.deleted }),
+      playerIds: result.playerIds,
+    });
+  }
+
   /** The signed-in user for this request, or null (no/invalid session). */
   async function getSessionUser(req) {
     if (!auth) return null;
@@ -662,6 +740,8 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleAdminRejectedSaves(req, res, url);
       } else if (req.method === "GET" && url.pathname === "/api/admin/stats") {
         await handleAdminStats(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/admin/prune-inactive-saves") {
+        await handleAdminPrune(req, res);
       } else if (url.pathname.startsWith("/api/auth/") && authHandler) {
         // Better Auth owns everything under /api/auth/* (sign-up,
         // sign-in, sign-out, session...). It reads the raw body itself,
@@ -687,6 +767,24 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
   return server;
 }
 
+/**
+ * Read an integer env var, falling back (with a warning) when it is
+ * unset, blank, or not a positive number. Prune tuning only: a bad
+ * value must never stop the server from starting.
+ */
+function pruneEnvInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `[prune] ignoring invalid ${name}=${JSON.stringify(raw)}, using ${fallback}`
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -709,6 +807,35 @@ async function main() {
   server.listen(port, host, () => {
     console.log(`git-save-service listening on ${host}:${port}`);
   });
+  // Background prune (issue #25): in-process daily job, first run an
+  // hour after boot, then every PRUNE_INTERVAL_MS. Guest rows only,
+  // 3 months of inactivity by default; account-linked rows are never
+  // touched. PRUNE_DRY_RUN=true runs it in log-only mode (reports
+  // what would be deleted, deletes nothing) for safe verification.
+  const inactivityDays = pruneEnvInt(
+    "PRUNE_INACTIVITY_DAYS",
+    GUEST_PRUNE_INACTIVITY_DAYS
+  );
+  const pruneScheduler = startPruneScheduler(store, {
+    inactivityMs: inactivityDays * 24 * 60 * 60 * 1000,
+    intervalMs: pruneEnvInt("PRUNE_INTERVAL_MS", PRUNE_INTERVAL_MS),
+    initialDelayMs: pruneEnvInt(
+      "PRUNE_INITIAL_DELAY_MS",
+      PRUNE_INITIAL_DELAY_MS
+    ),
+    dryRun: process.env.PRUNE_DRY_RUN === "true",
+  });
+  console.log(
+    `[prune] scheduled cleanup: guest rows inactive ${inactivityDays} days, ` +
+      `first run in ${PRUNE_INITIAL_DELAY_MS / 3600000}h then every ` +
+      `${PRUNE_INTERVAL_MS / 3600000}h` +
+      (process.env.PRUNE_DRY_RUN === "true" ? " (dry-run mode)" : "") +
+      `; manual trigger POST /api/admin/prune-inactive-saves`
+  );
+  // Keep the scheduler handle reachable for a graceful shutdown hook
+  // if one is ever added; today the unref'd timers never hold the
+  // process open on their own.
+  void pruneScheduler;
 }
 
 const isMain =
