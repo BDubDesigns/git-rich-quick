@@ -117,16 +117,18 @@ export function Farm() {
 
   return (
     <SectionLayout sectionId="farm">
-      <p className="m-0 text-sm">
-        {llamaCount} {llamaCount === 1 ? "llama" : "llamas"} in the barn.{" "}
-        {llamaCount === 0
-          ? "The barn is empty. Buy your first llamas below to start breeding."
-          : eligible.length > 0
-            ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now. A kid appears about every few breeding ticks (one tick every ${FARM_CONFIG.breedingTickSeconds}s).`
-            : "No empty stall sits between two llamas right now, so nothing can breed."}{" "}
-        Click a llama's stall to cycle its lighting (the mood); click an
-        empty stall to buy a llama into it.
-      </p>
+      <Panel className="flex flex-col gap-2 p-3">
+        <p className="m-0 text-sm">
+          {llamaCount} {llamaCount === 1 ? "llama" : "llamas"} in the barn.{" "}
+          {llamaCount === 0
+            ? "The barn is empty. Buy your first llamas below to start breeding."
+            : eligible.length > 0
+              ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now. A kid appears about every few breeding ticks (one tick every ${FARM_CONFIG.breedingTickSeconds}s).`
+              : "No empty stall sits between two llamas right now, so nothing can breed."}{" "}
+          Click a llama's stall to cycle its lighting (the mood); click an
+          empty stall to buy a llama into it.
+        </p>
+      </Panel>
 
       {/* Barn stalls: a 3x3 grid. Each stall shows its llama (or Empty)
           and its lighting color as a tint. Clicking a llama's stall
@@ -214,7 +216,7 @@ export function Farm() {
       )}
 
       {/* Lighting legend: what each mood does. */}
-      <div className="flex flex-col gap-1 text-sm">
+      <Panel className="flex flex-col gap-1 p-3 text-sm">
         <p className="m-0 font-semibold">Mood lighting</p>
         {FARM_LIGHTING_COLORS.map((colorId) => {
           const lighting = FARM_LIGHTING[colorId];
@@ -229,10 +231,10 @@ export function Farm() {
             </p>
           );
         })}
-      </div>
+      </Panel>
 
       {/* Discovered types: the collection. */}
-      <div className="flex flex-col gap-1">
+      <Panel className="flex flex-col gap-1 p-3">
         <p className="m-0 text-sm font-semibold">
           Discovered types ({farm.unlockedTypes.length}/{LLAMA_TYPES.length})
         </p>
@@ -250,7 +252,7 @@ export function Farm() {
             </p>
           );
         })}
-      </div>
+      </Panel>
     </SectionLayout>
   );
 }
