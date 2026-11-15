@@ -18,6 +18,7 @@ import {
 } from "../context/gameConfig.js";
 import { EMPLOYEE_DISPLAY_NAMES } from "../../../shared/game-balance.js";
 import { Button } from "./Button.jsx";
+import { Panel } from "./Panel.jsx";
 
 export function CosmeticsPanel() {
   const { state, dispatch } = useGameContext();
@@ -32,7 +33,7 @@ export function CosmeticsPanel() {
   };
 
   return (
-    <div className="panel px-3 pb-2 flex flex-col gap-2 m-0">
+    <Panel className="px-3 pb-2 flex flex-col gap-2 m-0">
       <h3 className="m-0 text-sm font-bold">Cosmetics</h3>
       <p className="m-0 text-xs text-gray-400">
         Skins for your devs, earned by hiring. Equip one and the
@@ -91,7 +92,7 @@ export function CosmeticsPanel() {
           </div>
         );
       })}
-    </div>
+    </Panel>
   );
 }
 

@@ -26,6 +26,7 @@ import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
+import { Panel } from "./Panel.jsx";
 import { APP_COMMIT, buildTimeLabel } from "../version.js";
 import {
   getSoundVolume,
@@ -361,7 +362,7 @@ export function Settings() {
   return (
     <SectionLayout sectionId="settings">
       {/* Account */}
-      <section className="panel flex flex-col gap-2 p-3">
+      <Panel as="section" className="flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Account</h3>
         <p className="m-0 text-xs">
           Optional. Guests play fine without one. An account just keeps
@@ -486,10 +487,10 @@ export function Settings() {
             {message.text}
           </p>
         )}
-      </section>
+      </Panel>
 
       {/* Sound — volume is a device preference, localStorage only. */}
-      <section className="panel flex flex-col gap-2 p-3">
+      <Panel as="section" className="flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Sound</h3>
         <p className="m-0 text-xs">
           Volume governs game sound, including the golden star chime. It
@@ -513,7 +514,7 @@ export function Settings() {
             {soundMuted ? "Unmute" : "Mute"}
           </Button>
         </div>
-      </section>
+      </Panel>
 
       {/* Cosmetics (issue #11): the equip UI. Moved here from the
           bottom of Shop so the Shop list stays focused on hiring, and
@@ -526,8 +527,9 @@ export function Settings() {
           tap only shows the warning; the wipe only happens after the
           explicit confirm. The player keeps the same player id (and
           account link); only the progress goes to 0. */}
-      <section
-        className="panel flex flex-col gap-2 p-3"
+      <Panel
+        as="section"
+        className="flex flex-col gap-2 p-3"
         style={{ borderColor: "#7f1d1d" }}
       >
         <h3 className="m-0 text-sm text-[#f48771]">Danger Zone</h3>
@@ -578,12 +580,12 @@ export function Settings() {
             </div>
           </>
         )}
-      </section>
+      </Panel>
 
       {/* Diagnostics: the save-attempt log, so a stuck save can be
           inspected instead of guessed at. Copy the dump and send it to
           support. */}
-      <section className="panel flex flex-col gap-2 p-3">
+      <Panel as="section" className="flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Diagnostics</h3>
         <p className="m-0 text-xs">
           If a save is stuck or taps feel slow, copy this and send it to
@@ -594,7 +596,7 @@ export function Settings() {
             {diagCopied ? "Copied." : "Copy diagnostics"}
           </Button>
         </div>
-      </section>
+      </Panel>
 
       {/* Version: the deployed build, so a player can confirm which
           code they are running — e.g. whether a fix has actually

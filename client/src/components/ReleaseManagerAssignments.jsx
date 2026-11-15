@@ -3,6 +3,7 @@ import { FREELANCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import { isFreelanceProjectUnlocked } from "../context/gameLogic";
 import { releaseManagerAssignedCount } from "../../../shared/game-balance.js";
 import { Button } from "./Button.jsx";
+import { Panel } from "./Panel.jsx";
 
 /**
  * Release Manager assignment selector (auto-ships).
@@ -37,7 +38,7 @@ export function ReleaseManagerAssignments() {
   };
 
   return (
-    <div className="panel px-3 py-2 flex flex-col gap-1 m-0">
+    <Panel className="px-3 py-2 flex flex-col gap-1 m-0">
       <div className="text-sm font-semibold">
         Assignments: {totalAssigned} assigned, {unassigned} unassigned
       </div>
@@ -78,6 +79,6 @@ export function ReleaseManagerAssignments() {
           );
         }
       )}
-    </div>
+    </Panel>
   );
 }

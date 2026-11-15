@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
+import { Panel } from "./Panel.jsx";
 import {
   FARM_CONFIG,
   FARM_LIGHTING,
@@ -83,7 +84,7 @@ export function Farm() {
     const canAfford = state.money >= FARM_CONFIG.purchaseCostCents;
     return (
       <SectionLayout sectionId="farm">
-        <div className="panel flex flex-col gap-2 p-3">
+        <Panel className="flex flex-col gap-2 p-3">
           <p className="m-0 text-sm">
             Your staff have been dreaming of quitting to start an alpaca
             farm. You let them build it, but you never accepted their
@@ -106,7 +107,7 @@ export function Farm() {
               some projects first.
             </p>
           )}
-        </div>
+        </Panel>
       </SectionLayout>
     );
   }
@@ -146,11 +147,12 @@ export function Farm() {
           const isEligible = eligible.includes(index);
           const isSelected = selectedStall === index;
           return (
-            <button
+            <Panel
+              as="button"
               key={index}
               type="button"
               onClick={() => handleStallClick(index)}
-              className={`panel stall flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
+              className={`stall flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
                 isSelected
                   ? " stall--selected"
                   : isEligible
@@ -182,14 +184,14 @@ export function Farm() {
                 {isEligible ? " · can breed" : ""}
                 {isSelected ? " · selected" : ""}
               </span>
-            </button>
+            </Panel>
           );
         })}
       </div>
 
       {/* Buy a llama into the selected empty stall. */}
       {selectedStallEmpty && (
-        <div className="panel flex flex-col gap-2 p-3">
+        <Panel className="flex flex-col gap-2 p-3">
           <p className="m-0 text-sm">
             Buy a llama for stall {selectedStall + 1}:{" "}
             {formatMoney(FARM_CONFIG.llamaPriceCents)} each. Only the base
@@ -213,7 +215,7 @@ export function Farm() {
               some projects first.
             </p>
           )}
-        </div>
+        </Panel>
       )}
 
       {/* Lighting legend: what each mood does. */}
