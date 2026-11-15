@@ -20,7 +20,9 @@ export const APP_BUILD_TIME =
 
 /**
  * Short human-readable build time in the browser's local timezone
- * (e.g. "Nov 11, 6:24 PM"), or null when no build time is available.
+ * (e.g. "Nov 11, 2026, 6:24 PM PST"), or null when no build time is
+ * available. The year and timezone are included so a pasted diagnostics
+ * dump is unambiguous.
  */
 export function buildTimeLabel() {
   if (!APP_BUILD_TIME) return null;
@@ -29,7 +31,9 @@ export function buildTimeLabel() {
   return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   });
 }

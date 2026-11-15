@@ -85,18 +85,13 @@ export function Farm() {
     return (
       <SectionLayout sectionId="farm">
         <Panel className="flex flex-col gap-2 p-3">
-          <p className="m-0 text-sm">
-            Your staff have been dreaming of quitting to start an alpaca
-            farm. You let them build it, but you never accepted their
-            notice, so they are still employees. The llamas are
-            unionizing. The barn has mood lighting. This is fine.
-          </p>
+          {/* The farm intro lives in the section description (green code
+              comment above this panel), so it is not repeated here. */}
           <p className="m-0 text-sm">
             Buy the barn and it arrives empty. No llamas come with it.
             Buy base llamas, move them in, set the lights, and let them
-            breed to discover new types. The farm generates no cash yet
-            (that is the next slice); for now it generates llamas, which
-            is arguably better.
+            breed to discover new types. The farm does not earn cash
+            yet. For now it grows llamas, which is arguably better.
           </p>
           <Button onClick={handleBuyFarm} disabled={!canAfford}>
             Buy the Llama Farm ({formatMoney(FARM_CONFIG.purchaseCostCents)})
