@@ -1,5 +1,11 @@
 import { useGameContext } from "../context/useGameContext.js";
-import { highlightAmounts, unreadEmailCount } from "../email/email.js";
+import {
+  EMAIL_PREVIEW_MAX_LENGTH,
+  emailSnippet,
+  highlightAmounts,
+  truncateAtWordBoundary,
+  unreadEmailCount,
+} from "../email/email.js";
 import gitmailBanner from "../img/gitmail-banner.png";
 import { Button } from "./Button.jsx";
 import { Panel } from "./Panel.jsx";
@@ -39,11 +45,6 @@ function EmailText({ text, className }) {
       ))}
     </span>
   );
-}
-
-/** First non-empty line of a body — the list preview snippet. */
-function emailSnippet(body) {
-  return (body ?? "").split("\n").find((line) => line.trim() !== "") ?? "";
 }
 
 /**
@@ -173,7 +174,10 @@ export function Email() {
                   {email.subject}
                 </span>
                 <EmailText
-                  text={emailSnippet(email.body)}
+                  text={truncateAtWordBoundary(
+                    emailSnippet(email.body, email.subject),
+                    EMAIL_PREVIEW_MAX_LENGTH
+                  )}
                   className="block truncate text-xs opacity-60"
                 />
               </span>

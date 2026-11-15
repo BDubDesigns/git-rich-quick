@@ -12,11 +12,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  EMAIL_PREVIEW_MAX_LENGTH,
   addEmail,
   deleteEmail,
+  emailSnippet,
   highlightAmounts,
+  isTeaserEmail,
   markAllEmailsRead,
   markEmailRead,
+  truncateAtWordBoundary,
   unreadEmailCount,
   collectTriggerEmails,
 } from "../../client/src/email/email.js";
@@ -870,4 +874,89 @@ test("farm new-type email fires when breeding discovers a type", () => {
   assert.match(emails[0].subject, /Spaghetti Llama/);
   // The purchase email does not fire here (the farm was already owned).
   assert.ok(!emails.some((entry) => entry.triggerKey === "farm-purchased"));
+});
+
+test("isTeaserEmail: visible triggers are teasers, unlocks and rewards are not", () => {
+  assert.equal(isTeaserEmail({ triggerKey: "employee-visible:senior" }), true);
+  assert.equal(
+    isTeaserEmail({ triggerKey: "opensource-visible:overReact" }),
+    true
+  );
+  assert.equal(
+    isTeaserEmail({ triggerKey: "freelance-visible:hobbyWebsite" }),
+    true
+  );
+  assert.equal(
+    isTeaserEmail({ triggerKey: "employee-unlocked:senior" }),
+    false
+  );
+  assert.equal(
+    isTeaserEmail({ triggerKey: "opensource-level:overReact:2" }),
+    false
+  );
+  assert.equal(isTeaserEmail({ triggerKey: "star-reward:abc" }), false);
+  assert.equal(isTeaserEmail({ triggerKey: "farm-purchased" }), false);
+  assert.equal(isTeaserEmail({}), false);
+  assert.equal(isTeaserEmail({ triggerKey: null }), false);
+});
+
+test("emailSnippet: first non-empty line, subject prefix stripped", () => {
+  // The teaser mails repeat the subject at the start of the body
+  // (issue #108): the preview must show the body, not the subject.
+  assert.equal(
+    emailSnippet(
+      "We found a Senior Developer! They're interested, but not impressed yet.\n\nTo win them over: Earn 100 total lines of code.",
+      "We found a Senior Developer!"
+    ),
+    "They're interested, but not impressed yet."
+  );
+  // No subject prefix: the first line is the preview unchanged.
+  assert.equal(
+    emailSnippet(
+      "Good news: the Senior Developer looked at your commit history.\n\nThey're on the market now.",
+      "Senior Developer is available to hire!"
+    ),
+    "Good news: the Senior Developer looked at your commit history."
+  );
+  // First line IS the subject and nothing else: fall to the next line.
+  assert.equal(
+    emailSnippet(
+      "We found a Senior Developer!\n\nThey're interested, but not impressed yet.",
+      "We found a Senior Developer!"
+    ),
+    "They're interested, but not impressed yet."
+  );
+  // Blank lines and leading whitespace are skipped.
+  assert.equal(emailSnippet("\n\n  Hello world.  \nSecond line.", "Nope"), "Hello world.");
+  assert.equal(emailSnippet("", "Subject"), "");
+  assert.equal(emailSnippet(null, "Subject"), "");
+});
+
+test("truncateAtWordBoundary: short text unchanged, long text cut on a word", () => {
+  assert.equal(truncateAtWordBoundary("Short preview.", 60), "Short preview.");
+  assert.equal(truncateAtWordBoundary("Exactly sixty characters long text here, yes indeed ok.", 60), "Exactly sixty characters long text here, yes indeed ok.");
+  // Longer than the cap: cut at the last space inside the cap, with an
+  // ellipsis, so the visible cut lands after a complete word.
+  assert.equal(
+    truncateAtWordBoundary(
+      "They're interested, but not impressed yet. They want to see a bigger operation first.",
+      60
+    ),
+    "They're interested, but not impressed yet. They want to see…"
+  );
+  assert.equal(
+    truncateAtWordBoundary(
+      "Word is OverReact will open for contributions soon. The maintainers are watching for one thing:",
+      60
+    ),
+    "Word is OverReact will open for contributions soon. The…"
+  );
+  // A single word longer than the cap has no boundary: cut hard.
+  assert.equal(
+    truncateAtWordBoundary("Supercalifragilisticexpialidocious and more", 10),
+    "Supercalif…"
+  );
+  assert.equal(truncateAtWordBoundary(null, 60), "");
+  // The cap constant is the preview length the inbox uses.
+  assert.equal(EMAIL_PREVIEW_MAX_LENGTH, 60);
 });
