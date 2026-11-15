@@ -130,10 +130,11 @@ export function Footer() {
 
       {/* Desktop: Horizontal (nav left, commit button right) */}
       <Panel className="hidden lg:flex lg:items-center lg:justify-between lg:gap-4 lg:py-3 lg:px-4 bg-[#181818]">
-        {/* Nav on left */}
-
-        {/* Commit button on right */}
-        <div className="flex-1 flex justify-center">New Emails</div>
+        {/* Nav on the left, commit button on the right. The stray
+            "New Emails" label that used to sit here is removed
+            (issue #103): each tab now carries its own label under
+            its icon, so a detached label in the middle of the footer
+            only confused which tab it belonged to. */}
         <NavBar />
 
         <span className="inline-flex flex-1 items-center justify-center gap-8">

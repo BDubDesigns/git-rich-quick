@@ -185,13 +185,19 @@ body {
 
 .grq-scroll-affordance--top {
   top: var(--grq-scroll-arrow-anchor);
-  left: 50%;
+  /* Right edge, not center (issue #105): centered arrows sat on top
+     of the card text in the middle of the pane and hid words. Anchored
+     2rem from the right edge, the 3rem-wide visual triangle spans
+     (100% - 3.5rem) to (100% - 0.5rem), inside the frame in the panel
+     gutter where there is no card text. */
+  left: calc(100% - 2rem);
   rotate: 90deg;
 }
 
 .grq-scroll-affordance--bottom {
   top: calc(100% - var(--grq-scroll-arrow-anchor));
-  left: 50%;
+  /* Same right-edge anchor as the top arrow (issue #105). */
+  left: calc(100% - 2rem);
   rotate: 270deg;
 }
 
