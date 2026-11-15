@@ -90,13 +90,20 @@ function SaveStatus() {
   return (
     <div className="mt-1 flex items-center justify-center gap-2 text-[11px] leading-none opacity-60">
       <span>{label}</span>
+      {/* The button always reads "Save now": the status line beside it
+          carries the state ("Saved just now", "Saving…", "Retrying in
+          Ns"). The old "Save in Ns" countdown read as a pending save
+          while the status line said the save had already landed, which
+          looked contradictory. The button still greys out for the 1s
+          rate-limit cooldown after a save; it just does not count it
+          down. */}
       <button
         type="button"
         onClick={saveNow}
         disabled={saveDisabled}
         className="rounded border border-current px-1.5 py-0.5 opacity-80 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {onCooldown ? `Save in ${cooldownSeconds}s` : "Save now"}
+        Save now
       </button>
     </div>
   );
