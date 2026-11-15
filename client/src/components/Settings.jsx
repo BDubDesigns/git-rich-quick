@@ -44,8 +44,17 @@ function shortId(id) {
 /**
  * Plain-text diagnostics dump for support (Copy diagnostics). Compact
  * and greppable, newest attempt first. No em dashes in the copy.
+ * The tap section (PR #101) rides along so one dump has both the save
+ * attempts and the slow taps: a slow tap is a Commit tap whose frame
+ * landed more than 500ms after the tap.
  */
-function buildDiagnosticsText({ attempts, saveStatus, lastSavedAt, playerId }) {
+function buildDiagnosticsText({
+  attempts,
+  saveStatus,
+  lastSavedAt,
+  playerId,
+  tapDiagnostics,
+}) {
   const lines = [
     "Git Rich Quick diagnostics",
     `Version ${APP_COMMIT}${buildTimeLabel() ? ` · built ${buildTimeLabel()}` : ""}`,
@@ -62,6 +71,19 @@ function buildDiagnosticsText({ attempts, saveStatus, lastSavedAt, playerId }) {
       const a = attempts[i];
       lines.push(
         `${a.at} | ${a.trigger} | ${a.outcome} | HTTP ${a.status ?? "—"} | ${a.detail ?? "—"}`
+      );
+    }
+  }
+  const taps = tapDiagnostics ?? { totalTaps: 0, slowTaps: 0, entries: [] };
+  lines.push("Slow taps over 500ms (newest first):");
+  lines.push(`Total taps: ${taps.totalTaps} · slow taps: ${taps.slowTaps}`);
+  if (!taps.entries || taps.entries.length === 0) {
+    lines.push("(no slow taps recorded yet)");
+  } else {
+    for (let i = taps.entries.length - 1; i >= 0; i -= 1) {
+      const t = taps.entries[i];
+      lines.push(
+        `${t.at} | ${t.latencyMs}ms | star: ${t.starOnScreen ? "yes" : "no"} | save: ${t.saveStatus ?? "—"} | visible: ${t.visible ? "yes" : "no"}`
       );
     }
   }
@@ -564,7 +586,8 @@ export function Settings() {
       <section className="panel flex flex-col gap-2 p-3">
         <h3 className="m-0 text-sm text-[#cccccc]">Diagnostics</h3>
         <p className="m-0 text-xs">
-          If a save is stuck, copy this and send it to support.
+          If a save is stuck or taps feel slow, copy this and send it to
+          support.
         </p>
         <div>
           <Button type="button" onClick={handleCopyDiagnostics}>

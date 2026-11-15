@@ -11,6 +11,13 @@ import {
 // the engine reads and restores.
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
+// Tap-latency diagnostics (PR #101): the instrument that records slow
+// Commit taps so a "taps don't register" report can be diagnosed from
+// evidence. Framework-free like SaveSync; the provider owns it.
+import {
+  TapDiagnostics,
+  goldenStarOnScreen,
+} from "../save/tapDiagnostics.js";
 
 // Shared balance numbers — the reducer uses them for bulk pricing
 // (BUY_EMPLOYEE). Display configs live in gameConfig.js.
@@ -1258,6 +1265,13 @@ export function GameProvider({ children }) {
     });
   }
 
+  // Tap-latency diagnostics (PR #101): one instrument, owned by the
+  // provider like the save engine. Created once, next to saveSyncRef.
+  const tapDiagnosticsRef = useRef(null);
+  if (tapDiagnosticsRef.current === null) {
+    tapDiagnosticsRef.current = new TapDiagnostics();
+  }
+
   // Force an immediate save (the footer's "Save now" button), bypassing the
   // 60s heartbeat. The engine serializes, so calling while a save is in
   // flight just queues one after it.
@@ -1269,9 +1283,28 @@ export function GameProvider({ children }) {
   // snapshot from the engine, taken when the player taps the button.
   // The engine owns the log; this is just a read-through, not a
   // second instance and not reactive state (the log changes on every
-  // save, and Settings only needs it on demand).
+  // save, and Settings only needs it on demand). The tap-latency
+  // snapshot rides along so one dump has both save attempts and slow
+  // taps.
   const getSaveDiagnostics = useCallback(() => {
-    return saveSyncRef.current.getSaveDiagnostics();
+    return {
+      ...saveSyncRef.current.getSaveDiagnostics(),
+      tapDiagnostics: tapDiagnosticsRef.current.getSnapshot(),
+    };
+  }, []);
+
+  // Tap-latency diagnostics (PR #101): the ClickButton handler calls
+  // measureTapLatency with the click event's timeStamp; the instrument
+  // counts the tap and checks the frame after the dispatch, when the
+  // new LOC is painted. The context captured here is the pre-tap
+  // state: whether a golden star was on screen when the tap happened,
+  // and the save status at that moment.
+  const measureTapLatency = useCallback((tapTimeMs) => {
+    tapDiagnosticsRef.current.measureTap(tapTimeMs, {
+      starOnScreen: goldenStarOnScreen(),
+      saveStatus: saveSyncRef.current.getSaveDiagnostics().saveStatus,
+      visible: typeof document === "undefined" ? true : !document.hidden,
+    });
   }, []);
 
   // Wipe all progress back to 0 (Settings Danger Zone): the server
@@ -1360,6 +1393,7 @@ export function GameProvider({ children }) {
         getSaveDiagnostics,
         resetProgress,
         requestClaimSave,
+        measureTapLatency,
       }}
     >
       {children}
