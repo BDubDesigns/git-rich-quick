@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
 import { isTeaserEmail } from "../email/email.js";
+import { brandNodes } from "./BrandName.jsx";
 import { Panel } from "./Panel.jsx";
 
 /** A horizontal swipe longer than this dismisses the bar. */
@@ -110,7 +111,7 @@ export function EmailNotificationBar() {
           </span>
         )}
         <span className="flex-1 min-w-0 truncate text-sm">
-          <span className="font-bold">{email.sender}</span>
+          <span className="font-bold">{brandNodes(email.sender)}</span>
           {`: ${email.subject}`}
         </span>
         <button

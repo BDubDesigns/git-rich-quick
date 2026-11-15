@@ -6,6 +6,7 @@ import {
   truncateAtWordBoundary,
   unreadEmailCount,
 } from "../email/email.js";
+import { brandNodes } from "./BrandName.jsx";
 import gitmailBanner from "../img/gitmail-banner.png";
 import { Button } from "./Button.jsx";
 import { Panel } from "./Panel.jsx";
@@ -87,7 +88,7 @@ export function Email() {
           </div>
           <div>
             <div className="text-sm opacity-70">
-              From: {selectedEmail.sender}
+              From: {brandNodes(selectedEmail.sender)}
             </div>
             <div className="text-lg font-bold">{selectedEmail.subject}</div>
             <div className="text-xs opacity-60">
@@ -160,7 +161,7 @@ export function Email() {
                       email.read ? "" : "font-bold"
                     }`}
                   >
-                    {email.sender}
+                    {brandNodes(email.sender)}
                   </span>
                   <span className="shrink-0 text-xs opacity-60">
                     {formatEmailAge(email.createdAtMs, Date.now())}

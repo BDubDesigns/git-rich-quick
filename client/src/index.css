@@ -21,6 +21,15 @@
 .cascadia-font {
   font-family: "Cascadia Code", monospace;
 }
+
+/* Brand word "GitNub" (issue #110): letter-spaced so the N reads as N,
+   not H, in Cascadia Code at small sizes. Applied only where the brand
+   appears as a name (section headers, card titles, email senders), never
+   to body copy, and never to the font family itself. */
+.brand-name {
+  letter-spacing: 0.06em;
+}
+
 body {
   background-color: var(--main-bg-color);
   margin: 0;

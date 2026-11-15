@@ -6,6 +6,7 @@
 // leading space before it (ProjectCard and LockedFreelanceProjectCard had
 // one, the others did not). The shared line renders both tags flush-left.
 import { ProgressBar } from "./ProgressBar.jsx";
+import { brandNodes } from "./BrandName.jsx";
 import { formatCondition } from "../utils/formatCondition.js";
 
 /** The JSDoc wrapper: title line, description, then the tag lines
@@ -15,7 +16,7 @@ export function JsDocBlock({ title, description, children }) {
     <div className="text-xs font-mono">
       <span className="comment-text">{`/** `}</span>
       <br />
-      <span className="text-sm font-bold">{title}</span>
+      <span className="text-sm font-bold">{brandNodes(title)}</span>
       <br />
       {description ? (
         <>
