@@ -5,15 +5,19 @@
     transform: translateY(0);
   }
   to {
-    /* End at y-50, fully transparent */
+    /* End 36px up, fully transparent. Was 50px over 2s (issue #106):
+       the longer, taller rise drifted over the header stats, the
+       Clicks/sec label, and hire buttons, and at high tap rates the
+       floats piled into a dense cluster. Shorter and quicker keeps
+       the feedback readable without covering the UI above the button. */
     opacity: 0;
-    transform: translateY(-50px);
+    transform: translateY(-36px);
   }
 }
 
 .animate-float-up {
   animation-name: float-up;
-  animation-duration: 2s;
+  animation-duration: 1.25s;
   animation-timing-function: ease-out; /* Start fast and end slow */
   animation-fill-mode: forwards; /* Ensure that the element retains the final styles after the animation ends */
 }

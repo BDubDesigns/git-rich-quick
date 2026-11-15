@@ -16,11 +16,13 @@ import { forwardRef } from "react";
  *
  * @param {React.ReactNode} icon - Icon component to display
  * @param {string | number} value - Value to display
+ * @param {string} [label] - Tiny label under the value (e.g. "LOC").
+ *   Omitted when the stat needs no label.
  * @param {React.Ref} ref - Ref to attach to the main element
  * @returns {React.ReactNode} - Formatted stat display
  */
 export const StatDisplay = forwardRef(function StatDisplay(
-  { icon, value },
+  { icon, value, label },
   ref
 ) {
   return (
@@ -28,6 +30,15 @@ export const StatDisplay = forwardRef(function StatDisplay(
       <span>{icon}</span>
 
       <span className="">{value}</span>
+
+      {/* Tiny label under the value (issue #103): the four stats were
+          icon-only, so a new player had to guess which number was
+          which. */}
+      {label != null && (
+        <span className="text-[10px] leading-tight text-gray-400">
+          {label}
+        </span>
+      )}
     </div>
   );
 });

@@ -66,12 +66,14 @@ export function StatBox() {
               />
             }
             value={displayLoc}
+            label="LOC"
           />
 
           {/* Game stat displays: Money currency (in dollars) */}
           <StatDisplay
             icon={<LiaMoneyBillWaveAltSolid color="green" size={24} />}
             value={displayMoney}
+            label="Money"
           />
 
           {/* Game stat displays: Total employee count across all job levels */}
@@ -84,6 +86,7 @@ export function StatBox() {
               />
             }
             value={formatNumber(totalEmployees)}
+            label="Devs"
           />
 
           {/* Game stat displays: Passive LOC generation per second (employees' production)
@@ -93,6 +96,7 @@ export function StatBox() {
             ref={locPerSecondRef}
             icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
             value={`${formatNumber(locPerSecond)}/s`}
+            label="LOC/s"
           />
         </Panel>
       </div>
