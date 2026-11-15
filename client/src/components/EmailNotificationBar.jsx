@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
+import { isTeaserEmail } from "../email/email.js";
 import { Panel } from "./Panel.jsx";
 
 /** A horizontal swipe longer than this dismisses the bar. */
@@ -8,14 +9,19 @@ const SWIPE_DISMISS_PX = 60;
 /**
  * Email notification bar (issue #31): the toast for new mail.
  *
- * When an email arrives, this bar appears above the navbar (it is
- * rendered inside the footer wrapper, absolutely positioned above it,
- * so it floats over the main content instead of shifting layout).
- * Tapping/clicking the bar body goes to the email (opens the Email tab
- * to that email). Swiping it, or tapping the X, dismisses it WITHOUT
- * going to the email — the mail stays unread in the inbox until
- * opened. The bar is suppressed while the player is already in the
- * Email tab (the badge updates instead); the reducer owns that rule.
+ * When an email arrives, this bar appears above the navbar, in the
+ * normal flow inside the footer wrapper, so it takes layout space
+ * and never covers panel content (issue #104). Tapping/clicking the
+ * bar body goes to the email (opens the Email tab to that email).
+ * Swiping it, or tapping the X, dismisses it WITHOUT going to the
+ * email — the mail stays unread in the inbox until opened. The bar
+ * is suppressed while the player is already in the Email tab (the
+ * badge updates instead); the reducer owns that rule.
+ *
+ * Teasers (an employee, project, or open-source item the player can
+ * see but has not unlocked yet) read differently from unlocks: an
+ * amber dot and a "Sneak peek" label, so a teaser never reads as an
+ * available hire. Unlocks and rewards keep the blue dot and no label.
  */
 export function EmailNotificationBar() {
   const { state, dispatch } = useGameContext();
@@ -28,6 +34,10 @@ export function EmailNotificationBar() {
   const draggedRef = useRef(false);
 
   if (!notification || !email) return null;
+
+  // A teaser (visible but still locked) gets the amber dot and the
+  // "Sneak peek" label; an unlock or reward keeps the blue dot.
+  const isTeaser = isTeaserEmail(email);
 
   const handleBodyClick = () => {
     // A swipe ends in a click on some browsers; ignore clicks that
@@ -73,7 +83,11 @@ export function EmailNotificationBar() {
     <div
       role="button"
       tabIndex={0}
-      aria-label={`New email from ${email.sender}: ${email.subject}. Activate to open it.`}
+      aria-label={
+        isTeaser
+          ? `Sneak peek from ${email.sender}: ${email.subject}. Activate to open it.`
+          : `New email from ${email.sender}: ${email.subject}. Activate to open it.`
+      }
       onClick={handleBodyClick}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") handleBodyClick();
@@ -81,11 +95,20 @@ export function EmailNotificationBar() {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      className="absolute bottom-full left-0 right-0 z-50 mb-2 cursor-pointer"
+      className="mb-2 cursor-pointer"
       style={{ transform: `translateX(${dragX}px)` }}
     >
       <Panel className="flex items-center gap-2 px-3 py-2">
-        <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-blue-400" />
+        <span
+          className={`shrink-0 inline-block w-2 h-2 rounded-full ${
+            isTeaser ? "bg-amber-400" : "bg-blue-400"
+          }`}
+        />
+        {isTeaser && (
+          <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-amber-300">
+            Sneak peek
+          </span>
+        )}
         <span className="flex-1 min-w-0 truncate text-sm">
           <span className="font-bold">{email.sender}</span>
           {`: ${email.subject}`}

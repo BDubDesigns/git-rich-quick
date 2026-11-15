@@ -110,11 +110,11 @@ function SaveStatus() {
 }
 
 export function Footer() {
-  // The wrapper is relative so the email notification bar (absolute,
-  // bottom-full) sits directly above the footer — above the navbar —
-  // floating over the main content instead of shifting layout.
+  // The email notification bar renders in the normal flow above the
+  // nav/commit panels (issue #104), so it takes layout space and
+  // never covers panel content.
   return (
-    <div className="relative">
+    <div>
       <EmailNotificationBar />
       {/* Mobile: Stacked (nav + commit button) */}
       <div className="lg:hidden">

@@ -207,6 +207,71 @@ export function unreadEmailCount(emails) {
 }
 
 /**
+ * Teaser emails are the "visible" (10% progress) mails: an employee,
+ * open-source project, or freelance project the player can see but
+ * has not unlocked yet. Everything else (unlocks, level-ups, star
+ * rewards, farm mail) is a done deal. The notification bar uses this
+ * to label teasers so they do not read as an available hire.
+ */
+const TEASER_TRIGGER_PREFIXES = [
+  "employee-visible:",
+  "opensource-visible:",
+  "freelance-visible:",
+];
+
+export function isTeaserEmail(email) {
+  const triggerKey = email?.triggerKey;
+  if (typeof triggerKey !== "string") return false;
+  return TEASER_TRIGGER_PREFIXES.some((prefix) =>
+    triggerKey.startsWith(prefix)
+  );
+}
+
+/** Max preview length for the inbox list snippet (issue #108). */
+export const EMAIL_PREVIEW_MAX_LENGTH = 60;
+
+/**
+ * Truncate text at a word boundary: if it fits, return it unchanged;
+ * otherwise cut to maxLength, back up to the last space, and append
+ * an ellipsis. A single word longer than maxLength is cut hard (there
+ * is no boundary to back up to). The ellipsis is part of the string,
+ * so the visible cut always lands after a complete word instead of
+ * mid-word the way the CSS `truncate` ellipsis does on its own.
+ */
+export function truncateAtWordBoundary(text, maxLength) {
+  const value = text ?? "";
+  if (value.length <= maxLength) return value;
+  const cut = value.slice(0, maxLength);
+  const lastSpace = cut.lastIndexOf(" ");
+  const trimmed = lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+  return `${trimmed}…`;
+}
+
+/**
+ * First non-empty line of a body, the list preview snippet. When the
+ * first line starts with the subject (the teaser mails repeat it:
+ * "We found a Senior Developer! They're interested..."), the subject
+ * is stripped so the preview shows the body instead of repeating the
+ * subject. If stripping leaves nothing, the next non-empty line is
+ * used. Returns "" when the body has no usable line.
+ */
+export function emailSnippet(body, subject) {
+  const lines = (body ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  for (const line of lines) {
+    if (subject && line.startsWith(subject)) {
+      const rest = line.slice(subject.length).trim();
+      if (rest !== "") return rest;
+      continue;
+    }
+    return line;
+  }
+  return "";
+}
+
+/**
  * Human-readable unlock requirement for a teaser email, e.g.
  * "Earn 100 total lines of code" or "Hire 5 Juniors and Earn 3000
  * total lines of code". Reuses the same formatter the locked cards
