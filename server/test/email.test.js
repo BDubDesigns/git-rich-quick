@@ -23,6 +23,7 @@ import {
   truncateAtWordBoundary,
   unreadEmailCount,
   collectTriggerEmails,
+  newStarClaimId,
 } from "../../client/src/email/email.js";
 import {
   getUnlockProgressForFreelanceProject,
@@ -39,6 +40,7 @@ import {
   emptyFarmState,
   initialFarmState,
   initialSaveState,
+  resolveStarClaim,
 } from "../../shared/game-balance.js";
 
 const CLAIM_ID = "123e4567-e89b-42d3-a456-426614174001";
@@ -621,6 +623,67 @@ test("star reward email fires once per claim, keyed by claimId", () => {
   const again = collectTriggerEmails(state, { ...state, emails }, claim);
   assert.equal(again.emails.length, 1);
   assert.equal(again.newEmailId, null);
+});
+
+test("two star claims in a row send two star emails", () => {
+  // The bug: no claim carried a claimId, so every star email was keyed
+  // `star-reward:undefined` and every claim after the first was deduped
+  // away while the first mail sat in the inbox. GoldenStar now stamps
+  // each rolled claim with newStarClaimId().
+  const roll = () => ({
+    ...resolveStarClaim({
+      effect: "lucky",
+      good: true,
+      locPerSecond: 10,
+      money: 0,
+      linesOfCode: 1000,
+      employeeCounts: {},
+      rng: () => 0.5,
+    }),
+    claimId: newStarClaimId(),
+  });
+  const first = roll();
+  const second = roll();
+  assert.notEqual(first.claimId, second.claimId);
+
+  const state = gameState();
+  const afterFirst = collectTriggerEmails(state, state, first);
+  assert.equal(afterFirst.emails.length, 1);
+  const withFirst = { ...state, emails: afterFirst.emails };
+  const afterSecond = collectTriggerEmails(withFirst, withFirst, second);
+  const starEmails = afterSecond.emails.filter((email) =>
+    email.triggerKey.startsWith("star-reward:")
+  );
+  assert.equal(starEmails.length, 2);
+  assert.deepEqual(
+    starEmails.map((email) => email.triggerKey),
+    [`star-reward:${first.claimId}`, `star-reward:${second.claimId}`]
+  );
+  assert.notEqual(afterSecond.newEmailId, null);
+});
+
+test("star claims without a claimId still mail once each", () => {
+  // resolveStarClaim stays pure and carries no claimId. A caller that
+  // forwards its result unstamped must not collapse every claim onto
+  // one `star-reward:undefined` key.
+  const claim = resolveStarClaim({
+    effect: "lucky",
+    good: true,
+    locPerSecond: 10,
+    money: 0,
+    linesOfCode: 1000,
+    employeeCounts: {},
+    rng: () => 0.5,
+  });
+  assert.equal(claim.claimId, undefined);
+  const state = gameState();
+  const afterFirst = collectTriggerEmails(state, state, claim);
+  const withFirst = { ...state, emails: afterFirst.emails };
+  const afterSecond = collectTriggerEmails(withFirst, withFirst, claim);
+  assert.equal(afterSecond.emails.length, 2);
+  for (const email of afterSecond.emails) {
+    assert.notEqual(email.triggerKey, "star-reward:undefined");
+  }
 });
 
 test("star reward email reports a bad outcome with its locked name", () => {
