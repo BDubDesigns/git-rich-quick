@@ -377,6 +377,27 @@ export function getBaseLocPerSecond(state) {
 }
 
 /**
+ * The LOC one game tick (one credited second) actually credits, after
+ * SUBTRACTERALL (Slice 3): the healthy passive rate (temporary star
+ * buffs included, permanent bonuses included) run through the
+ * shared advance function, floored to a whole LOC. The reducer uses
+ * the same function for the same tick, so the floating-text amount
+ * App shows and the balance the tick commits can never disagree.
+ * A tick must never commit a fractional amount, so the fractional
+ * part is floored off here — the same +1e-9 epsilon guard the tick
+ * uses against float error.
+ */
+export function calculateTickCredit(state) {
+  const healthy = calculateLOCPerSecond(state);
+  const result = shared.advanceSubtracterall(
+    state.subtracterall ?? shared.zeroSubtracterallState(),
+    healthy,
+    1
+  );
+  return Math.floor(result.credited + 1e-9);
+}
+
+/**
  * The icon (component + color) an employee type renders with right
  * now (issue #11). When a cosmetic is equipped for the type's slot,
  * the cosmetic's icon replaces the config default; otherwise the

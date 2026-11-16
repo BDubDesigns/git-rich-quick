@@ -27,6 +27,7 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 import { SellCompany } from "./SellCompany.jsx";
+import { SubtracterallCard } from "./SubtracterallCard.jsx";
 import { Panel } from "./Panel.jsx";
 import { APP_COMMIT, buildTimeLabel } from "../version.js";
 import {
@@ -527,6 +528,11 @@ export function Settings() {
           on purpose: a sale keeps your lifetime progress, a reset
           wipes it. */}
       <SellCompany />
+
+      {/* SUBTRACTERALL (prestige, Slice 3): the burst card. Below
+          Sell the Company on purpose: a dose borrows future
+          production, and the sale warning lives in both. */}
+      <SubtracterallCard />
 
       {/* Danger Zone: reset ALL progress back to 0. Separate from the
           planned prestige system — there is no bonus for resetting,

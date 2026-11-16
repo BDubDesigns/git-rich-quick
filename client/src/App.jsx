@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useGameContext } from "./context/useGameContext";
 // Import game balance and LOC calculation
 import { GAME_BALANCE_CONFIG } from "./context/gameConfig";
-import { calculateLOCPerSecond } from "./context/gameLogic";
+import { calculateTickCredit } from "./context/gameLogic";
 // Import save player id key (splash gating: a returning player has one)
 import { PLAYER_ID_KEY } from "./save/api.js";
 // Import components
@@ -70,8 +70,13 @@ function App() {
   // Game tick effect
   useEffect(() => {
     const interval = setInterval(() => {
-      // Calculate LOC amount BEFORE dispatching - use ref to get current state
-      const locAmount = calculateLOCPerSecond(stateRef.current);
+      // Calculate the tick credit BEFORE dispatching - use ref to get
+      // current state. SUBTRACTERALL (Slice 3): the floating text
+      // shows what the tick actually credits (3x in a burst, 0.25x
+      // in a withdrawal), not the healthy rate — calculateTickCredit
+      // runs the same shared advance function as the reducer, so the
+      // display and the balance can never disagree.
+      const locAmount = calculateTickCredit(stateRef.current);
 
       // Dispatch the game tick
       dispatch({ type: "GAME_TICK" });

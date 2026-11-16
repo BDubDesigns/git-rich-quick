@@ -1,4 +1,5 @@
 import { StatBox } from "./StatBox";
+import { SubtracterallStrip } from "./SubtracterallStrip.jsx";
 import smallLogo from "../img/duck_logo_small.png";
 
 export function Header() {
@@ -42,6 +43,12 @@ export function Header() {
           collapsible — GoldenStar owns the toggle (tap the countdown
           bar to hide all the bars, tap the collapsed strip to show them). */}
       <div id="star-buy-slot" className="px-2" />
+
+      {/* SUBTRACTERALL phase strip (Slice 3): a thin strip under the
+          star area, shown only during an active Burst or Withdrawal,
+          so the player sees the phase on any tab. The full detail
+          lives in the SUBTRACTERALL card in Settings. */}
+      <SubtracterallStrip />
     </header>
   );
 }
