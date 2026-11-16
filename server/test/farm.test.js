@@ -23,8 +23,10 @@ import { validateSave } from "../src/validate.js";
 import {
   FARM_CONFIG,
   LLAMA_BASE_TYPES,
+  applyFarmBreedKids,
   emptyFarmState,
   farmEligibleBreedingStalls,
+  farmKidsFromRoll,
   farmLlamaCount,
   farmMaxKidsPerWindow,
   farmStallNeighbours,
@@ -203,6 +205,92 @@ test("rollFarmKid picks a parent type when the new-type roll fails", () => {
   const type = rollFarmKid(1, stalls, [...LLAMA_BASE_TYPES], rng);
   // Stall 1's parents are classic (0), drama (2), classic (4).
   assert.ok(type === "classic" || type === "drama");
+});
+
+// ---- Breed effect conversion + reducer guard (live crash, 4606fb5) ----
+
+test("farmKidsFromRoll converts a roll into { stallIndex, type }[]", () => {
+  // Rigged rng: every eligible stall births a kid, all spaghetti
+  // (the base types are already unlocked).
+  const farm = stockedFarm();
+  const roll = rollFarmBreeding(farm.stalls, farm.unlockedTypes, () => 0);
+  const kids = farmKidsFromRoll(farm.stalls, roll);
+  assert.deepEqual(kids, [
+    { stallIndex: 1, type: "spaghetti" },
+    { stallIndex: 3, type: "spaghetti" },
+    { stallIndex: 5, type: "spaghetti" },
+    { stallIndex: 7, type: "spaghetti" },
+  ]);
+});
+
+test("farmKidsFromRoll is [] for a no-kid tick and for a malformed roll", () => {
+  const farm = stockedFarm();
+  const noKidRoll = rollFarmBreeding(farm.stalls, farm.unlockedTypes, () => 0.999);
+  assert.deepEqual(farmKidsFromRoll(farm.stalls, noKidRoll), []);
+  assert.deepEqual(farmKidsFromRoll(farm.stalls, null), []);
+  assert.deepEqual(farmKidsFromRoll(farm.stalls, {}), []);
+  assert.deepEqual(farmKidsFromRoll(farm.stalls, { stalls: "nope" }), []);
+  assert.deepEqual(farmKidsFromRoll(null, noKidRoll), []);
+});
+
+test("roll -> farmKidsFromRoll -> applyFarmBreedKids places kids and unlocks the type", () => {
+  const farm = stockedFarm();
+  const roll = rollFarmBreeding(farm.stalls, farm.unlockedTypes, () => 0);
+  const kids = farmKidsFromRoll(farm.stalls, roll);
+  const after = applyFarmBreedKids(farm, kids);
+  assert.equal(after.stalls[1].llama, "spaghetti");
+  assert.equal(after.stalls[3].llama, "spaghetti");
+  assert.equal(after.stalls[5].llama, "spaghetti");
+  assert.equal(after.stalls[7].llama, "spaghetti");
+  assert.ok(after.unlockedTypes.includes("spaghetti"));
+  // Old llamas are untouched, and the input farm is not mutated.
+  assert.equal(after.stalls[0].llama, "classic");
+  assert.equal(farm.stalls[1].llama, null);
+});
+
+test("applyFarmBreedKids skips a kid whose stall is no longer empty", () => {
+  const farm = stockedFarm();
+  // A llama bought into stall 1 after the roll wins: the kid is
+  // never born there.
+  const raced = {
+    ...farm,
+    stalls: farm.stalls.map((stall, i) =>
+      i === 1 ? { ...stall, llama: "classic" } : stall
+    ),
+  };
+  const after = applyFarmBreedKids(raced, [{ stallIndex: 1, type: "quantum" }]);
+  assert.equal(after.stalls[1].llama, "classic");
+  assert.ok(!after.unlockedTypes.includes("quantum"));
+});
+
+test("applyFarmBreedKids skips invalid kids", () => {
+  const farm = stockedFarm();
+  const after = applyFarmBreedKids(farm, [
+    { stallIndex: -1, type: "spaghetti" },
+    { stallIndex: 9, type: "spaghetti" },
+    { stallIndex: 1, type: "not-a-llama" },
+    { stallIndex: "1", type: "spaghetti" },
+    null,
+    "spaghetti",
+  ]);
+  assert.deepEqual(after.stalls, farm.stalls);
+  assert.deepEqual(after.unlockedTypes, farm.unlockedTypes);
+});
+
+test("applyFarmBreedKids never throws on a malformed kids payload (live crash regression)", () => {
+  // The live crash on 4606fb5: the breed effect dispatched the raw
+  // rollFarmBreeding result ({ stalls, kidsBorn }, a plain object)
+  // as `kids`, and `for (const kid of kids ?? [])` threw
+  // "(u ?? []) is not iterable" in the minified build, blanking the
+  // game every 60s once the farm was owned. A malformed payload must
+  // now be treated as no kids instead of throwing.
+  const farm = stockedFarm();
+  const rawRoll = rollFarmBreeding(farm.stalls, farm.unlockedTypes, () => 0);
+  for (const bad of [rawRoll, { stalls: [], kidsBorn: [] }, 42, "spaghetti", null, undefined]) {
+    const after = applyFarmBreedKids(farm, bad);
+    assert.deepEqual(after.stalls, farm.stalls);
+    assert.deepEqual(after.unlockedTypes, farm.unlockedTypes);
+  }
 });
 
 // ---- Farm purchase ----

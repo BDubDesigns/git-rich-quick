@@ -536,42 +536,23 @@ function gameReducer(state, action) {
 
     // Apply a locally-rolled breeding result (issue #79 feedback).
     // Payload: { kids } — the list of { stallIndex, type } the
-    // provider's breed effect rolled (shared.rollFarmBreeding, the
-    // same odds the server used). A kid is placed only if its stall
-    // is still empty (a llama bought into that stall after the roll
-    // wins — the kid is then never born; the reducer is the
-    // authority, so the roll and the state can never disagree).
-    // New types join the unlocked list. The farmBreedDue flag is
-    // cleared here: the next breeding check is due after another
-    // breedingTickSeconds ticks. A payload with no kids (a no-birth
-    // tick) just clears the flag.
+    // provider's breed effect converted from the roll
+    // (shared.farmKidsFromRoll). Placement lives in
+    // shared.applyFarmBreedKids (pure, tested): a kid is placed only
+    // if its stall is still empty (a llama bought into that stall
+    // after the roll wins — the kid is then never born; the reducer
+    // is the authority, so the roll and the state can never
+    // disagree), and a malformed kids payload is treated as no kids
+    // instead of throwing. New types join the unlocked list. The
+    // farmBreedDue flag is cleared here: the next breeding check is
+    // due after another breedingTickSeconds ticks. A payload with no
+    // kids (a no-birth tick) just clears the flag.
     case "FARM_BREED_RESULT": {
-      const { kids } = action.payload ?? {};
       const farm = state.farm ?? shared.emptyFarmState();
       if (!farm.owned) return { ...state, farmBreedDue: false };
-      const stalls = farm.stalls.map((stall) => ({ ...stall }));
-      const unlockedTypes = [...(farm.unlockedTypes ?? [])];
-      for (const kid of kids ?? []) {
-        if (
-          typeof kid?.stallIndex !== "number" ||
-          kid.stallIndex < 0 ||
-          kid.stallIndex >= shared.FARM_CONFIG.stallCount ||
-          !shared.LLAMA_TYPES.includes(kid.type)
-        ) {
-          continue;
-        }
-        if (stalls[kid.stallIndex].llama !== null) continue;
-        stalls[kid.stallIndex] = {
-          ...stalls[kid.stallIndex],
-          llama: kid.type,
-        };
-        if (!unlockedTypes.includes(kid.type)) {
-          unlockedTypes.push(kid.type);
-        }
-      }
       const newState = {
         ...state,
-        farm: { ...farm, stalls, unlockedTypes },
+        farm: shared.applyFarmBreedKids(farm, action.payload?.kids),
         farmBreedDue: false,
       };
       const latched = {
@@ -1552,16 +1533,20 @@ export function GameProvider({ children }) {
   // and dispatch FARM_BREED_RESULT. The roll is client-side now — the
   // server never sees a breed, only the kids in the next save. A
   // no-kid tick just clears the flag. The effect is synchronous (no
-  // network call), so there is nothing in flight to guard and nothing
-  // to fail; a breed due before the farm is owned is a no-op in the
-  // reducer (it clears the flag). The farm kids are a big-action
-  // field, so a birth saves promptly via noteState.
+  // network call), so there is nothing in flight to guard; the roll
+  // result is converted to the { stallIndex, type }[] the reducer
+  // expects (shared.farmKidsFromRoll), and the reducer treats a
+  // malformed payload as no kids instead of throwing. A breed due
+  // before the farm is owned is a no-op in the reducer (it clears
+  // the flag). The farm kids are a big-action field, so a birth
+  // saves promptly via noteState.
   useEffect(() => {
     if (!state.farmBreedDue) {
       return;
     }
     const farm = state.farm ?? shared.emptyFarmState();
-    const kids = shared.rollFarmBreeding(farm.stalls, farm.unlockedTypes);
+    const roll = shared.rollFarmBreeding(farm.stalls, farm.unlockedTypes);
+    const kids = shared.farmKidsFromRoll(farm.stalls, roll);
     dispatch({ type: "FARM_BREED_RESULT", payload: { kids } });
   }, [state.farmBreedDue, state.farm]);
 
