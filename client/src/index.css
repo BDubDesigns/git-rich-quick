@@ -258,3 +258,24 @@ body {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* Splash screen (issue #141): the blinking block cursor at the end of
+   the `npm start` button, terminal-style. A hard on/off blink (steps),
+   and no blink at all when the player prefers reduced motion. */
+.terminal-cursor {
+  display: inline-block;
+  margin-left: 0.15em;
+  animation: terminal-cursor-blink 1s steps(1, end) infinite;
+}
+
+@keyframes terminal-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-cursor {
+    animation: none;
+  }
+}
