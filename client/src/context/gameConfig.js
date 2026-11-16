@@ -95,7 +95,9 @@ export const GAME_BALANCE_CONFIG = Object.freeze({
 // (`imageSrc`) — see NavButton for how the two render.
 export const NAV_TABS = Object.freeze([
   { id: "email", label: "Email", imageSrc: gitmailIcon },
-  { id: "shop", label: "Shop", Icon: FaPeopleGroup },
+  // Issue #130: you hire people, you do not buy them. The label says
+  // Hire; the tab id stays "shop" (a display-label change only).
+  { id: "shop", label: "Hire", Icon: FaPeopleGroup },
   { id: "projects", label: "Projects", Icon: MdRocketLaunch },
   { id: "openSource", label: "Open Source", Icon: FaGithub },
   { id: "farm", label: "Farm", Icon: GiBarn },
