@@ -72,23 +72,28 @@ export function SellCompany() {
     lifetimeEquityEarned + claimable
   );
   const healthyRate = getBaseLocPerSecond(state);
-  const estimate = shared.nextEquityEstimate(lifetimeLoc, healthyRate);
   const companyLoc = shared.companyLocEarned(state);
 
   // The meter spans the current bracket: entitlement n means the bar
   // runs from n^2 million through (n+1)^2 million lifetime LOC. It
   // rolls over when an Equity is earned, while the claimable count
   // stays visible next to it. A filled bar is progress, never a
-  // deadline.
-  const bracketLow = shared.equityThresholdLoc(estimate.entitled);
-  const bracketSpan = Math.max(
-    1,
-    estimate.nextThresholdLoc - bracketLow
+  // deadline. Shared with the header Equity strip (issue #131), so
+  // the two bars can never disagree.
+  const estimate = shared.equityProgress(lifetimeLoc, healthyRate);
+  const bracketPct = estimate.fraction * 100;
+
+  // Founder boost, honestly (issue #131): read off founderMultiplier
+  // itself, the multiplier production applies to clicks and employee
+  // production. Based on Lifetime Equity EARNED, even if spent.
+  const boostNow = shared.founderBoostPercent(lifetimeEquityEarned);
+  const boostNext = shared.founderNextEquityBoostPercent(lifetimeEquityEarned);
+  const boostAfterSale = shared.founderBoostPercent(
+    lifetimeEquityEarned + claimable
   );
-  const bracketPct = Math.min(
-    100,
-    Math.max(0, ((lifetimeLoc - bracketLow) / bracketSpan) * 100)
-  );
+  const pastLinear = lifetimeEquityEarned >= shared.FOUNDER_LINEAR_EQUITY_CAP;
+  const achievementMult = shared.achievementLocMultiplier(state.achievements);
+  const totalPermanent = shared.buffedLocMultiplier(state);
 
   const employeeCounts = flatEmployeeCounts(state);
   const totalEmployees = shared.totalEmployees(employeeCounts);
@@ -207,6 +212,49 @@ export function SellCompany() {
         review any of them.
       </p>
 
+      {/* Founder boost per Equity (issue #131): what one Equity is
+          worth, what the player's Equity is worth now, and what the
+          next one adds, from the real curve. */}
+      <div className="flex flex-col gap-1 text-sm">
+        <p className="m-0">
+          <strong>
+            Each Equity: {shared.formatBoostPercent(
+              shared.FOUNDER_BOOST_PER_EQUITY * 100
+            )}{" "}
+            to all LOC
+          </strong>{" "}
+          (clicks and employees), up to{" "}
+          {shared.FOUNDER_LINEAR_EQUITY_CAP} Equity. Past{" "}
+          {shared.FOUNDER_LINEAR_EQUITY_CAP}, each one adds less:{" "}
+          {[50, 100, 200]
+            .map(
+              (p) => `${formatMultiplier(shared.founderMultiplier(p))} at ${p}`
+            )
+            .join(", ")}
+          .
+        </p>
+        <p className="m-0">
+          <strong>
+            Your {lifetimeEquityEarned} Equity:{" "}
+            {shared.formatBoostPercent(boostNow)} (
+            {formatMultiplier(founderBefore)})
+          </strong>
+          . Counts every Equity you have earned, even the ones you spent.
+        </p>
+        <p className="m-0">
+          Your next Equity adds {shared.formatBoostPercent(boostNext)}
+          {pastLinear ? " (diminishing returns past 50)" : ""}.
+          {claimable > 0
+            ? ` Selling now (+${claimable} Equity) takes you to ${shared.formatBoostPercent(boostAfterSale)} (${formatMultiplier(founderAfter)}).`
+            : ""}
+        </p>
+        <p className="m-0 text-gray-400">
+          With your achievement buff ({formatMultiplier(achievementMult)}),
+          every LOC you earn is multiplied by{" "}
+          {formatMultiplier(totalPermanent)} in total.
+        </p>
+      </div>
+
       {step === "complete" && preview ? (
         <>
           <p className="m-0 text-sm">
@@ -299,7 +347,7 @@ export function SellCompany() {
       ) : (
         <>
           <p className="m-0 text-sm">
-            Next Equity: {formatNumber(lifetimeLoc)} /{" "}
+            Next Equity ({estimate.nextEquity}): {formatNumber(lifetimeLoc)} /{" "}
             {formatNumber(estimate.nextThresholdLoc)} lifetime LOC
           </p>
           <div

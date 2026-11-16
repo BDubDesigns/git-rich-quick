@@ -1625,6 +1625,90 @@ export function founderMultiplier(lifetimeEquityEarned) {
   return 6 + 0.5 * Math.log2(1 + (p - 50) / 50);
 }
 
+/** Equity at which the Founder curve stops being linear (+10% each). */
+export const FOUNDER_LINEAR_EQUITY_CAP = 50;
+/** The Founder boost each Equity adds while the curve is linear. */
+export const FOUNDER_BOOST_PER_EQUITY = 0.1;
+
+/**
+ * The Founder boost as a percent of extra LOC (issue #131): 20 for
+ * 1.20x. Read off founderMultiplier itself, so the number the Sell
+ * page shows is exactly the multiplier production applies (to clicks
+ * and employee production). NaN or negative Equity reads as 0.
+ */
+export function founderBoostPercent(lifetimeEquityEarned) {
+  const p = Number(lifetimeEquityEarned);
+  return (founderMultiplier(Number.isFinite(p) ? p : 0) - 1) * 100;
+}
+
+/**
+ * How many percentage points the NEXT Equity adds (issue #131): +10
+ * up to 50 Equity, then less and less (the curve turns logarithmic).
+ * The honest marginal value, from founderMultiplier itself.
+ */
+export function founderNextEquityBoostPercent(lifetimeEquityEarned) {
+  const raw = Number(lifetimeEquityEarned);
+  const p = Math.max(0, Math.floor(Number.isFinite(raw) ? raw : 0));
+  return (founderMultiplier(p + 1) - founderMultiplier(p)) * 100;
+}
+
+/**
+ * Progress toward the next Equity point, for the bars (issue #131).
+ * The bar spans the current bracket: entitlement n runs from
+ * equityThresholdLoc(n) to equityThresholdLoc(n + 1) lifetime LOC (the
+ * next Equity lands at 1,000,000 x (n + 1)^2). `seconds` is the time
+ * left at the healthy rate (null with no production). NaN-guarded.
+ * Returns { entitled, nextEquity, bracketLowLoc, nextThresholdLoc,
+ * remainingLoc, fraction, seconds }.
+ */
+export function equityProgress(lifetimeLoc, healthyPassiveLocPerSec) {
+  const raw = Number(lifetimeLoc);
+  const loc = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  const rawRate = Number(healthyPassiveLocPerSec);
+  const rate = Number.isFinite(rawRate) && rawRate > 0 ? rawRate : 0;
+  const estimate = nextEquityEstimate(loc, rate);
+  const bracketLowLoc = equityThresholdLoc(estimate.entitled);
+  const span = Math.max(1, estimate.nextThresholdLoc - bracketLowLoc);
+  return {
+    entitled: estimate.entitled,
+    nextEquity: estimate.entitled + 1,
+    bracketLowLoc,
+    nextThresholdLoc: estimate.nextThresholdLoc,
+    remainingLoc: estimate.remainingLoc,
+    fraction: Math.min(1, Math.max(0, (loc - bracketLowLoc) / span)),
+    seconds: estimate.seconds,
+  };
+}
+
+/**
+ * Whether the next-Equity goal is visible yet (issue #131): the player
+ * has Equity, or their lifetime LOC has reached the unlock visibility
+ * threshold (10%) of the first Equity, the same rule every locked card
+ * uses.
+ */
+export function equityGoalVisible(lifetimeLoc, lifetimeEquityEarned) {
+  const loc = Number(lifetimeLoc);
+  const earned = Number(lifetimeEquityEarned);
+  return (
+    (Number.isFinite(earned) && earned > 0) ||
+    (Number.isFinite(loc) &&
+      loc >= UNLOCK_VISIBILITY_THRESHOLD * equityThresholdLoc(1))
+  );
+}
+
+/**
+ * "+20%" for a boost percent: whole numbers stay whole, fractions get
+ * up to two decimals ("+0.71%"). Used for the Founder copy.
+ */
+export function formatBoostPercent(percent) {
+  const value = Number.isFinite(percent) ? percent : 0;
+  const rounded = Math.round(value * 100) / 100;
+  const text = Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0$/, "");
+  return `+${text}%`;
+}
+
 /** ===== Prestige — permanent store (Slice 2) =====
  *
  * Five upgrade tracks, per the v2 prestige design section 3. Ranks
