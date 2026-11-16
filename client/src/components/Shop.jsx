@@ -9,8 +9,12 @@ import {
   resolveEmployeeIcon,
   activeStarBuff,
   flatEmployeeCounts,
+  flatOpenSourceLevels,
 } from "../context/gameLogic";
-import { effectiveEmployeeMultiplier } from "../../../shared/game-balance.js";
+import {
+  doublingMultiplier,
+  effectiveEmployeeMultiplier,
+} from "../../../shared/game-balance.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
@@ -97,22 +101,28 @@ export function Shop() {
           // change a manager's boost or a specialist's click bonus,
           // so it does not tint those cards.
           //
-          // The Release Manager's ship timer is not changed by any
-          // star buff (no Sprint/Meeting/Frenzy scaling — the timer
-          // is fixed), so its card never tints: a green tint would
-          // promise a faster ship that never comes.
+          // The doubling upgrades (issue #118) multiply on top: a
+          // type's card tints green while its doubling project is
+          // leveled, because the output really is doubled. The
+          // Release Manager's ship timer is not changed by any star
+          // buff (no Sprint/Meeting/Frenzy scaling — the timer is
+          // fixed), but Ship Happens doubles the ships per interval,
+          // so its card tints from the doubling multiplier alone.
+          const openSourceLevels = flatOpenSourceLevels(state);
           const effectMultiplier =
             employeeType === "releaseManager"
-              ? 1
+              ? doublingMultiplier("releaseManager", openSourceLevels)
               : employeeType === "projectManager" ||
                   employeeType === "commitSpecialist"
                 ? (activeStarBuff(state, "employee", employeeType)
-                    ?.multiplier ?? 1)
+                    ?.multiplier ?? 1) *
+                  doublingMultiplier(employeeType, openSourceLevels)
                 : effectiveEmployeeMultiplier(
                     state.activeStarEffects,
                     employeeType,
                     Date.now(),
-                    flatEmployeeCounts(state)
+                    flatEmployeeCounts(state),
+                    openSourceLevels
                   );
 
           return (

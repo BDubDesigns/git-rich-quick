@@ -96,6 +96,12 @@ function seededState() {
     blocker: 0,
     constellation: 2,
     starBroker: 0,
+    coffeeScript: 0,
+    juniorAchievement: 0,
+    seniorMoment: 0,
+    scrumMaster: 0,
+    commitmentIssues: 0,
+    shipHappens: 0,
   };
   // Constellation level 2 with 2000 lifetime LOC: the unlock condition
   // (TOTAL_LOC >= 500) is met, so the latch is true — a fixture that

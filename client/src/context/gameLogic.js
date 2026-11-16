@@ -85,7 +85,7 @@ export function flatEmployeeCounts(state) {
   }, {});
 }
 
-function flatOpenSourceLevels(state) {
+export function flatOpenSourceLevels(state) {
   return Object.keys(state.openSourceProjects).reduce((acc, key) => {
     acc[key] = state.openSourceProjects[key].level;
     return acc;
@@ -266,10 +266,15 @@ export function employeeReturnsLine(config, effectMultiplier = 1) {
     // Release Manager: no LOC/s rate and no click bonus — its value
     // is the auto-ship. One ship per assigned manager per interval
     // (see RELEASE_MANAGER_CONFIG); star buffs do not change the
-    // timer, so there is no boosted value — the suffix stays empty.
+    // timer, but Ship Happens (issue #118) doubles the ships per
+    // interval each level, so the boosted value is the doubled ship
+    // count and the suffix shows it while any level is bought.
     type = "SHIP";
-    value = `Ships 1 project per ${shared.formatCooldownSeconds(shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds)}`;
-    boostedValue = value;
+    const interval = shared.formatCooldownSeconds(
+      shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds
+    );
+    value = `Ships 1 project per ${interval}`;
+    boostedValue = `Ships ${formatNumber(effectMultiplier)} project${effectMultiplier === 1 ? "" : "s"} per ${interval}`;
   } else {
     type = "LOC";
     value = `${formatNumber(config.locPerSecond)} LOC per Sec`;
@@ -411,7 +416,10 @@ export function isFreelanceProjectUnlocked(projectKey, state) {
  * @returns {number} Total lines of code generated per second across all employees
  */
 export function getCurrentLOCPerSecond(state) {
-  return shared.baseLocPerSecond(flatEmployeeCounts(state));
+  return shared.baseLocPerSecond(
+    flatEmployeeCounts(state),
+    flatOpenSourceLevels(state)
+  );
 }
 
 // Get Employee Cost

@@ -300,8 +300,10 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
   // Blocker unlocks at 5 juniors; visible at 10% progress (1 junior).
   // Hiring the first junior also makes Senior visible: its employee
   // count condition is 1/10 = 10%, and visibility is ANY condition at
-  // 10% (the same rule the Shop uses to show the locked card). So two
-  // teasers fire here — one per newly visible unlock.
+  // 10% (the same rule the Shop uses to show the locked card). The
+  // first junior also makes Junior Achievement visible (issue #118):
+  // its unlock is 10 juniors, so 1 junior is exactly the 10%
+  // threshold. So three teasers fire here — one per newly visible unlock.
   const prev = gameState();
   const visible = gameState({
     employees: {
@@ -313,10 +315,14 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
     },
   });
   const teaser = collectTriggerEmails(prev, visible).emails;
-  assert.equal(teaser.length, 2);
+  assert.equal(teaser.length, 3);
   assert.deepEqual(
     teaser.map((entry) => entry.triggerKey),
-    ["employee-visible:senior", "opensource-visible:blocker"]
+    [
+      "employee-visible:senior",
+      "opensource-visible:blocker",
+      "opensource-visible:juniorAchievement",
+    ]
   );
   const unlocked = gameState({
     employees: {
@@ -337,14 +343,17 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
   // (5/25 = 20% of the Project Manager's employee-count condition,
   // 5/20 = 25% of the Commit Specialist's, 5/30 = 17% of the Release
   // Manager's — all past the 10% visibility threshold), so their
-  // teasers fire alongside the Blocker unlock.
+  // teasers fire alongside the Blocker unlock. The Junior Achievement
+  // teaser from the first part is already in the inbox, so it is not
+  // re-sent — it just stays in the list ahead of the new ones.
   const { emails } = collectTriggerEmails(visible, unlocked);
-  assert.equal(emails.length, 6);
+  assert.equal(emails.length, 7);
   assert.deepEqual(
     emails.map((entry) => entry.triggerKey),
     [
       "employee-visible:senior",
       "opensource-visible:blocker",
+      "opensource-visible:juniorAchievement",
       "employee-visible:projectManager",
       "employee-visible:commitSpecialist",
       "employee-visible:releaseManager",

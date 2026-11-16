@@ -2,8 +2,11 @@ import { ActionButton } from "./ActionButton.jsx";
 // Number abbreviation (issue #42) — the shared formatter.
 import { formatNumber } from "../../../shared/formatNumber.js";
 import {
+  DOUBLING_PROJECT_EMPLOYEE,
+  EMPLOYEE_DISPLAY_NAMES,
   STAR_CONFIG,
   formatCooldownSeconds,
+  isDoublingProject,
   starBrokerCooldownSeconds,
   starBrokerLevelUpFloatText,
   starSpawnIntervalSeconds,
@@ -66,6 +69,17 @@ export function OpenSourceCard({
 }) {
   const isConstellation = projectId === "constellation";
   const isStarBroker = projectId === "starBroker";
+  // Doubling upgrades (issue #118): the bonus is a multiplier, not
+  // an additive amount, so the card shows the output multiplier
+  // instead of "+2 DOUBLE". The multiplier at level L is 2^L.
+  const isDoubling = isDoublingProject(projectId);
+  const doublingEmployeeName = isDoubling
+    ? EMPLOYEE_DISPLAY_NAMES[DOUBLING_PROJECT_EMPLOYEE[projectId]]
+    : null;
+  const doublingMultiplier = isDoubling ? Math.pow(2, currentLevel) : 1;
+  const doublingNextMultiplier = isDoubling
+    ? Math.pow(2, currentLevel + 1)
+    : 1;
   const starInfo = isConstellation ? constellationInfo(currentLevel) : null;
   const starNext =
     isConstellation && !isMaxed ? constellationNextInfo(currentLevel) : null;
@@ -76,7 +90,8 @@ export function OpenSourceCard({
     isStarBroker && !isMaxed ? starBrokerInfo(currentLevel + 1) : null;
   // The floating text on Contribute: for Constellation it names the
   // unlock, not a numeric bonus (there is none); for StarBroker it
-  // names the new cooldown, not "+0 STAR" (also no numeric bonus).
+  // names the new cooldown, not "+0 STAR" (also no numeric bonus);
+  // for a doubling upgrade it names the new multiplier.
   const floatText = isMaxed
     ? ""
     : isConstellation
@@ -87,7 +102,9 @@ export function OpenSourceCard({
           : ""
       : isStarBroker
         ? starBrokerLevelUpFloatText(currentLevel + 1)
-        : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
+        : isDoubling
+          ? `x${doublingNextMultiplier}!`
+          : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
 
   return (
     <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
@@ -106,7 +123,8 @@ export function OpenSourceCard({
             />
 
             {/* current bonus, if any — for Constellation, the star info;
-                for StarBroker, the cooldown (no numeric bonus) */}
+                for StarBroker, the cooldown (no numeric bonus); for a
+                doubling upgrade, the output multiplier */}
             {isConstellation ? (
               <JsDocLine
                 tag="@returns"
@@ -125,8 +143,16 @@ export function OpenSourceCard({
                 value={`Cooldown ${starBrokerCooldown} between bought stars`}
                 valueClassName="text-green-400"
               />
+            ) : isDoubling && currentLevel > 0 ? (
+              <JsDocLine
+                tag="@returns"
+                type="MULTIPLIER"
+                value={`${doublingEmployeeName} output x${doublingMultiplier} now`}
+                valueClassName="text-green-400"
+              />
             ) : (
-              currentBonus && (
+              currentBonus &&
+              !isDoubling && (
                 <JsDocLine
                   tag="@returns"
                   type={currentBonus.type}
@@ -150,6 +176,13 @@ export function OpenSourceCard({
                   tag="@returns"
                   type="Bonus"
                   value={`Cooldown ${starBrokerNextCooldown} between bought stars`}
+                  valueClassName="text-green-400"
+                />
+              ) : isDoubling ? (
+                <JsDocLine
+                  tag="@returns"
+                  type="Bonus"
+                  value={`${doublingEmployeeName} output x${doublingNextMultiplier}`}
                   valueClassName="text-green-400"
                 />
               ) : (

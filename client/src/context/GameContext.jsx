@@ -41,6 +41,7 @@ import {
   isOpenSourceProjectUnlocked,
   isFreelanceProjectUnlocked,
   flatEmployeeCounts,
+  flatOpenSourceLevels,
 } from "./gameLogic.js";
 import {
   collectTriggerEmails,
@@ -646,13 +647,18 @@ function gameReducer(state, action) {
       // auto-ship delta, so the server can rate-cap them). The clock
       // resets on load (releaseManagerShipTicks starts at 0), so the
       // first ship after a load is a full interval away, never
-      // instant. Star buffs do not change the timer.
+      // instant. Star buffs do not change the timer. Ship Happens
+      // (issue #118) doubles the ships per manager each level, so a
+      // manager ships 2^L projects per interval at level L.
       const shipTicks = (state.releaseManagerShipTicks ?? 0) + 1;
       let nextShipTicks = shipTicks;
       let shipLinesOfCode = state.linesOfCode + totalPassiveLOC;
       let shipMoney = state.money;
       let shipCompleted = { ...state.freelanceProjectsCompleted };
       let shipAuto = { ...(state.autoShipsCompleted ?? {}) };
+      const shipsPerManager = shared.releaseManagerShipsPerInterval(
+        flatOpenSourceLevels(state)
+      );
       if (
         shipTicks >= shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds
       ) {
@@ -663,7 +669,7 @@ function gameReducer(state, action) {
           if (assigned <= 0) continue;
           if (!isFreelanceProjectUnlocked(projectKey, state)) continue;
           const project = FREELANCE_PROJECTS_CONFIG[projectKey];
-          for (let i = 0; i < assigned; i++) {
+          for (let i = 0; i < assigned * shipsPerManager; i++) {
             if (shipLinesOfCode < project.loc) break;
             shipLinesOfCode -= project.loc;
             shipMoney += project.reward;

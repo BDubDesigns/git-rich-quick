@@ -100,6 +100,14 @@ test("shared math matches the client formulas", () => {
     // StarBroker requires TOTAL_LOC >= 5000, so a fresh player starts
     // locked; it becomes visible at 500 LOC.
     starBroker: false,
+    // The doubling upgrades (issue #118) each require 10 of their
+    // employee type, so a fresh player starts locked on all six.
+    coffeeScript: false,
+    juniorAchievement: false,
+    seniorMoment: false,
+    scrumMaster: false,
+    commitmentIssues: false,
+    shipHappens: false,
   });
   // Freelance projects (issue #19): the To Do List App starts
   // unlocked; the Hobby Website and Blockchain Project are gated.

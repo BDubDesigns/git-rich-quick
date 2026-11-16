@@ -42,6 +42,13 @@ import { FaAtom } from "react-icons/fa"; // quantum to-do list
 import { FaCircleRadiation } from "react-icons/fa6"; // overReact framework
 import { FaFishFins } from "react-icons/fa6"; // blocker containerization platform
 import { FaStar } from "react-icons/fa"; // gitnub constellation (golden star)
+import {
+  FaCoffee,
+  FaMedal,
+  FaHourglassHalf,
+  FaUsers,
+  FaHeart,
+} from "react-icons/fa"; // doubling upgrades (issue #118)
 
 // Shared balance numbers and formulas — the single source of truth, also
 // imported by the save server (`server/src/validate.js`). This file only
@@ -353,5 +360,61 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     color: "gold",
     description:
       "Why wait for the sky to provide when you can just buy a star? Sacrifice 30 seconds of passive LOC and a golden star falls on demand. Stack it with a natural one for a two-star combo. Each level halves the wait before you can buy another. Fair warning: nobody trusts your commits for a bit after finding out you buy stars.",
+  },
+  // Doubling upgrades (issue #118): one leveled project per employee
+  // type, 10 levels each. Every level doubles that type's output.
+  coffeeScript: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.coffeeScript,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.coffeeScript,
+    icon: FaCoffee,
+    color: "orange",
+    description:
+      "Interns run on coffee. This is not a metaphor, it is a dependency. Each level doubles what your Interns produce, because a caffeinated Intern is a productive Intern.",
+  },
+  juniorAchievement: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.juniorAchievement,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.juniorAchievement,
+    icon: FaMedal,
+    color: "green",
+    description:
+      "A trophy case for Juniors who shipped something that actually worked. Each level doubles what your Juniors produce. The trophy is real. The achievement is debatable.",
+  },
+  seniorMoment: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.seniorMoment,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.seniorMoment,
+    icon: FaHourglassHalf,
+    color: "purple",
+    description:
+      "Seniors have seen it all, forgotten most of it, and still ship twice as fast. Each level doubles what your Seniors produce. Do not ask them how. They will tell you anyway.",
+  },
+  scrumMaster: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.scrumMaster,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.scrumMaster,
+    icon: FaUsers,
+    color: "blue",
+    description:
+      "A Project Manager who actually removes blockers instead of adding meetings. Each level doubles the passive boost every Project Manager gives.",
+  },
+  commitmentIssues: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.commitmentIssues,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.commitmentIssues,
+    icon: FaHeart,
+    color: "pink",
+    description:
+      "Commit Specialists who commit to committing. Each level doubles the LOC every Commit Specialist adds to a click.",
+  },
+  shipHappens: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.shipHappens,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.shipHappens,
+    icon: FaShip,
+    color: "cyan",
+    description:
+      "Release Managers who ship on a Friday and do not even flinch. Each level doubles how many projects each manager ships per second.",
   },
 });
