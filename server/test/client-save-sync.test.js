@@ -374,6 +374,102 @@ test("saves during a retry wait do not reset the retry timer", async () => {
   }
 });
 
+/**
+ * Timers that behave like the browser's window.setTimeout/clearTimeout:
+ * they throw "Illegal invocation" when called with `this` bound to
+ * anything other than undefined or the global object. Node's timers
+ * accept any `this`, which hid the bug in the engine (calling the
+ * stored timer as this._setTimeout(...) bound `this` to the SaveSync
+ * instance and threw on every 429 in a real browser).
+ */
+function browserLikeTimers() {
+  const inner = manualTimers();
+  const checkThis = (self, name) => {
+    if (self !== undefined && self !== globalThis) {
+      throw new TypeError(`Illegal invocation (${name})`);
+    }
+  };
+  return {
+    ...inner,
+    setTimeout: function (fn, ms) {
+      checkThis(this, "setTimeout");
+      return inner.setTimeout(fn, ms);
+    },
+    clearTimeout: function (id) {
+      checkThis(this, "clearTimeout");
+      return inner.clearTimeout(id);
+    },
+  };
+}
+
+test("rate-limit retry works with browser-like timers (no Illegal invocation)", async () => {
+  const srv = await startTestServer();
+  const storage = memoryStorage();
+  let clientState = makeClientState();
+  let saveStatus = "loading";
+  let playerId = null;
+  const timers = browserLikeTimers();
+  const engine = new SaveSync({
+    apiBaseUrl: srv.base,
+    getState: () => clientState,
+    restore: (saveState) => {
+      clientState = {
+        ...clientState,
+        ...saveStateToGameFields(saveState),
+        clickHistory: [],
+        currentCPS: 0,
+      };
+    },
+    onStatus: (status) => {
+      saveStatus = status;
+    },
+    onPlayerId: (id) => {
+      playerId = id;
+    },
+    storage,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  });
+  try {
+    await engine.init();
+    srv.advance(11_000);
+    await engine.requestSave("test");
+    assert.equal(saveStatus, "saved");
+
+    // Two saves within 1s: the second is rate-limited (429) and the
+    // engine schedules a retry. With the bug, scheduling threw.
+    srv.advance(500);
+    for (let i = 0; i < 3; i += 1) {
+      fakeClick(clientState);
+      engine.recordClick();
+    }
+    await engine.requestSave("big-action");
+    assert.equal(saveStatus, "retrying");
+    assert.deepEqual(timers.scheduledMs(), [1000], "retry scheduled");
+
+    // Fire the retry past the rate limit: the save lands and the engine
+    // clears its retry timer (clearTimeout must not throw either).
+    srv.advance(5_000);
+    timers.runAll();
+    await waitFor(async () => {
+      const state = await loadServerState(srv.base, playerId);
+      return state.totalLinesOfCode === 3 ? state : null;
+    });
+    await waitFor(() => saveStatus === "saved");
+    assert.equal(timers.pendingCount(), 0);
+
+    // A pending retry cancelled by stop() goes through clearTimeout too.
+    srv.advance(500);
+    await engine.requestSave("big-action");
+    assert.equal(timers.pendingCount(), 1, "second retry scheduled");
+    engine.stop();
+    assert.equal(timers.pendingCount(), 0, "stop() cleared the retry");
+  } finally {
+    engine.stop();
+    await srv.stop();
+  }
+});
+
 test("completing a project (Ship) does not trigger a save", async () => {
   const srv = await startTestServer();
   const storage = memoryStorage();
