@@ -25,6 +25,7 @@ import {
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
 import { FloatingText } from "./FloatingText.jsx";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 import "./GoldenStar.css";
 
 /** The star's rendered size in px; spawn positions keep it fully on-screen. */
@@ -158,6 +159,12 @@ export function GoldenStar() {
   // collapsed to a thin strip. A device preference (localStorage, like
   // the sound settings) — never in the server save. Tap the countdown
   // bar (or the collapsed strip) to toggle.
+  // Progress bar toggles (issue #128): each star bar can be turned off
+  // in Settings. Default on, so nothing changes until the player
+  // chooses.
+  const countdownBarEnabled = useProgressBarEnabled("starCountdown");
+  const effectBarsEnabled = useProgressBarEnabled("starEffects");
+  const buyBarEnabled = useProgressBarEnabled("starBuy");
   const [starBarsCollapsed, setStarBarsCollapsed] = useState(() => {
     try {
       if (typeof localStorage === "undefined") return false;
@@ -666,41 +673,70 @@ export function GoldenStar() {
         </button>
       )}
       {/* Collapsed star bar area: a thin strip in the countdown slot.
-          Tap it to reopen the bars. Shown instead of all three bars
-          when the area is collapsed. */}
+          Tap it (or the chevron) to reopen the bars. Shown instead of
+          all three bars when the area is collapsed, unless every star
+          bar is turned off in Settings (then there is nothing to
+          reopen). The chevron is big and cyan (issue #128) so the
+          control is actually findable. */}
       {starBarsCollapsed &&
+        (countdownBarEnabled || effectBarsEnabled || buyBarEnabled) &&
         countdownSlot &&
         createPortal(
-          <div
-            className="star-bar-collapsed"
-            role="button"
-            aria-label="Show the star bars"
-            onClick={toggleStarBarsCollapsed}
-          >
-            <span className="star-bar-collapsed-text">★ ▾</span>
+          <div className="star-bar-row">
+            <div
+              className="star-bar-collapsed"
+              onClick={toggleStarBarsCollapsed}
+            >
+              <span className="star-bar-collapsed-text">
+                ★ Star bars hidden
+              </span>
+            </div>
+            <button
+              type="button"
+              className="bars-chevron"
+              aria-label="Show the star bars"
+              aria-expanded={false}
+              title="Show the star bars"
+              onClick={toggleStarBarsCollapsed}
+            >
+              ▾
+            </button>
           </div>,
           countdownSlot
         )}
       {showCountdown &&
+        countdownBarEnabled &&
         !starBarsCollapsed &&
         countdownSlot &&
         createPortal(
-          <div
-            className="star-countdown-bar"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(countdownFillPct)}
-            aria-label={`Next golden star in ${formatCountdown(secondsLeft)}. Tap to hide the star bars`}
-            onClick={toggleStarBarsCollapsed}
-          >
+          <div className="star-bar-row">
             <div
-              className="star-countdown-bar-fill"
-              style={{ width: `${countdownFillPct}%` }}
-            />
-            <span className="star-countdown-bar-text">
-              ★ {formatCountdown(secondsLeft)} ▴
-            </span>
+              className="star-countdown-bar"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(countdownFillPct)}
+              aria-label={`Next golden star in ${formatCountdown(secondsLeft)}. Tap to hide the star bars`}
+              onClick={toggleStarBarsCollapsed}
+            >
+              <div
+                className="star-countdown-bar-fill"
+                style={{ width: `${countdownFillPct}%` }}
+              />
+              <span className="star-countdown-bar-text">
+                ★ {formatCountdown(secondsLeft)}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="bars-chevron"
+              aria-label="Hide the star bars"
+              aria-expanded={true}
+              title="Hide the star bars"
+              onClick={toggleStarBarsCollapsed}
+            >
+              ▴
+            </button>
           </div>,
           countdownSlot
         )}
@@ -710,6 +746,7 @@ export function GoldenStar() {
           stays short in practice (usually one bar). Tapping the bars
           collapses the whole star area, like the countdown bar. */}
       {liveEffects.length > 0 &&
+        effectBarsEnabled &&
         !starBarsCollapsed &&
         effectSlot &&
         createPortal(
@@ -730,6 +767,7 @@ export function GoldenStar() {
           collapses the whole star area; the button itself buys (its
           click stops propagation so it never collapses instead). */}
       {starBrokerLevel >= 1 &&
+        buyBarEnabled &&
         !starBarsCollapsed &&
         buySlot &&
         createPortal(

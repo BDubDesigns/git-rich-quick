@@ -15,9 +15,12 @@ import { formatNumber } from "../../../shared/formatNumber.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Panel } from "./Panel.jsx";
 import { ProgressBar } from "./ProgressBar.jsx";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 export function Achievements() {
   const { state } = useGameContext();
+  // Progress bar toggles (issue #128): the "achievements" toggle.
+  const showBars = useProgressBarEnabled("achievements");
   const ctx = achievementContext(state);
   const buffPercent = shared.achievementBuffPercent(state.achievements);
   const multiplier = shared.achievementLocMultiplier(state.achievements);
@@ -46,14 +49,19 @@ export function Achievements() {
         </p>
       </Panel>
       {shared.ACHIEVEMENTS.map((def) => (
-        <AchievementCard key={def.id} def={def} ctx={ctx} />
+        <AchievementCard
+          key={def.id}
+          def={def}
+          ctx={ctx}
+          showBars={showBars}
+        />
       ))}
     </SectionLayout>
   );
 }
 
 /** One achievement: badges, next goal with progress, and flavor. */
-function AchievementCard({ def, ctx }) {
+function AchievementCard({ def, ctx, showBars }) {
   const progress = shared.achievementProgress(def.id, ctx);
   if (!progress) return null;
   const { tier, maxTier, current, nextThreshold, complete } = progress;
@@ -117,6 +125,7 @@ function AchievementCard({ def, ctx }) {
               current={Math.min(Math.floor(current), nextThreshold)}
               target={nextThreshold}
               label="Progress"
+              showBar={showBars}
             />
           )}
           <p className="m-0 text-xs italic text-gray-400">{def.flavor}</p>

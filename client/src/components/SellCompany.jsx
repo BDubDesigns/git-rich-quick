@@ -36,6 +36,7 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
 import { PermanentStore } from "./PermanentStore.jsx";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 /** "1.40x" for a Founder multiplier. */
 function formatMultiplier(value) {
@@ -50,6 +51,9 @@ function employeeLine(type, count) {
 
 export function SellCompany() {
   const { state, sellCompany, savePlayerId } = useGameContext();
+  // Progress bar toggles (issue #128): the "equityMeter" toggle hides
+  // the bar only; the numbers above and below it stay.
+  const showMeter = useProgressBarEnabled("equityMeter");
   // "overview" | "confirm" | "complete": local UI steps, not saved.
   const [step, setStep] = useState("overview");
   const [saleBusy, setSaleBusy] = useState(false);
@@ -350,19 +354,21 @@ export function SellCompany() {
             Next Equity ({estimate.nextEquity}): {formatNumber(lifetimeLoc)} /{" "}
             {formatNumber(estimate.nextThresholdLoc)} lifetime LOC
           </p>
-          <div
-            className="h-4 bg-gray-700 rounded relative"
-            role="progressbar"
-            aria-valuenow={Math.round(bracketPct)}
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-label="Progress to next Equity"
-          >
+          {showMeter && (
             <div
-              className="h-4 bg-green-500 rounded"
-              style={{ width: `${bracketPct}%` }}
-            />
-          </div>
+              className="h-4 bg-gray-700 rounded relative"
+              role="progressbar"
+              aria-valuenow={Math.round(bracketPct)}
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-label="Progress to next Equity"
+            >
+              <div
+                className="h-4 bg-green-500 rounded"
+                style={{ width: `${bracketPct}%` }}
+              />
+            </div>
+          )}
           <p className="m-0 text-sm">
             Sell now: +{claimable} Equity
             {estimate.seconds !== null

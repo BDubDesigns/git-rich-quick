@@ -22,9 +22,13 @@ import { useGameContext } from "../context/useGameContext.js";
 import { getBaseLocPerSecond } from "../context/gameLogic.js";
 import * as shared from "../../../shared/game-balance.js";
 import { formatNumber } from "../../../shared/formatNumber.js";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 export function EquityProgressStrip() {
   const { state, dispatch } = useGameContext();
+  // Progress bar toggles (issue #128): the "equityStrip" toggle.
+  const enabled = useProgressBarEnabled("equityStrip");
+  if (!enabled) return null;
   if (
     !shared.equityGoalVisible(
       state.totalLinesOfCode ?? 0,

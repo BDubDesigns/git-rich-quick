@@ -8,6 +8,7 @@
 import { ProgressBar } from "./ProgressBar.jsx";
 import { brandNodes } from "./BrandName.jsx";
 import { formatCondition } from "../utils/formatCondition.js";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 /** The JSDoc wrapper: title line, description, then the tag lines
  *  (or any other block content) the caller passes as children. */
@@ -59,6 +60,8 @@ export function JsDocLine({
 /** The unlock-requirement progress bars inside a locked card's JSDoc
  *  block (the "Unlock requirement:" label + one bar per condition). */
 export function JsDocUnlockRequirements({ progress }) {
+  // Progress bar toggles (issue #128): the "unlock" toggle.
+  const showBar = useProgressBarEnabled("unlock");
   return (
     <div>
       <p className="text-xs font-semibold mb-1">Unlock requirement:</p>
@@ -68,6 +71,7 @@ export function JsDocUnlockRequirements({ progress }) {
           current={prog.current}
           target={prog.target}
           label={formatCondition(prog)}
+          showBar={showBar}
         />
       ))}
     </div>

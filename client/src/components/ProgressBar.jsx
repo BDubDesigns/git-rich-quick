@@ -2,8 +2,20 @@
 // progress (current / target / remaining) abbreviates large LOC targets.
 import { formatNumber } from "../../../shared/formatNumber.js";
 
-export function ProgressBar({ current, target, label }) {
+export function ProgressBar({ current, target, label, showBar = true }) {
   const percentage = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+
+  // Progress bar toggles (issue #128): with the bar turned off in
+  // Settings, the label and the numbers still show as plain text, so
+  // hiding a bar never hides the goal.
+  if (!showBar) {
+    return (
+      <p className="m-0 text-xs">
+        {label}: {formatNumber(Math.min(current, target))} /{" "}
+        {formatNumber(target)}
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-1">
