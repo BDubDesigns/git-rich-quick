@@ -1060,6 +1060,41 @@ function gameReducer(state, action) {
       return withEmailTriggers(state, latched, claim);
     }
 
+    // A Shooting Stars chain ended (issue #138). Payload: { stars,
+    // totalLoc, reason } from the star UI, which owns the transient
+    // chain (it is never saved; a reload mid-chain just ends it). Every
+    // chain click already paid its LOC through APPLY_STAR_REWARD; this
+    // only sends the ONE summary email for the whole chain, under a
+    // key unique to this chain. A malformed payload (NaN, negative, no
+    // stars) sends nothing.
+    case "SHOOTING_STARS_CHAIN_END": {
+      const { stars, totalLoc, reason } = action.payload ?? {};
+      if (
+        !Number.isInteger(stars) ||
+        stars < 1 ||
+        typeof totalLoc !== "number" ||
+        !Number.isFinite(totalLoc) ||
+        totalLoc < 0
+      ) {
+        return state;
+      }
+      const { emails, added } = addEmail(
+        state.emails,
+        shared.buildShootingStarsChainEmail({ stars, totalLoc, reason }),
+        `shooting-stars-chain:${Date.now()}`,
+        Date.now()
+      );
+      if (!added) return state;
+      return {
+        ...state,
+        emails,
+        emailNotification:
+          state.activeTab === "email"
+            ? state.emailNotification
+            : { emailId: added.id },
+      };
+    }
+
     case "TOGGLE_SECTION_DESC_VISIBILITY": {
       const { sectionId } = action.payload;
       return {

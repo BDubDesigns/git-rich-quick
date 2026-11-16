@@ -1320,9 +1320,105 @@ export const STAR_CONFIG = Object.freeze({
     bad: 0.5,
   }),
   employeeDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
-  /** Shooting Stars: one click grants a burst worth this many Lucky rolls. */
-  shootingStarsCount: 5,
+  /**
+   * Shooting Stars is a Cookie Chain (issue #138). Clicking a Shooting
+   * Stars star is chain click 1 and pays startLocPerSecondMultiple x
+   * LOC/s; every chain click after pays growthFactor x the previous plus
+   * stepLocPerSecondMultiple x LOC/s: 7x, 77x, 777x, 7777x LOC/s. The
+   * next chain star spawns spawnDelaySeconds after a click and lives
+   * lifetimeSeconds. The chain ends when a chain star expires
+   * unclicked, when the next payout would exceed capHoursOfProduction
+   * of production or capBankFraction of the LOC on hand, or on a
+   * randomEndChance roll after a click. Always good, never a debuff.
+   * Tuning: lower the start multiple for longer chains; do NOT raise
+   * either cap.
+   */
+  shootingStarsChain: Object.freeze({
+    startLocPerSecondMultiple: 7,
+    growthFactor: 10,
+    stepLocPerSecondMultiple: 7,
+    spawnDelaySeconds: 3,
+    lifetimeSeconds: 6,
+    capHoursOfProduction: 6,
+    capBankFraction: 0.5,
+    randomEndChance: 0.01,
+  }),
 });
+
+/**
+ * The LOC/s multiple chain click `step` (1-based) pays: 7, 77, 777, ...
+ * Each step is growthFactor x the previous plus the step multiple, the
+ * first is the start multiple. 0 for a step below 1.
+ */
+export function shootingStarsChainMultiple(step) {
+  const n = Math.floor(Number(step) || 0);
+  const config = STAR_CONFIG.shootingStarsChain;
+  if (n < 1) return 0;
+  let multiple = config.startLocPerSecondMultiple;
+  for (let i = 2; i <= n; i += 1) {
+    multiple = multiple * config.growthFactor + config.stepLocPerSecondMultiple;
+  }
+  return multiple;
+}
+
+/**
+ * LOC chain click `step` pays at `locPerSecond` (the buffed healthy
+ * rate), floored to whole LOC. NaN or negative rates pay 0.
+ */
+export function shootingStarsChainPayout(step, locPerSecond) {
+  const rate = Number(locPerSecond);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return Math.floor(shootingStarsChainMultiple(step) * rate);
+}
+
+/**
+ * After chain click `step` was paid, decide whether the chain goes on.
+ * `linesOfCode` is the LOC on hand AFTER that payout. Ends (returns
+ * { continues: false, reason }) when the next payout would exceed the
+ * 6-hour production cap ("cap"), would exceed half the LOC on hand
+ * ("bank"), or on the 1% random roll ("luck"). Pure; `rng` injectable.
+ * A missed star ("missed") is decided by the UI timer, not here.
+ */
+export function shootingStarsChainContinues({
+  step,
+  locPerSecond,
+  linesOfCode,
+  rng = Math.random,
+}) {
+  const config = STAR_CONFIG.shootingStarsChain;
+  const rate = Number.isFinite(Number(locPerSecond)) ? Number(locPerSecond) : 0;
+  const bank = Number.isFinite(Number(linesOfCode)) ? Number(linesOfCode) : 0;
+  const nextPayout = shootingStarsChainPayout(step + 1, rate);
+  if (rate <= 0 || nextPayout > rate * config.capHoursOfProduction * 3600) {
+    return { continues: false, reason: "cap", nextPayout };
+  }
+  if (nextPayout > bank * config.capBankFraction) {
+    return { continues: false, reason: "bank", nextPayout };
+  }
+  if (rng() < config.randomEndChance) {
+    return { continues: false, reason: "luck", nextPayout };
+  }
+  return { continues: true, reason: null, nextPayout };
+}
+
+/**
+ * The claim for one chain click (the same claim shape as every star
+ * outcome, so APPLY_STAR_REWARD applies it): LOC only, always good,
+ * with `chainStep` set so the label and the inbox know it is a chain
+ * click (one email per chain, sent when it ends).
+ */
+export function shootingStarsChainClaim(step, locPerSecond) {
+  return {
+    effect: "shootingStars",
+    good: true,
+    locDelta: shootingStarsChainPayout(step, locPerSecond),
+    moneyDelta: 0,
+    multiplier: null,
+    durationSeconds: null,
+    employeeType: null,
+    chainStep: Math.max(1, Math.floor(Number(step) || 1)),
+  };
+}
 
 export const STAR_EFFECT_IDS = Object.freeze(Object.keys(STAR_CONFIG.effects));
 
@@ -1427,8 +1523,9 @@ export function resolveLuckyReward({
  *   { effect, good, locDelta, moneyDelta, multiplier, durationSeconds, employeeType }
  * Instant effects (lucky, shootingStars) carry locDelta/moneyDelta and
  * null multiplier/duration. Timed buffs (frenzy, click, employee) carry
- * a multiplier + durationSeconds and zero deltas. Shooting Stars is a
- * burst of five GOOD Lucky rolls (a rare L5 windfall, never a loss).
+ * a multiplier + durationSeconds and zero deltas. Shooting Stars is
+ * chain click 1 of a Cookie Chain (issue #138): always good, LOC only,
+ * with `chainStep: 1`.
  */
 export function resolveStarClaim({
   effect,
@@ -1535,23 +1632,11 @@ export function resolveStarClaim({
         employeeType,
       };
     }
-    case "shootingStars": {
-      // A burst of five good Lucky rolls, summed into one claim.
-      let locDelta = 0;
-      let moneyDelta = 0;
-      for (let i = 0; i < STAR_CONFIG.shootingStarsCount; i += 1) {
-        const roll = resolveLuckyReward({
-          good: true,
-          locPerSecond,
-          money,
-          linesOfCode,
-          rng,
-        });
-        locDelta += roll.locDelta;
-        moneyDelta += roll.moneyDelta;
-      }
-      return { ...base, good: true, locDelta, moneyDelta };
-    }
+    case "shootingStars":
+      // Cookie Chain (issue #138): the Shooting Stars star is chain
+      // click 1 (7x LOC/s). The UI runs the rest of the chain with
+      // shootingStarsChainClaim / shootingStarsChainContinues.
+      return shootingStarsChainClaim(1, locPerSecond);
     default:
       return base;
   }
@@ -4849,11 +4934,13 @@ export function starRewardDetail(claim, employeeTypeName) {
       return `${sign}${formatMoney(Math.abs(claim.moneyDelta))}`;
     }
     case "shootingStars": {
+      // Cookie Chain (issue #138): "+777 LOC (chain x3)".
       const parts = [];
       if (claim.locDelta !== 0)
         parts.push(`+${formatNumber(claim.locDelta)} LOC`);
       if (claim.moneyDelta !== 0)
         parts.push(`+${formatMoney(claim.moneyDelta)}`);
+      if (claim.chainStep) parts.push(`(chain x${claim.chainStep})`);
       return parts.join(" ");
     }
     case "frenzy":
@@ -4977,6 +5064,28 @@ export function buildStarRewardEmail({ effectName, rewardText, good }) {
     body: good
       ? "The GitNub sky provides. Mostly."
       : "The GitNub sky giveth, and the GitNub sky taketh away.",
+  };
+}
+
+/**
+ * The one email for a whole Shooting Stars chain (issue #138), sent
+ * when the chain ends: how many stars, the LOC total, and why it ended
+ * ("missed", "cap", "bank", or "luck").
+ */
+export function buildShootingStarsChainEmail({ stars, totalLoc, reason }) {
+  const endings = {
+    missed: "One got away. Shooting stars wait for no one.",
+    cap: "The chain hit six hours of production in one star. Even the sky has a rate limit.",
+    bank: "The next star would have paid more than half your bank. The sky does not do loans.",
+    luck: "The sky just stopped. It does that. Nobody files a ticket.",
+  };
+  return {
+    sender: "GitNub",
+    subject: `Shooting Stars chain: ${stars} ${stars === 1 ? "star" : "stars"}, +${formatNumber(totalLoc)} LOC`,
+    body:
+      `You caught ${stars} shooting ${stars === 1 ? "star" : "stars"} in a ` +
+      `row for +${formatNumber(totalLoc)} LOC. ` +
+      `${endings[reason] ?? endings.luck}`,
   };
 }
 
