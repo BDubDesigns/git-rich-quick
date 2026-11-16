@@ -1260,10 +1260,21 @@ export function resolveStarClaim({
       // type stays random (Brandon, Nov 10) — never the
       // highest-producing one. Good multiplier is an integer 3-15
       // (the config range); bad is a fixed 0.5x.
-      const owned = EMPLOYEE_TYPES.filter(
+      //
+      // Release Manager is excluded from the pool: it produces 0
+      // LOC/s and its ship timer is fixed, so a Sprint (or Meeting)
+      // on it scales nothing — a dud buff with a live bar and no card
+      // tint. RM unlock needs 100,000 TOTAL_LOC and 30 employees, so
+      // the pool can never be RM-only in practice, but an empty
+      // filtered pool still falls back to the non-RM types rather
+      // than crashing.
+      const buffable = EMPLOYEE_TYPES.filter(
+        (type) => type !== "releaseManager"
+      );
+      const owned = buffable.filter(
         (type) => (employeeCounts[type] ?? 0) > 0
       );
-      const pool = owned.length > 0 ? owned : EMPLOYEE_TYPES;
+      const pool = owned.length > 0 ? owned : buffable;
       const employeeType = pool[Math.floor(rng() * pool.length)];
       const multiplier = good
         ? Math.floor(

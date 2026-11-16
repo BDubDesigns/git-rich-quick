@@ -122,3 +122,107 @@ test("bad outcomes are still 0.5x (Throttling, Meeting)", () => {
   assert.equal(meeting.multiplier, 0.5);
   assert.equal(meeting.durationSeconds, 30);
 });
+
+test("Sprint/Meeting never rolls Release Manager (it scales nothing)", () => {
+  // Release Manager produces 0 LOC/s and its ship timer is fixed,
+  // so a Sprint (or Meeting) on it is a dud: a live bar, no card
+  // tint, no effect. Brandon reported it with 7 RMs owned. The pool
+  // is the owned types minus RM, so RM can never be picked.
+  const withRm = {
+    ...baseArgs,
+    employeeCounts: {
+      intern: 5,
+      junior: 2,
+      senior: 1,
+      projectManager: 1,
+      commitSpecialist: 1,
+      releaseManager: 7,
+    },
+  };
+  // Seeded rng sweeps every pool position (5 buffable types, so
+  // 0 / 0.2 / 0.4 / 0.6 / 0.8 hit each index); good and bad both.
+  const seenGood = new Set();
+  const seenBad = new Set();
+  for (const value of [0, 0.2, 0.4, 0.6, 0.8, 0.999999]) {
+    const good = resolveStarClaim({
+      ...withRm,
+      effect: "employee",
+      good: true,
+      rng: () => value,
+    });
+    assert.notEqual(good.employeeType, "releaseManager");
+    seenGood.add(good.employeeType);
+    const bad = resolveStarClaim({
+      ...withRm,
+      effect: "employee",
+      good: false,
+      rng: () => value,
+    });
+    assert.notEqual(bad.employeeType, "releaseManager");
+    seenBad.add(bad.employeeType);
+  }
+  assert.deepEqual(
+    [...seenGood].sort(),
+    ["commitSpecialist", "intern", "junior", "projectManager", "senior"]
+  );
+  assert.deepEqual(
+    [...seenBad].sort(),
+    ["commitSpecialist", "intern", "junior", "projectManager", "senior"]
+  );
+  // A few hundred real rolls with RM owned never land on it either.
+  for (let i = 0; i < 200; i += 1) {
+    const claim = resolveStarClaim({
+      ...withRm,
+      effect: "employee",
+      good: true,
+    });
+    assert.notEqual(claim.employeeType, "releaseManager");
+  }
+});
+
+test("Sprint with only Release Managers owned falls back, never crashes", () => {
+  // RM unlock needs 100,000 TOTAL_LOC and 30 employees, so the pool
+  // can never be RM-only in practice — but the fallback must still
+  // return a buffable type instead of an empty pool or a crash.
+  const rmOnly = {
+    ...baseArgs,
+    employeeCounts: {
+      intern: 0,
+      junior: 0,
+      senior: 0,
+      projectManager: 0,
+      commitSpecialist: 0,
+      releaseManager: 7,
+    },
+  };
+  for (const value of [0, 0.5, 0.999999]) {
+    const claim = resolveStarClaim({
+      ...rmOnly,
+      effect: "employee",
+      good: true,
+      rng: () => value,
+    });
+    assert.notEqual(claim.employeeType, "releaseManager");
+    assert.ok(claim.employeeType);
+    assert.equal(claim.multiplier, value === 0 ? 3 : value === 0.5 ? 9 : 15);
+  }
+  // No employees at all: the fallback pool is the non-RM types too.
+  const noneOwned = {
+    ...baseArgs,
+    employeeCounts: {
+      intern: 0,
+      junior: 0,
+      senior: 0,
+      projectManager: 0,
+      commitSpecialist: 0,
+      releaseManager: 0,
+    },
+  };
+  const claim = resolveStarClaim({
+    ...noneOwned,
+    effect: "employee",
+    good: true,
+    rng: () => 0.999999,
+  });
+  assert.notEqual(claim.employeeType, "releaseManager");
+});
