@@ -264,6 +264,60 @@ export function createStore(pool) {
 
 
     /**
+     * Prune inactive guest saves (issue #25): delete rows whose last
+     * accepted save is before `cutoffMs` AND that are not linked to a
+     * Better Auth account (`user_id IS NULL`). Account-linked rows are
+     * NEVER touched by this method, however old they are — their window
+     * is still undecided. The cutoff is strict (`saved_at < cutoff`):
+     * a row saved exactly at the cutoff is kept.
+     * - Live: deletes the rows and returns
+     *   `{ deleted, wouldDelete: 0, playerIds }` (playerIds capped at
+     *   100 for the log line; `deleted` is exact).
+     * - Dry run (`{ dryRun: true }`): deletes nothing, returns
+     *   `{ deleted: 0, wouldDelete, playerIds }` for the same rows.
+     * The save/load path never calls this; only the background prune
+     * job and the admin prune endpoint do.
+     */
+    async pruneInactiveGuests(cutoffMs, { dryRun = false } = {}) {
+      const cutoff = new Date(cutoffMs);
+      // Guest-only, enforced here: `NOT (user_id IS NOT NULL)` is
+      // exactly `user_id IS NULL` in Postgres (IS NOT NULL is always
+      // true/false, never NULL), written this way because pg-mem 2.9.0
+      // returns no rows for `user_id IS NULL` on this foreign-key
+      // column while `IS NOT NULL` works — verified by experiment, so
+      // the guardrail stays test-verified instead of silently
+      // untestable. Do not "simplify" this back to IS NULL without
+      // re-running the prune tests: they would pass vacuously.
+      const where = `FROM git_saves WHERE NOT (user_id IS NOT NULL) AND saved_at < $1`;
+      if (dryRun) {
+        const countRes = await pool.query(
+          `SELECT COUNT(*)::int AS "count" ${where}`,
+          [cutoff]
+        );
+        const idsRes = await pool.query(
+          `SELECT player_id ${where} ORDER BY saved_at ASC LIMIT 100`,
+          [cutoff]
+        );
+        return {
+          deleted: 0,
+          wouldDelete: Number(countRes.rows[0].count),
+          playerIds: idsRes.rows.map((row) => row.player_id),
+        };
+      }
+      const res = await pool.query(
+        `DELETE ${where} RETURNING player_id`,
+        [cutoff]
+      );
+      return {
+        deleted: res.rowCount,
+        wouldDelete: 0,
+        playerIds: res.rows
+          .slice(0, 100)
+          .map((row) => row.player_id),
+      };
+    },
+
+    /**
      * Validate and store a save, atomically. `body` is the parsed save
      * request (`{ playerId, state, actionsSinceLastSave }`).
      * Returns one of:

@@ -55,6 +55,17 @@ balance number (imported by both the client and this server).
   count), `rejectionsLastHour` / `rejectionsLastDay` (rejection events
   in the ring buffer inside the same windows), and `rejectionsStored`
   (ring buffer size). Read-only.
+- `POST /api/admin/prune-inactive-saves` — admin prune (issue #25):
+  delete guest rows whose last save is older than the 3-month
+  inactivity window. Requires `Authorization: Bearer <ADMIN_TOKEN>`.
+  Body `{ dryRun?: boolean }`, default **true**: a dry run reports
+  `{ wouldDelete, playerIds }` and deletes nothing; only an explicit
+  `{ "dryRun": false }` deletes. Account-linked rows are never
+  touched, however old they are. Every run is audit-logged and writes
+  one `[prune]` log line (cutoff, count, sample playerIds). This is
+  also the safe way to verify against live data before the first real
+  run: call it with no body (or `{ "dryRun": true }`) and check
+  `wouldDelete` first.
 
 Admin guardrail, in one place: the seed endpoint is test-player-only;
 the read-only endpoints are per-player debugging by explicit playerId
@@ -82,6 +93,24 @@ cd server
 npm install
 DATABASE_URL=postgres://user:pass@localhost:5432/git npm start
 ```
+
+## Prune (issue #25)
+
+A background job deletes guest saves inactive for 3 months
+(`PRUNE_INACTIVITY_DAYS`, default 90). It runs in-process: first run
+one hour after boot (`PRUNE_INITIAL_DELAY_MS`, default 1h), then once
+a day (`PRUNE_INTERVAL_MS`, default 24h). No new infrastructure, no
+new dependency, no new cost. Only guest rows are ever deleted
+(`user_id` unlinked); account-linked rows are never touched, however
+old they are — their window is still undecided. The job never touches
+the save/load path: it only DELETEs rows.
+
+Verify safely before the first live run: `PRUNE_DRY_RUN=true` runs
+the scheduled job in log-only mode (it reports what would be deleted
+and deletes nothing), or call the admin endpoint with no body — it
+defaults to a dry run. Every run writes one `[prune]` log line
+(dry-run or live, cutoff, count, up to 100 sample playerIds). A failed
+run is logged and never takes the server down.
 
 ## Test
 
