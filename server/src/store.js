@@ -17,8 +17,16 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { initialSaveState } from "../../shared/game-balance.js";
-import { validateSave } from "./validate.js";
+import {
+  applyPrestigeSale,
+  founderMultiplier,
+  initialSaveState,
+  normalizeSaveState,
+} from "../../shared/game-balance.js";
+import {
+  validatePrestigeSale,
+  validateSave,
+} from "./validate.js";
 
 const CREATE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS git_saves (
@@ -364,6 +372,151 @@ export function createStore(pool) {
         );
         await client.query("COMMIT");
         return { status: "ok", state: body.state, savedAtMs: nowMs };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
+     * Sell the Company (prestige, Slice 1): claim Equity and reset
+     * the company, atomically. `body` is the sale request
+     * (`{ playerId, saleId, state, actionsSinceLastSave }`), where
+     * `state` is the client's freshest PRE-sale state and `saleId` is
+     * the client's idempotency key for this sale.
+     *
+     * The sale settles production up to the sale from the SENT
+     * lifetime LOC (the client may be ahead of the stored snapshot by
+     * unsaved progress), so the sent pre-sale state is first
+     * validated as an ordinary successor of the stored state (same
+     * trust boundary as a normal save, minus the rate limit — a sale
+     * right after a save is not a flood). Then the Equity claim is
+     * validated (at least one new Equity, Equity books matching the
+     * stored ones) and the post-sale state is built by
+     * shared.applyPrestigeSale and stored in the same transaction,
+     * against the locked row — so two simultaneous sales for one
+     * player cannot both claim the same Equity.
+     *
+     * Idempotency (criterion 5): when the stored state's lastSaleId
+     * already equals the request's saleId, the sale was already
+     * applied (a retried request whose first response was lost). The
+     * stored post-sale state is returned unchanged — no second claim,
+     * no second reset. The extra LOC earned between the two attempts
+     * is lost with the restore, the same as any unsaved progress lost
+     * on reload; exactly-once beats a few seconds of production.
+     *
+     * Returns one of:
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "rejected", rule, detail, lastGood }` (lastGood is
+     *   the previous snapshot, for the 409 response)
+     * - `{ status: "already-applied", state, savedAtMs, sale }`
+     * - `{ status: "ok", state, savedAtMs, sale }` (sale is
+     *   `{ gainedEquity, lifetimeEquityEarned, founderMultiplierBefore,
+     *   founderMultiplierAfter, saleCount }`)
+     */
+    async applySale(playerId, body, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT player_id, state, saved_at, created_at
+           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const prev = rowToSnapshot(res.rows[0]);
+        const prevState = normalizeSaveState(prev.state);
+        const sentState = normalizeSaveState(body.state);
+        // Idempotency first: a retry of an already-applied sale
+        // returns the stored post-sale state without claiming again.
+        // The check runs before any validation of the sent state, so
+        // a retry that carries a few more seconds of pre-sale progress
+        // does not fail on it — that progress is simply superseded by
+        // the already-applied sale.
+        if (body.saleId && prevState.lastSaleId === body.saleId) {
+          await client.query("COMMIT");
+          return {
+            status: "already-applied",
+            // The raw stored state, not the normalized copy: a retry
+            // restores exactly what the first attempt stored.
+            state: prev.state,
+            savedAtMs: prev.savedAtMs,
+            sale: {
+              gainedEquity: null,
+              lifetimeEquityEarned: prevState.lifetimeEquityEarned,
+              founderMultiplierBefore: null,
+              founderMultiplierAfter: founderMultiplier(
+                prevState.lifetimeEquityEarned
+              ),
+              saleCount: prevState.saleCount,
+            },
+          };
+        }
+        // The sent pre-sale state must be a valid successor of the
+        // stored state (shape, monotonicity, consistency — the same
+        // trust boundary as a normal save). The sale cannot mint
+        // lifetime LOC the client could not have saved.
+        const verdict = validateSave(prev, body, nowMs, {
+          skipRateLimit: true,
+        });
+        if (!verdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: verdict.rule,
+            detail: verdict.detail,
+            lastGood: prev,
+          };
+        }
+        const saleVerdict = validatePrestigeSale(
+          prevState,
+          sentState,
+          body.saleId
+        );
+        if (!saleVerdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: saleVerdict.rule,
+            detail: saleVerdict.detail,
+            lastGood: prev,
+          };
+        }
+        const postState = applyPrestigeSale(sentState, body.saleId);
+        await client.query(
+          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          [
+            JSON.stringify(postState),
+            new Date(nowMs).toISOString(),
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        return {
+          status: "ok",
+          state: postState,
+          savedAtMs: nowMs,
+          sale: {
+            gainedEquity: saleVerdict.gainedEquity,
+            lifetimeEquityEarned: postState.lifetimeEquityEarned,
+            founderMultiplierBefore: founderMultiplier(
+              prevState.lifetimeEquityEarned
+            ),
+            founderMultiplierAfter: founderMultiplier(
+              postState.lifetimeEquityEarned
+            ),
+            saleCount: postState.saleCount,
+          },
+        };
       } catch (err) {
         try {
           await client.query("ROLLBACK");

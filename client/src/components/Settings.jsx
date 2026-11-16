@@ -26,6 +26,7 @@ import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
+import { SellCompany } from "./SellCompany.jsx";
 import { Panel } from "./Panel.jsx";
 import { APP_COMMIT, buildTimeLabel } from "../version.js";
 import {
@@ -59,7 +60,7 @@ function buildDiagnosticsText({
   const lines = [
     "Git Rich Quick diagnostics",
     `Version ${APP_COMMIT}${buildTimeLabel() ? ` · built ${buildTimeLabel()}` : ""}`,
-    `Player ${playerId ?? "—"}`,
+    `Player ${playerId ?? "-"}`,
     `Save status: ${saveStatus} · last saved: ${
       lastSavedAt ? new Date(lastSavedAt).toISOString() : "never"
     }`,
@@ -71,7 +72,7 @@ function buildDiagnosticsText({
     for (let i = attempts.length - 1; i >= 0; i -= 1) {
       const a = attempts[i];
       lines.push(
-        `${a.at} | ${a.trigger} | ${a.outcome} | HTTP ${a.status ?? "—"} | ${a.detail ?? "—"}`
+        `${a.at} | ${a.trigger} | ${a.outcome} | HTTP ${a.status ?? "-"} | ${a.detail ?? "-"}`
       );
     }
   }
@@ -84,7 +85,7 @@ function buildDiagnosticsText({
     for (let i = taps.entries.length - 1; i >= 0; i -= 1) {
       const t = taps.entries[i];
       lines.push(
-        `${t.at} | ${t.latencyMs}ms | star: ${t.starOnScreen ? "yes" : "no"} | save: ${t.saveStatus ?? "—"} | visible: ${t.visible ? "yes" : "no"}`
+        `${t.at} | ${t.latencyMs}ms | star: ${t.starOnScreen ? "yes" : "no"} | save: ${t.saveStatus ?? "-"} | visible: ${t.visible ? "yes" : "no"}`
       );
     }
   }
@@ -521,6 +522,12 @@ export function Settings() {
           the skins live with the other display preferences. */}
       <CosmeticsPanel />
 
+      {/* Sell the Company (prestige, Slice 1): claim Equity from
+          lifetime LOC and start a new company. Above the Danger Zone
+          on purpose: a sale keeps your lifetime progress, a reset
+          wipes it. */}
+      <SellCompany />
+
       {/* Danger Zone: reset ALL progress back to 0. Separate from the
           planned prestige system — there is no bonus for resetting,
           it literally sets you back to 0. Two-step confirm: a single
@@ -554,9 +561,10 @@ export function Settings() {
           <>
             <p className="m-0 text-xs text-[#f48771]">
               This wipes ALL progress (LOC, money, employees, projects,
-              open-source levels, cosmetics, emails, and stars) and
-              cannot be undone. Your player id and account link stay
-              the same; only the progress goes to 0.
+              open-source levels, cosmetics, emails, stars, and Equity,
+              including lifetime LOC) and cannot be undone. Your player
+              id and account link stay the same; only the progress goes
+              to 0.
             </p>
             <p className="m-0 text-xs">
               Are you sure you want to reset your progress?

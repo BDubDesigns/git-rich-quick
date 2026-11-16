@@ -9,6 +9,11 @@
  *   overwrite their own save row with the fresh initial state. A normal
  *   save can never go backwards (the money rule is exact), so the reset
  *   has its own path; it only ever touches the requesting player's own row.
+ * - POST /api/save/sell — Sell the Company (prestige, Slice 1): claim
+ *   Equity from the player's lifetime LOC and atomically reset the
+ *   company, from the client's freshest pre-sale state. Idempotent by
+ *   saleId: a retried sale returns the already-applied state without
+ *   claiming again. Not rate limited. See store.applySale.
  * - GET  /healthz — liveness check for Coolify
  * - /api/auth/* — Better Auth (Slice 3, issue #28): sign-up, sign-in,
  *   sign-out, session. Mounted via toNodeHandler; see auth.js.
@@ -686,6 +691,93 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     });
   }
 
+  /**
+   * Sell the Company (prestige, Slice 1): POST /api/save/sell, body
+   * `{ playerId, saleId, state, actionsSinceLastSave }`. `state` is
+   * the client's freshest PRE-sale state (the sale settles production
+   * up to the sale from its lifetime LOC); `saleId` is the client's
+   * idempotency key for this sale. The server validates the pre-sale
+   * state as an ordinary successor of the stored state, claims the
+   * Equity, and atomically resets the company (see store.applySale).
+   * A retried sale (same saleId) returns the already-applied state
+   * without claiming again. 400 for a malformed body, 404 for an
+   * unknown player, 409 with the last good state when the sale is
+   * not claimable (no new Equity, or the Equity books disagree).
+   * Like the reset endpoint, it is NOT rate limited: a player who
+   * just saved can still sell. The playerId is the credential here,
+   * the same as /api/save — the endpoint can only ever touch the row
+   * matching the given playerId.
+   */
+  async function handleSellCompany(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId) ||
+      typeof body.saleId !== "string" ||
+      !UUID_RE.test(body.saleId) ||
+      body.state === null ||
+      typeof body.state !== "object" ||
+      Array.isArray(body.state) ||
+      body.actionsSinceLastSave === null ||
+      typeof body.actionsSinceLastSave !== "object" ||
+      Array.isArray(body.actionsSinceLastSave)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-sell",
+        detail:
+          "playerId and saleId must be UUID strings, state and actionsSinceLastSave must be objects",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.applySale(body.playerId, body, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "rejected") {
+      console.warn(
+        "[save] rejected sale",
+        JSON.stringify({
+          playerId: body.playerId,
+          saleId: body.saleId,
+          rule: result.rule,
+          detail: result.detail,
+          prevSavedAtMs: result.lastGood?.savedAtMs ?? null,
+          state: body.state,
+        })
+      );
+      sendJson(res, 409, {
+        error: "sale-rejected",
+        rule: result.rule,
+        detail: result.detail,
+        lastGoodState: snapshotBody(result.lastGood),
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      alreadyApplied: result.status === "already-applied",
+      playerId: body.playerId,
+      savedAt: iso(result.savedAtMs),
+      state: result.state,
+      sale: result.sale,
+    });
+  }
+
   async function handleLoad(req, res, url) {
     const playerId = url.searchParams.get("playerId");
     if (!playerId || !UUID_RE.test(playerId)) {
@@ -717,6 +809,8 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleSave(req, res);
       } else if (req.method === "POST" && url.pathname === "/api/save/reset") {
         await handleResetSave(req, res);
+      } else if (req.method === "POST" && url.pathname === "/api/save/sell") {
+        await handleSellCompany(req, res);
       } else if (req.method === "GET" && url.pathname === "/healthz") {
         sendJson(res, 200, { ok: true });
       } else if (url.pathname === "/api/account/link" && req.method === "POST") {

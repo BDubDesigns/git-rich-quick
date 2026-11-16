@@ -178,3 +178,25 @@ export async function resetSave(baseUrl, playerId) {
     body: { playerId },
   });
 }
+
+/**
+ * Sell the Company (prestige, Slice 1): POST /api/save/sell, body
+ * `{ playerId, saleId, state, actionsSinceLastSave }`. `state` is the
+ * client's freshest PRE-sale state (the sale settles production up to
+ * the sale from its lifetime LOC); `saleId` is the idempotency key for
+ * this sale, so a retried sale grants its reward once. The server
+ * claims the Equity and atomically resets the company, and returns
+ * the post-sale state plus the sale summary. Returns `{ status, data }`:
+ * - 200 `{ ok: true, alreadyApplied, playerId, savedAt, state, sale }`.
+ * - 409 `{ error, rule, detail, lastGoodState }` (no new Equity to
+ *   claim, or the Equity books disagree — the local state is untouched).
+ * - 404 `{ error: "unknown-player" }`.
+ * - 400 for a malformed body.
+ * Throws on network failure.
+ */
+export async function sellCompany(baseUrl, body) {
+  return request(baseUrl, "/api/save/sell", {
+    method: "POST",
+    body,
+  });
+}

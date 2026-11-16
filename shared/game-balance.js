@@ -1310,6 +1310,229 @@ export function starEffectName(effect, good) {
   return good ? names.good : names.bad;
 }
 
+/**
+ * ===== Prestige — Sell the Company (Slice 1) =====
+ *
+ * Lifetime accounting and Equity, per the v2 prestige design
+ * (chatgpt-prestige-design-v2-2026-11-11.md sections 2, 3, 8) as
+ * refined by Brandon's Nov 15, 2026 decisions.
+ *
+ * - Lifetime LOC is the existing `totalLinesOfCode`: every eligible
+ *   LOC actually credited (clicks, employees, legitimate production
+ *   bonuses, LOC Airdrops), counted fractionally internally and never
+ *   decreased by spending. Starting balances, refunds, restored
+ *   balances, conversions of previously counted LOC, and debug grants
+ *   do not count; cash earnings and cash Airdrops do not count.
+ *   Migration for existing saves uses that counter as-is: do not
+ *   infer lifetime earnings from current inventory, and if no
+ *   reliable counter exists the save starts at zero.
+ * - Entitled Equity = floor(sqrt(Lifetime LOC / 1,000,000)); the
+ *   threshold for Equity n is 1,000,000 x n^2. A sale requires at
+ *   least one NEW Equity (entitled minus Lifetime Equity earned).
+ * - Lifetime Equity earned increases ONLY on sale. Spending Equity
+ *   (the permanent store, Slice 2) never reduces the Founder bonus,
+ *   which is based on Lifetime Equity earned, even if spent.
+ * - Available Equity = claimed Equity minus permanent-store spending.
+ *   Slice 1 has no store, so available equals claimed.
+ */
+
+/** Equity curve constants. The full permanent store costs exactly
+ * 85 Equity in total (Slice 2); the curve check for Slice 1 is that
+ * 85 total Equity requires 85^2 x 1M = 7.225B lifetime LOC. */
+export const PRESTIGE_CONFIG = Object.freeze({
+  /** LOC per unit of the Equity curve (first Equity at 1M lifetime LOC). */
+  equityLocUnit: 1_000_000,
+  /** Total Equity the full permanent store costs (Slice 2). */
+  totalStoreEquityCost: 85,
+});
+
+/** Whole Equity a lifetime LOC total entitles the player to. */
+export function entitledEquity(lifetimeLoc) {
+  const loc = Math.max(0, lifetimeLoc ?? 0);
+  return Math.floor(Math.sqrt(loc / PRESTIGE_CONFIG.equityLocUnit));
+}
+
+/** Lifetime LOC required to be entitled to `equityCount` Equity. */
+export function equityThresholdLoc(equityCount) {
+  const n = Math.max(0, Math.floor(equityCount ?? 0));
+  return PRESTIGE_CONFIG.equityLocUnit * n * n;
+}
+
+/** New Equity a sale would claim right now (entitled minus already earned). */
+export function claimableEquity(lifetimeLoc, lifetimeEquityEarned) {
+  return Math.max(
+    0,
+    entitledEquity(lifetimeLoc) - Math.max(0, lifetimeEquityEarned ?? 0)
+  );
+}
+
+/** Spendable Equity: claimed minus permanent-store spending (Slice 2). */
+export function availableEquity(lifetimeEquityEarned, equitySpent) {
+  return Math.max(
+    0,
+    Math.max(0, lifetimeEquityEarned ?? 0) -
+      Math.max(0, equitySpent ?? 0)
+  );
+}
+
+/**
+ * Founder production multiplier for P Lifetime Equity earned.
+ * P <= 50: 1 + 0.10P (1.10x at P=1, 2x at P=10, 6x at P=50).
+ * P > 50: 6 + 0.5 x log2(1 + (P - 50)/50) (6.5x at P=100, 7x at P=200).
+ * Based on Lifetime Equity EARNED, even if spent (Brandon, Nov 15).
+ */
+export function founderMultiplier(lifetimeEquityEarned) {
+  const p = Math.max(0, Math.floor(lifetimeEquityEarned ?? 0));
+  if (p <= 50) return 1 + 0.1 * p;
+  return 6 + 0.5 * Math.log2(1 + (p - 50) / 50);
+}
+
+/** Eligible LOC earned since the last sale (informational). */
+export function companyLocEarned(state) {
+  return Math.max(
+    0,
+    (state.totalLinesOfCode ?? 0) - (state.lifetimeLocAtLastSale ?? 0)
+  );
+}
+
+/**
+ * The next unearned Equity threshold and the current-rate time to
+ * reach it. `healthyPassiveLocPerSec` is the healthy passive rate
+ * (permanent bonuses included, temporary star and SUBTRACTERALL
+ * multipliers excluded); the estimate never subtracts the LOC bank.
+ * `seconds` is null when there is no passive production ("Requires
+ * production" in the UI) instead of a numeric estimate.
+ */
+export function nextEquityEstimate(lifetimeLoc, healthyPassiveLocPerSec) {
+  const loc = Math.max(0, lifetimeLoc ?? 0);
+  const entitled = entitledEquity(loc);
+  const nextThresholdLoc = equityThresholdLoc(entitled + 1);
+  const remainingLoc = Math.max(0, nextThresholdLoc - loc);
+  const rate = healthyPassiveLocPerSec ?? 0;
+  return {
+    entitled,
+    nextThresholdLoc,
+    remainingLoc,
+    seconds: rate > 0 ? remainingLoc / rate : null,
+  };
+}
+
+/**
+ * "38m 33s" / "1h 12m" / "45s" for a duration in seconds. Exact
+ * minutes drop the "0s" ("38m", not "38m 0s"); hours drop the
+ * seconds (an hour-scale estimate is approximate by nature).
+ */
+export function formatEstimateDuration(seconds) {
+  const total = Math.max(0, Math.floor(seconds ?? 0));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) {
+    const remainder = total % 60;
+    return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const minuteRemainder = minutes % 60;
+  return minuteRemainder === 0
+    ? `${hours}h`
+    : `${hours}h ${minuteRemainder}m`;
+}
+
+/**
+ * Build the post-sale state for a prestige sale (Sell the Company).
+ * Pure: the caller validates the sale first (see
+ * `validatePrestigeSale` in server/src/validate.js — at least one
+ * new Equity, prestige fields matching the stored state). Returns
+ * null when there is nothing to claim, so a zero-reward sale can
+ * never be applied by accident.
+ *
+ * Structure (Slice 3-proof): start from the pre-sale state and
+ * overwrite ONLY the explicit company-local allowlist below. Any
+ * field NOT on the list survives the sale by default — that is how
+ * future persistent fields (SUBTRACTERALL phase, liability,
+ * tolerance, recovery progress) persist without a reset change.
+ * Slice 3 must add the SUBTRACTERALL supply counter to the reset
+ * list below: it is company-local and resets to three doses on sale.
+ *
+ * RESETS (company-local): cash and spendable LOC; all hired
+ * employees including managers; run upgrades, project progression
+ * and automation purchases (including the six doubling upgrades,
+ * Constellation, OverReact, StarBroker, and every other Open Source
+ * project — Brandon, Nov 15: ALL upgrades reset); run-local unlock
+ * latches, re-derived from the post-sale state (LOC-gated unlocks
+ * re-fire at once from lifetime LOC; count-gated ones wait for the
+ * new company to re-earn them); run-local project queues; golden-star
+ * buffs and uncollected stars; company-specific timers; the llama
+ * farm (ownership, stalls, llamas, discovered types — Brandon,
+ * Nov 15: the farm RESETS, it does not survive as a collection).
+ *
+ * PERSISTS: Lifetime LOC and earned/unspent Equity; achievements and
+ * cosmetic unlocks (without regranting rewards); the inbox (its
+ * triggerKey dedupe stops re-fired unlock mail from duplicating);
+ * preferences, accessibility settings and statistics; the remaining
+ * golden-star spawn interval (`nextStarAtMs` is an absolute
+ * timestamp, so keeping its value keeps the remaining interval —
+ * selling must not reroll an immediate star); the StarBroker buy
+ * cooldown (`lastStarBuyAtMs`, same reasoning: keeping it can only
+ * delay a future buy, never grant one). No free Airdrop is generated
+ * on sale. Starting cash from permanent upgrades is none in Slice 1
+ * (the store is Slice 2).
+ */
+export function applyPrestigeSale(preSaleState, saleId) {
+  const lifetimeLoc = Math.max(0, preSaleState.totalLinesOfCode ?? 0);
+  const earnedBefore = Math.max(0, preSaleState.lifetimeEquityEarned ?? 0);
+  const gainedEquity = claimableEquity(lifetimeLoc, earnedBefore);
+  if (gainedEquity < 1) return null;
+
+  const zeroEmployees = {};
+  for (const type of EMPLOYEE_TYPES) zeroEmployees[type] = 0;
+  const zeroProjects = {};
+  const zeroAssignments = {};
+  const zeroAutoShips = {};
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    zeroProjects[key] = 0;
+    zeroAssignments[key] = 0;
+    zeroAutoShips[key] = 0;
+  }
+  const zeroLevels = {};
+  for (const projectId of OPEN_SOURCE_IDS) zeroLevels[projectId] = 0;
+
+  // The post-sale state first: company-local fields reset, everything
+  // else carried over untouched (see the doc comment above). The
+  // unlock latches start locked and are re-derived below from the
+  // post-sale state itself.
+  const post = {
+    ...preSaleState,
+    linesOfCode: BALANCE.mechanics.startingLoc,
+    money: BALANCE.mechanics.startingMoney,
+    employees: zeroEmployees,
+    freelanceProjectsCompleted: zeroProjects,
+    releaseManagerAssignments: zeroAssignments,
+    autoShipsCompleted: zeroAutoShips,
+    openSourceProjects: zeroLevels,
+    unlockedEmployees: {},
+    unlockedOpenSourceProjects: {},
+    unlockedFreelanceProjects: {},
+    activeStarEffects: [],
+    farm: emptyFarmState(),
+    lifetimeEquityEarned: earnedBefore + gainedEquity,
+    saleCount: Math.max(0, preSaleState.saleCount ?? 0) + 1,
+    lifetimeLocAtLastSale: lifetimeLoc,
+    lastSaleId: saleId,
+  };
+  for (const type of EMPLOYEE_TYPES) {
+    post.unlockedEmployees[type] = employeeUnlockConditionsMet(type, post);
+  }
+  for (const projectId of OPEN_SOURCE_IDS) {
+    post.unlockedOpenSourceProjects[projectId] =
+      openSourceUnlockConditionsMet(projectId, post);
+  }
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    post.unlockedFreelanceProjects[key] =
+      freelanceProjectUnlockConditionsMet(key, post);
+  }
+  return post;
+}
+
 /** Total employees across all types, from flat counts. */
 export function totalEmployees(employeeCounts) {
   return EMPLOYEE_TYPES.reduce(
@@ -1353,11 +1576,15 @@ export function passiveBonus(openSourceLevels) {
  * The Click star buff (AI Accelerator / Hallucination) multiplies the
  * whole click total in the client (see calculateLOCPerClick), CS bonus
  * included. `employeeCounts` may be omitted (a save from before Commit
- * Specialists shipped has no specialists, so the bonus is 0). */
+ * Specialists shipped has no specialists, so the bonus is 0).
+ * `founderMultiplierValue` is the prestige Founder multiplier
+ * (1 + 0.10P, from Lifetime Equity earned): it applies ONCE to click
+ * production, inside the same final floor as everything else. */
 export function locPerClick(
   openSourceLevels,
   employeeCounts,
-  csSprintMultiplier = 1
+  csSprintMultiplier = 1,
+  founderMultiplierValue = 1
 ) {
   return Math.floor(
     (BALANCE.mechanics.baseLocPerClick +
@@ -1366,7 +1593,8 @@ export function locPerClick(
         csSprintMultiplier,
         openSourceLevels
       )) *
-      (1 + clickBonus(openSourceLevels))
+      (1 + clickBonus(openSourceLevels)) *
+      founderMultiplierValue
   );
 }
 
@@ -1413,11 +1641,16 @@ export function projectManagerBoostFraction(
 
 /** The LOC/s the Project Manager boost contributes at a 1x Sprint:
  * the boost fraction times the passive rate it scales. */
-export function projectManagerBoostRate(employeeCounts, openSourceLevels) {
+export function projectManagerBoostRate(
+  employeeCounts,
+  openSourceLevels,
+  founderMultiplierValue = 1
+) {
   return (
     projectManagerBoostFraction(employeeCounts, 1, openSourceLevels) *
     baseLocPerSecond(employeeCounts, openSourceLevels) *
-    (1 + passiveBonus(openSourceLevels))
+    (1 + passiveBonus(openSourceLevels)) *
+    founderMultiplierValue
   );
 }
 
@@ -1456,9 +1689,18 @@ export function commitSpecialistClickBonus(
  * nothing to passive LOC, so a Sprint on them scales nothing here —
  * their bonus lives on clicks, not passive.
  */
-export function employeeBuffTypeRate(employeeType, employeeCounts, openSourceLevels) {
+export function employeeBuffTypeRate(
+  employeeType,
+  employeeCounts,
+  openSourceLevels,
+  founderMultiplierValue = 1
+) {
   if (employeeType === "projectManager") {
-    return projectManagerBoostRate(employeeCounts, openSourceLevels);
+    return projectManagerBoostRate(
+      employeeCounts,
+      openSourceLevels,
+      founderMultiplierValue
+    );
   }
   if (employeeType === "commitSpecialist") {
     return 0;
@@ -1468,7 +1710,8 @@ export function employeeBuffTypeRate(employeeType, employeeCounts, openSourceLev
     (employeeCounts?.[employeeType] ?? 0) *
     doublingMultiplier(employeeType, openSourceLevels) *
     (1 + passiveBonus(openSourceLevels)) *
-    (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels))
+    (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels)) *
+    founderMultiplierValue
   );
 }
 
@@ -1486,12 +1729,23 @@ export function employeeBuffTypeRate(employeeType, employeeCounts, openSourceLev
  * Manager unlock (TOTAL_LOC >= 50000, 25 employees) means a player
  * reaching managers already has a rate large enough that 1% per
  * manager is worth at least 1 LOC/s.
+ *
+ * `founderMultiplierValue` is the prestige Founder multiplier
+ * (1 + 0.10P, from Lifetime Equity earned): it applies ONCE to
+ * employee production here, like the click total in locPerClick. It
+ * does NOT multiply cash payouts, fixed LOC grants, or rewards
+ * already calculated from boosted production.
  */
-export function locPerSecond(employeeCounts, openSourceLevels) {
+export function locPerSecond(
+  employeeCounts,
+  openSourceLevels,
+  founderMultiplierValue = 1
+) {
   return Math.floor(
     baseLocPerSecond(employeeCounts, openSourceLevels) *
       (1 + passiveBonus(openSourceLevels)) *
-      (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels))
+      (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels)) *
+      founderMultiplierValue
   );
 }
 
@@ -1744,6 +1998,20 @@ export function initialSaveState() {
     unlockedEmployees,
     unlockedOpenSourceProjects,
     unlockedFreelanceProjects,
+    // Prestige (Sell the Company, Slice 1). Lifetime LOC is
+    // totalLinesOfCode (never decreases); these are the Equity books.
+    // lifetimeEquityEarned (P) drives the Founder multiplier and
+    // only grows on sale; equitySpent is permanent-store spending
+    // (Slice 2 — always 0 in Slice 1); saleCount is cosmetic /
+    // analytics only; lifetimeLocAtLastSale makes Company LOC earned
+    // (total minus this) derivable without a second counter;
+    // lastSaleId is the idempotency key for the sale endpoint, so a
+    // retried sale grants its reward once (criterion 5).
+    lifetimeEquityEarned: 0,
+    equitySpent: 0,
+    saleCount: 0,
+    lifetimeLocAtLastSale: 0,
+    lastSaleId: null,
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
     // (10-60s); expired entries are dropped by the client tick.
@@ -2106,6 +2374,23 @@ export function normalizeSaveState(state) {
   // it, the same rule as the farm backfill above.
   if (next.nextStarAtMs === undefined) next.nextStarAtMs = null;
   if (next.lastStarBuyAtMs === undefined) next.lastStarBuyAtMs = null;
+  // Prestige (Sell the Company, Slice 1): a save from before prestige
+  // shipped has none of these fields. Backfill them to their fresh
+  // values — 0 Equity earned, 0 spent, 0 sales, Company LOC counted
+  // from zero, no sale id — so the save keeps validating. Lifetime
+  // LOC is the existing totalLinesOfCode counter, which the save
+  // already carries: migration uses it as-is and never infers
+  // lifetime earnings from current inventory. A present-but-wrong
+  // value is left alone so the shape check rejects it.
+  if (next.lifetimeEquityEarned === undefined) {
+    next.lifetimeEquityEarned = 0;
+  }
+  if (next.equitySpent === undefined) next.equitySpent = 0;
+  if (next.saleCount === undefined) next.saleCount = 0;
+  if (next.lifetimeLocAtLastSale === undefined) {
+    next.lifetimeLocAtLastSale = 0;
+  }
+  if (next.lastSaleId === undefined) next.lastSaleId = null;
   return next;
 }
 
