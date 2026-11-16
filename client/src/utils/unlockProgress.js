@@ -194,6 +194,11 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
  * levels in the shared balance config. Locked projects (level 0) are
  * not maxed, so they stay in the higher group. `state` is the client
  * reducer state (openSourceProjects maps id -> { level }).
+ *
+ * Favorites (permanent store, Slice 2) sort first among the
+ * non-maxed projects: a favorited project the player is working on
+ * stays at the top of the list. Maxed projects still sink, even when
+ * favorited — there is nothing left to buy there.
  */
 export function sortOpenSourceProjectIds(projectIds, state) {
   const maxed = new Set();
@@ -202,8 +207,11 @@ export function sortOpenSourceProjectIds(projectIds, state) {
     const levelCount = BALANCE.openSource[id]?.levels?.length ?? 0;
     if (levelCount > 0 && level >= levelCount) maxed.add(id);
   }
+  const favorites = new Set(state.favoriteOpenSourceProjects ?? []);
+  const active = projectIds.filter((id) => !maxed.has(id));
   return [
-    ...projectIds.filter((id) => !maxed.has(id)),
+    ...active.filter((id) => favorites.has(id)),
+    ...active.filter((id) => !favorites.has(id)),
     ...projectIds.filter((id) => maxed.has(id)),
   ];
 }

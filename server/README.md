@@ -42,6 +42,34 @@ balance number (imported by both the client and this server).
   lowering `lifetimeEquityEarned` / `equitySpent` / `saleCount`, spending
   more Equity than earned, or changing `lifetimeLocAtLastSale` /
   `lastSaleId` outside a sale are rejected (`MONOTONIC` / `PRESTIGE`).
+- `POST /api/save/store/buy` — permanent store (prestige, Slice 2):
+  body `{ playerId, storeId, rank, state, actionsSinceLastSave }`,
+  where `state` is the client's freshest state (still carrying the
+  open intermission) and `rank` is the rank being bought, always the
+  next rank after the one owned. The server validates the purchase
+  (rank order, funds from the stored Equity books) and applies it
+  atomically in one transaction under a row lock. Success: `200
+  { ok, alreadyOwned, playerId, savedAt, state, purchase }` where
+  `purchase` is `{ storeId, rank, price, equitySpent,
+  availableEquity }`. A retry of an already-owned rank returns the
+  stored state with `alreadyOwned: true` and no second charge.
+  Purchases are only open in the post-sale intermission; buying
+  outside it, buying out of order, or buying past the max rank is
+  `409 { error: "store-buy-rejected", rule: "STORE", lastGoodState }`.
+  Malformed bodies are `400`; unknown players are `404`. Normal
+  saves cannot change store ranks or the intermission: a save that
+  does is rejected (`STORE` / `PRESTIGE`).
+- `POST /api/save/intermission/complete` — post-sale intermission
+  (prestige, Slice 2): body `{ playerId, state,
+  actionsSinceLastSave }`, where `state` is the client's freshest
+  state (still carrying the open intermission). The server applies
+  the Starting Capital grant once, from the frozen sale quote stored
+  on the intermission, and clears the intermission atomically in
+  one transaction under a row lock. Success: `200 { ok,
+  alreadyCompleted, playerId, savedAt, state, grant }` where `grant`
+  is `{ applied, cashCents }`. A retry after completion returns the
+  stored state with `alreadyCompleted: true` and no second grant.
+  Malformed bodies are `400`; unknown players are `404`.
 - `GET /healthz` — liveness check for Coolify.
 - `POST /api/admin/seed-test-player` — admin seed (issue #46): overwrite
   the ONE test player's saved state, bypassing save validation (it sets

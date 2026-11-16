@@ -1387,6 +1387,253 @@ export function founderMultiplier(lifetimeEquityEarned) {
   return 6 + 0.5 * Math.log2(1 + (p - 50) / 50);
 }
 
+/** ===== Prestige — permanent store (Slice 2) =====
+ *
+ * Five upgrade tracks, per the v2 prestige design section 3. Ranks
+ * are purchased in order; prices are PER RANK, not cumulative; no
+ * prerequisites between tracks. Purchases are available ONLY in the
+ * post-sale intermission (after selling, before starting the next
+ * company). The full store costs exactly 85 Equity in total.
+ *
+ * Equity prices are FIXED (1/3/8, 2/5/10, 3/8/20, 2/6/15, 2). Do
+ * NOT multiply them by LOC/s: that would penalize hiring, create
+ * expensive quotes at high rates and cheap quotes after a reset, and
+ * duplicate the progression already priced by the lifetime curve.
+ * Cash-denominated benefits (Starting Capital) scale with production
+ * time instead.
+ *
+ * No store item removes withdrawal, restores doses, lowers tolerance,
+ * or makes SUBTRACTERALL the optimal default. No permanent employee
+ * price discounts or star-frequency upgrades in v1.
+ *
+ * Copy rules: no em dashes in any player-facing description.
+ */
+
+/** The five permanent store tracks, in display order. */
+export const PRESTIGE_STORE_IDS = Object.freeze([
+  "startingCapital",
+  "keyboard",
+  "engineeringHandbook",
+  "clientNetwork",
+  "companyTemplate",
+]);
+
+/**
+ * Per-track store config. `rankCosts` is the Equity price of each
+ * rank in order (rank 1 first); `maxRank` is rankCosts.length.
+ * `effect` is the per-rank effect, as a total by rank (not per
+ * purchase): Keyboard rank 2 is +2 base LOC per click total, not +1
+ * on top of rank 1; Handbook rank 3 is +15% total, not three
+ * compounded 1.05x purchases.
+ */
+export const PRESTIGE_STORE_CONFIG = Object.freeze({
+  startingCapital: Object.freeze({
+    displayName: "Starting Capital",
+    description:
+      "Start each new company with cash from your sold company's production.",
+    rankCosts: Object.freeze([1, 3, 8]),
+    // Seconds of the sold company's healthy production value, by rank.
+    rankSeconds: Object.freeze([0.25, 0.5, 1]),
+  }),
+  keyboard: Object.freeze({
+    displayName: "Keyboard",
+    description:
+      "The last acquisition finally paid for a functioning spacebar.",
+    rankCosts: Object.freeze([2, 5, 10]),
+    // Base LOC per click added, by total rank (1 base becomes 4 at max).
+    rankClickBonus: Object.freeze([1, 2, 3]),
+  }),
+  engineeringHandbook: Object.freeze({
+    displayName: "Engineering Handbook",
+    description: "The documentation survived. Nobody knows how.",
+    rankCosts: Object.freeze([3, 8, 20]),
+    // All-production bonus, by total rank (additive, not compounded).
+    rankProductionBonus: Object.freeze([0.05, 0.1, 0.15]),
+  }),
+  clientNetwork: Object.freeze({
+    displayName: "Client Network",
+    description: "Same work. More people saying they know the founder.",
+    rankCosts: Object.freeze([2, 6, 15]),
+    // Freelance cash payout bonus, by total rank (additive).
+    rankPayoutBonus: Object.freeze([0.05, 0.1, 0.15]),
+  }),
+  companyTemplate: Object.freeze({
+    displayName: "Company Template",
+    description:
+      "A clean slate, prefilled with your previous mistakes. Keeps your favorited projects when you sell.",
+    rankCosts: Object.freeze([2]),
+  }),
+});
+
+/** All store ranks at zero (a fresh save, or a save from before the store). */
+export function zeroStoreRanks() {
+  const ranks = {};
+  for (const storeId of PRESTIGE_STORE_IDS) ranks[storeId] = 0;
+  return ranks;
+}
+
+/** Max rank of a store track (0 for an unknown id). */
+export function storeMaxRank(storeId) {
+  return PRESTIGE_STORE_CONFIG[storeId]?.rankCosts.length ?? 0;
+}
+
+/**
+ * Equity price of buying `rank` (1-based) of a track, or null when
+ * the rank does not exist (unknown track, rank below 1, rank above
+ * the track's max). Prices are per rank, not cumulative.
+ */
+export function storeRankCost(storeId, rank) {
+  const config = PRESTIGE_STORE_CONFIG[storeId];
+  if (!config) return null;
+  const r = Math.floor(rank ?? 0);
+  if (r < 1 || r > config.rankCosts.length) return null;
+  return config.rankCosts[r - 1];
+}
+
+/** Equity price of the NEXT rank after `currentRank`, or null when maxed. */
+export function storeNextRankCost(storeId, currentRank) {
+  return storeRankCost(storeId, Math.max(0, currentRank ?? 0) + 1);
+}
+
+/** Total Equity for every rank of every track: exactly 85. */
+export function storeTotalEquityCost() {
+  let total = 0;
+  for (const storeId of PRESTIGE_STORE_IDS) {
+    for (const cost of PRESTIGE_STORE_CONFIG[storeId].rankCosts) {
+      total += cost;
+    }
+  }
+  return total;
+}
+
+/** Base LOC per click added by the Keyboard rank (0 when unowned). */
+export function keyboardClickBonus(storeRanks = {}) {
+  const rank = Math.max(0, storeRanks?.keyboard ?? 0);
+  if (rank < 1) return 0;
+  return (
+    PRESTIGE_STORE_CONFIG.keyboard.rankClickBonus[
+      Math.min(rank, storeMaxRank("keyboard")) - 1
+    ] ?? 0
+  );
+}
+
+/** All-production multiplier from the Engineering Handbook rank (1 when unowned). */
+export function handbookProductionMultiplier(storeRanks = {}) {
+  const rank = Math.max(0, storeRanks?.engineeringHandbook ?? 0);
+  if (rank < 1) return 1;
+  const bonus =
+    PRESTIGE_STORE_CONFIG.engineeringHandbook.rankProductionBonus[
+      Math.min(rank, storeMaxRank("engineeringHandbook")) - 1
+    ] ?? 0;
+  return 1 + bonus;
+}
+
+/** Freelance cash payout multiplier from the Client Network rank (1 when unowned). */
+export function clientNetworkPayoutMultiplier(storeRanks = {}) {
+  const rank = Math.max(0, storeRanks?.clientNetwork ?? 0);
+  if (rank < 1) return 1;
+  const bonus =
+    PRESTIGE_STORE_CONFIG.clientNetwork.rankPayoutBonus[
+      Math.min(rank, storeMaxRank("clientNetwork")) - 1
+    ] ?? 0;
+  return 1 + bonus;
+}
+
+/**
+ * Best currently available freelance payout per LOC, in cents per
+ * LOC. "Best" is the highest-tier project the player has UNLOCKED:
+ * rates fall as the LOC cost rises (the tradeoff is hammering the
+ * cheap efficient gigs or spamming the big ones for faster money),
+ * so the highest unlocked tier is the rate a player at that stage
+ * actually ships at. The To Do List App has no unlock conditions,
+ * so there is always at least one available project. Includes the
+ * permanent Client Network payout bonus from the given store ranks
+ * (the outgoing company's rank at sale time); the cash grant built
+ * from this rate must never apply that bonus a second time.
+ */
+export function bestFreelancePayoutPerLocCents(
+  unlockedFreelanceProjects = {},
+  storeRanks = {}
+) {
+  let best = null;
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    if (!unlockedFreelanceProjects?.[key]) continue;
+    best = BALANCE.freelanceProjects[key].reward / BALANCE.freelanceProjects[key].loc;
+  }
+  if (best === null) {
+    best =
+      BALANCE.freelanceProjects.toDoListApp.reward /
+      BALANCE.freelanceProjects.toDoListApp.loc;
+  }
+  return best * clientNetworkPayoutMultiplier(storeRanks);
+}
+
+/**
+ * The Starting Capital quote for a sale: the outgoing company's
+ * healthy passive production R (LOC/s, permanent bonuses included,
+ * temporary star and SUBTRACTERALL multipliers excluded) and the
+ * best currently available freelance payout per LOC q (cents per
+ * LOC, Client Network included). Both are frozen at sale time; the
+ * intermission must use these values, never the empty new company.
+ * `state` is the save-shaped pre-sale state (flat employees and
+ * levels, the pre-sale Founder multiplier, the pre-sale store
+ * ranks).
+ */
+export function prestigeSaleQuote(preSaleState) {
+  const founder = founderMultiplier(preSaleState.lifetimeEquityEarned ?? 0);
+  const ranks = preSaleState.permanentStoreRanks ?? {};
+  return {
+    healthyPassiveLocPerSec: locPerSecond(
+      preSaleState.employees ?? {},
+      preSaleState.openSourceProjects ?? {},
+      founder,
+      ranks
+    ),
+    bestPayoutPerLocCents: bestFreelancePayoutPerLocCents(
+      preSaleState.unlockedFreelanceProjects ?? {},
+      ranks
+    ),
+  };
+}
+
+/**
+ * Starting Capital cash quote, in cents, for `rank` (0 = unowned, no
+ * quote): R x q x rank seconds, rounded ONCE to whole cents. At
+ * R=3,660 LOC/s and q=21c/LOC: rank 1 = 19,215c ($192.15), rank 2 =
+ * 38,430c ($384.30), rank 3 = 76,860c ($768.60). A one-minute grant
+ * ($46,116 at that rate) is explicitly rejected; do not use it.
+ */
+export function startingCapitalQuoteCents(frozenR, frozenQ, rank) {
+  const r = Math.max(0, rank ?? 0);
+  if (r < 1) return 0;
+  const seconds =
+    PRESTIGE_STORE_CONFIG.startingCapital.rankSeconds[
+      Math.min(r, storeMaxRank("startingCapital")) - 1
+    ] ?? 0;
+  return Math.round(
+    Math.max(0, frozenR ?? 0) * Math.max(0, frozenQ ?? 0) * seconds
+  );
+}
+
+/**
+ * Starting Capital grant, applied once when the next company starts:
+ * new-company cash is max(normal new-company cash, one base-price
+ * Intern, the rank quote). The one-Intern floor is the current base
+ * Intern price ($25), a functional bootstrap minimum, not a
+ * veteran-scale award. With no rank, cash is unchanged (normal
+ * new-company defaults). The max() makes the grant idempotent: a
+ * second application cannot add it again.
+ */
+export function startingCapitalGrantCents(money, frozenR, frozenQ, rank) {
+  const current = Math.max(0, money ?? 0);
+  if (Math.max(0, rank ?? 0) < 1) return current;
+  return Math.max(
+    current,
+    BALANCE.employees.intern.baseCost,
+    startingCapitalQuoteCents(frozenR, frozenQ, rank)
+  );
+}
+
 /** Eligible LOC earned since the last sale (informational). */
 export function companyLocEarned(state) {
   return Math.max(
@@ -1473,9 +1720,25 @@ export function formatEstimateDuration(seconds) {
  * timestamp, so keeping its value keeps the remaining interval —
  * selling must not reroll an immediate star); the StarBroker buy
  * cooldown (`lastStarBuyAtMs`, same reasoning: keeping it can only
- * delay a future buy, never grant one). No free Airdrop is generated
- * on sale. Starting cash from permanent upgrades is none in Slice 1
- * (the store is Slice 2).
+ * delay a future buy, never grant one); the permanent store ranks
+ * (Slice 2: the store is permanent, only the company resets); the
+ * favorited projects, but ONLY when Company Template is owned
+ * (Slice 2: without it, favorites reset with the company). No free
+ * Airdrop is generated on sale.
+ *
+ * INTERMISSION (Slice 2): the sale opens the post-sale intermission,
+ * where the permanent store is bought. The frozen quote
+ * (`prestigeSaleQuote` of the PRE-sale state: healthy passive LOC/s
+ * and best payout per LOC, both including the outgoing company's
+ * permanent bonuses and excluding temporary star and SUBTRACTERALL
+ * effects) is stored on the post-sale state, so the Starting Capital
+ * grant is computed from the sold company, never the empty new one.
+ * The intermission is cleared only by completing it (see
+ * `completePrestigeIntermission`); a normal save can never set or
+ * clear it. Starting cash from permanent upgrades is applied at
+ * intermission completion, not here: the player may buy or increase
+ * the Starting Capital rank during the intermission, and the grant
+ * uses the frozen quote with the rank they end up with.
  */
 export function applyPrestigeSale(preSaleState, saleId) {
   const lifetimeLoc = Math.max(0, preSaleState.totalLinesOfCode ?? 0);
@@ -1496,6 +1759,22 @@ export function applyPrestigeSale(preSaleState, saleId) {
   const zeroLevels = {};
   for (const projectId of OPEN_SOURCE_IDS) zeroLevels[projectId] = 0;
 
+  // The frozen Starting Capital quote, from the PRE-sale state: the
+  // healthy passive rate and the best payout per LOC the outgoing
+  // company had. The intermission carries these, so the grant is
+  // priced from the sold company even though the new company starts
+  // empty. The quote is computed here, before the reset, because the
+  // reset destroys the company it prices.
+  const quote = prestigeSaleQuote(preSaleState);
+  // Company Template (Slice 2): favorited projects survive the sale
+  // only when the rank is owned; otherwise favorites reset with the
+  // company, like every other run-local preference.
+  const keepFavorites =
+    Math.max(0, preSaleState.permanentStoreRanks?.companyTemplate ?? 0) >= 1;
+  const favorites = keepFavorites
+    ? [...(preSaleState.favoriteOpenSourceProjects ?? [])]
+    : [];
+
   // The post-sale state first: company-local fields reset, everything
   // else carried over untouched (see the doc comment above). The
   // unlock latches start locked and are re-derived below from the
@@ -1514,10 +1793,16 @@ export function applyPrestigeSale(preSaleState, saleId) {
     unlockedFreelanceProjects: {},
     activeStarEffects: [],
     farm: emptyFarmState(),
+    favoriteOpenSourceProjects: favorites,
     lifetimeEquityEarned: earnedBefore + gainedEquity,
     saleCount: Math.max(0, preSaleState.saleCount ?? 0) + 1,
     lifetimeLocAtLastSale: lifetimeLoc,
     lastSaleId: saleId,
+    prestigeIntermission: {
+      saleId,
+      frozenHealthyPassiveLocPerSec: quote.healthyPassiveLocPerSec,
+      frozenBestPayoutPerLocCents: quote.bestPayoutPerLocCents,
+    },
   };
   for (const type of EMPLOYEE_TYPES) {
     post.unlockedEmployees[type] = employeeUnlockConditionsMet(type, post);
@@ -1531,6 +1816,84 @@ export function applyPrestigeSale(preSaleState, saleId) {
       freelanceProjectUnlockConditionsMet(key, post);
   }
   return post;
+}
+
+/**
+ * Complete the post-sale intermission (Slice 2): apply the Starting
+ * Capital grant once, from the FROZEN quote stored on the state, and
+ * clear the intermission. Pure: the caller validates first (the
+ * intermission must be active and match the stored one) and stores
+ * the result. Returns null when there is no intermission to complete
+ * (already completed: a retried completion is a no-op, never a
+ * second grant).
+ *
+ * The grant uses the rank the player ends the intermission with
+ * (they may have bought or increased Starting Capital during it) and
+ * the frozen R and q from the sale: money becomes max(current money,
+ * one base-price Intern, R x q x rank seconds). The max() makes the
+ * grant idempotent even if it were applied twice, and the
+ * intermission is cleared in the same step, so a retry finds nothing
+ * to complete. With no Starting Capital rank, money is unchanged
+ * (normal new-company defaults).
+ */
+export function completePrestigeIntermission(state) {
+  const intermission = state.prestigeIntermission ?? null;
+  if (
+    !intermission ||
+    typeof intermission !== "object" ||
+    Array.isArray(intermission)
+  ) {
+    return null;
+  }
+  const rank = Math.max(
+    0,
+    state.permanentStoreRanks?.startingCapital ?? 0
+  );
+  return {
+    ...state,
+    money: startingCapitalGrantCents(
+      state.money ?? 0,
+      intermission.frozenHealthyPassiveLocPerSec,
+      intermission.frozenBestPayoutPerLocCents,
+      rank
+    ),
+    prestigeIntermission: null,
+  };
+}
+
+/**
+ * The store purchase estimate for an unaffordable card (Slice 2):
+ * how long to earn the Equity shortfall at a production rate. `c`
+ * is the shortfall in Equity (price minus available Equity); the
+ * target lifetime entitlement is claimed Equity + c, and the
+ * remaining lifetime LOC is that threshold minus actual lifetime
+ * LOC, clamped at zero. `seconds` is null when the rate is zero
+ * ("Requires production") or the target is already entitled
+ * ("Available after sale" in the UI when remaining is 0). The rate
+ * is the frozen outgoing rate in the intermission (the only rate
+ * that produces a meaningful estimate there: the new company starts
+ * at zero production), or the current healthy rate when the store is
+ * viewed mid-company.
+ */
+export function storePurchaseEstimate(
+  lifetimeEquityEarned,
+  lifetimeLoc,
+  shortfallEquity,
+  healthyPassiveLocPerSec
+) {
+  const c = Math.max(0, shortfallEquity ?? 0);
+  const target = Math.max(0, lifetimeEquityEarned ?? 0) + c;
+  const remainingLoc = Math.max(
+    0,
+    equityThresholdLoc(target) - Math.max(0, lifetimeLoc ?? 0)
+  );
+  const rate = Math.max(0, healthyPassiveLocPerSec ?? 0);
+  return {
+    shortfallEquity: c,
+    targetEntitlement: target,
+    remainingLoc,
+    seconds: remainingLoc === 0 ? 0 : rate > 0 ? remainingLoc / rate : null,
+  };
 }
 
 /** Total employees across all types, from flat counts. */
@@ -1579,22 +1942,35 @@ export function passiveBonus(openSourceLevels) {
  * Specialists shipped has no specialists, so the bonus is 0).
  * `founderMultiplierValue` is the prestige Founder multiplier
  * (1 + 0.10P, from Lifetime Equity earned): it applies ONCE to click
- * production, inside the same final floor as everything else. */
+ * production, inside the same final floor as everything else.
+ * `storeRanks` is the permanent store ranks (Slice 2): the Keyboard
+ * adds to the base click (1 base becomes 4 at max rank, before
+ * multipliers), and the Engineering Handbook multiplies all
+ * production once (rank 3 is 1.15x, not three compounded 1.05x).
+ * Both default to unowned, so existing callers are unaffected. */
 export function locPerClick(
   openSourceLevels,
   employeeCounts,
   csSprintMultiplier = 1,
-  founderMultiplierValue = 1
+  founderMultiplierValue = 1,
+  storeRanks = {}
 ) {
+  // The +1e-9 guards the floor against float representation error:
+  // 1 + 0.15 is 1.1499999999999999 in binary, so 100 x 1.15 floors
+  // to 114 without it. The epsilon is far below any real fractional
+  // LOC the game produces (a genuine 10.5 still floors to 10).
   return Math.floor(
     (BALANCE.mechanics.baseLocPerClick +
+      keyboardClickBonus(storeRanks) +
       commitSpecialistClickBonus(
         employeeCounts,
         csSprintMultiplier,
         openSourceLevels
       )) *
       (1 + clickBonus(openSourceLevels)) *
-      founderMultiplierValue
+      founderMultiplierValue *
+      handbookProductionMultiplier(storeRanks) +
+      1e-9
   );
 }
 
@@ -1640,17 +2016,21 @@ export function projectManagerBoostFraction(
 }
 
 /** The LOC/s the Project Manager boost contributes at a 1x Sprint:
- * the boost fraction times the passive rate it scales. */
+ * the boost fraction times the passive rate it scales. The
+ * Engineering Handbook (Slice 2) multiplies all production, so it
+ * scales this rate too, once, like the Founder multiplier. */
 export function projectManagerBoostRate(
   employeeCounts,
   openSourceLevels,
-  founderMultiplierValue = 1
+  founderMultiplierValue = 1,
+  storeRanks = {}
 ) {
   return (
     projectManagerBoostFraction(employeeCounts, 1, openSourceLevels) *
     baseLocPerSecond(employeeCounts, openSourceLevels) *
     (1 + passiveBonus(openSourceLevels)) *
-    founderMultiplierValue
+    founderMultiplierValue *
+    handbookProductionMultiplier(storeRanks)
   );
 }
 
@@ -1693,13 +2073,15 @@ export function employeeBuffTypeRate(
   employeeType,
   employeeCounts,
   openSourceLevels,
-  founderMultiplierValue = 1
+  founderMultiplierValue = 1,
+  storeRanks = {}
 ) {
   if (employeeType === "projectManager") {
     return projectManagerBoostRate(
       employeeCounts,
       openSourceLevels,
-      founderMultiplierValue
+      founderMultiplierValue,
+      storeRanks
     );
   }
   if (employeeType === "commitSpecialist") {
@@ -1711,7 +2093,8 @@ export function employeeBuffTypeRate(
     doublingMultiplier(employeeType, openSourceLevels) *
     (1 + passiveBonus(openSourceLevels)) *
     (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels)) *
-    founderMultiplierValue
+    founderMultiplierValue *
+    handbookProductionMultiplier(storeRanks)
   );
 }
 
@@ -1734,18 +2117,29 @@ export function employeeBuffTypeRate(
  * (1 + 0.10P, from Lifetime Equity earned): it applies ONCE to
  * employee production here, like the click total in locPerClick. It
  * does NOT multiply cash payouts, fixed LOC grants, or rewards
- * already calculated from boosted production.
+ * already calculated from boosted production. `storeRanks` is the
+ * permanent store ranks (Slice 2): the Engineering Handbook
+ * multiplies all production once (rank 3 is 1.15x); it defaults to
+ * unowned, so existing callers are unaffected.
  */
 export function locPerSecond(
   employeeCounts,
   openSourceLevels,
-  founderMultiplierValue = 1
+  founderMultiplierValue = 1,
+  storeRanks = {}
 ) {
+  // The +1e-9 guards the floor against float representation error:
+  // 1 + 0.15 is 1.1499999999999999 in binary, so 100 interns at
+  // Handbook rank 3 (100 x 1.15) floor to 114 without it. The
+  // epsilon is far below any real fractional LOC the game produces
+  // (a genuine 10.5 still floors to 10).
   return Math.floor(
     baseLocPerSecond(employeeCounts, openSourceLevels) *
       (1 + passiveBonus(openSourceLevels)) *
       (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels)) *
-      founderMultiplierValue
+      founderMultiplierValue *
+      handbookProductionMultiplier(storeRanks) +
+      1e-9
   );
 }
 
@@ -2012,6 +2406,12 @@ export function initialSaveState() {
     saleCount: 0,
     lifetimeLocAtLastSale: 0,
     lastSaleId: null,
+    // Permanent store (Slice 2). Ranks persist across sales (the
+    // store is permanent, only the company resets); the intermission
+    // is null outside a sale; no projects are favorited yet.
+    permanentStoreRanks: zeroStoreRanks(),
+    prestigeIntermission: null,
+    favoriteOpenSourceProjects: [],
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
     // (10-60s); expired entries are dropped by the client tick.
@@ -2391,6 +2791,53 @@ export function normalizeSaveState(state) {
     next.lifetimeLocAtLastSale = 0;
   }
   if (next.lastSaleId === undefined) next.lastSaleId = null;
+  // Permanent store (Slice 2): a save from before the store shipped
+  // has none of these fields. Backfill the ranks to all-zero, the
+  // intermission to null (not mid-sale), and favorites to empty, so
+  // the save keeps validating. Only MISSING keys are filled: a
+  // present-but-wrong rank is left alone so the shape check rejects
+  // it, and a present intermission is never cleared here (clearing
+  // it would silently drop a frozen Starting Capital quote).
+  if (
+    next.permanentStoreRanks === undefined ||
+    next.permanentStoreRanks === null ||
+    typeof next.permanentStoreRanks !== "object" ||
+    Array.isArray(next.permanentStoreRanks)
+  ) {
+    next.permanentStoreRanks = zeroStoreRanks();
+  } else {
+    let changed = false;
+    const ranks = { ...next.permanentStoreRanks };
+    for (const storeId of PRESTIGE_STORE_IDS) {
+      if (ranks[storeId] === undefined) {
+        ranks[storeId] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.permanentStoreRanks = ranks;
+  }
+  if (next.prestigeIntermission === undefined) {
+    next.prestigeIntermission = null;
+  }
+  if (!Array.isArray(next.favoriteOpenSourceProjects)) {
+    next.favoriteOpenSourceProjects = [];
+  } else {
+    // Favorites are a list of project ids: drop anything that is not
+    // a real project id, and dedupe. A present-but-unknown id is a
+    // stale favorite (a project removed or renamed), not a tampered
+    // save, so trimming it here is safe; the shape check still
+    // rejects a non-array.
+    const kept = [
+      ...new Set(
+        next.favoriteOpenSourceProjects.filter((id) =>
+          OPEN_SOURCE_IDS.includes(id)
+        )
+      ),
+    ];
+    if (kept.length !== next.favoriteOpenSourceProjects.length) {
+      next.favoriteOpenSourceProjects = kept;
+    }
+  }
   return next;
 }
 

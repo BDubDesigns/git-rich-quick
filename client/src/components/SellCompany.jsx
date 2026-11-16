@@ -8,15 +8,16 @@
  * before/after, everything the sale resets, and everything it keeps.
  * Confirming calls the save engine's sellCompany, which claims the
  * Equity and atomically resets the company on the server and restores
- * the post-sale state locally; the closing screen is this component's
- * local step, from the preview snapshot taken at confirm time.
- *
- * Slice 1 has no permanent store, so the sale goes straight from the
- * confirm step to starting the next company: there is no starting
- * grant to double-apply, and a reload after the sale lands on the new
- * company with the Equity already claimed (the sale is idempotent by
- * saleId on the server). The closing screen is transient UI, not a
- * saved intermission.
+ * the post-sale state locally; the sale opens the post-sale
+ * intermission, and the permanent store (PermanentStore) renders in
+ * this panel's place until the player starts the next company. The
+ * closing screen is this component's local step, from the preview
+ * snapshot taken at confirm time, and it shows only when the sale
+ * was already applied (a retried sale whose intermission is already
+ * gone): a fresh sale lands in the store, not here. A reload after
+ * the sale lands back in the store with the Equity already claimed
+ * (the sale is idempotent by saleId on the server), because the
+ * intermission is saved state.
  *
  * Copy rules: no em dashes anywhere in player-facing copy, and every
  * content box is the shared Panel component. Body copy is text-sm
@@ -34,6 +35,7 @@ import * as shared from "../../../shared/game-balance.js";
 import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
+import { PermanentStore } from "./PermanentStore.jsx";
 
 /** "1.40x" for a Founder multiplier. */
 function formatMultiplier(value) {
@@ -110,6 +112,15 @@ export function SellCompany() {
   const assignedManagers = shared.releaseManagerAssignedCount(
     state.releaseManagerAssignments ?? {}
   );
+  // Permanent store (Slice 2): the owned ranks, as a one-line
+  // summary for the overview ("Keyboard rank 2, Client Network rank
+  // 1"). Empty when nothing is owned.
+  const ownedStoreLines = shared.PRESTIGE_STORE_IDS.filter(
+    (storeId) => ((state.permanentStoreRanks ?? {})[storeId] ?? 0) > 0
+  ).map(
+    (storeId) =>
+      `${shared.PRESTIGE_STORE_CONFIG[storeId].displayName} rank ${(state.permanentStoreRanks ?? {})[storeId]}`
+  );
 
   function openConfirm() {
     setPreview({
@@ -169,6 +180,17 @@ export function SellCompany() {
     } finally {
       setSaleBusy(false);
     }
+  }
+
+  // Permanent store (Slice 2): the post-sale intermission is saved
+  // state, not a local step — when it is open, the store renders
+  // instead of this panel, so a reload mid-intermission lands back
+  // in the store with the same frozen quote and the same ranks. The
+  // intermission clears only when the player starts the next company
+  // (or the server already completed it, in which case the "complete"
+  // step below is the closing screen for the retried sale).
+  if (state.prestigeIntermission) {
+    return <PermanentStore />;
   }
 
   return (
@@ -239,9 +261,9 @@ export function SellCompany() {
             , and your preferences.
           </p>
           <p className="m-0 text-sm">
-            SUBTRACTERALL: no active phase. Starting cash from permanent
-            upgrades: {formatMoney(0)}. The permanent store is not open
-            yet.
+            SUBTRACTERALL: no active phase. After the sale, the
+            permanent store opens: spend Equity on permanent upgrades
+            before starting the next company.
           </p>
           {saleError && (
             <p className="m-0 text-sm text-[#f48771]">{saleError}</p>
@@ -300,6 +322,11 @@ export function SellCompany() {
             {state.saleCount ?? 0} · Founder multiplier:{" "}
             {formatMultiplier(founderBefore)}
           </p>
+          {ownedStoreLines.length > 0 && (
+            <p className="m-0 text-sm">
+              Permanent store: {ownedStoreLines.join(", ")}.
+            </p>
+          )}
           <div>
             <Button
               type="button"
