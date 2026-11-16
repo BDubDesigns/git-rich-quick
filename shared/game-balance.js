@@ -941,6 +941,67 @@ export function rollFarmBreeding(stalls, unlockedTypes, rng = Math.random) {
   return { stalls: next, kidsBorn };
 }
 
+/**
+ * Convert a rollFarmBreeding result into the { stallIndex, type }[]
+ * list the FARM_BREED_RESULT reducer expects: a stall that went from
+ * empty to occupied in the roll is a kid born there. Pure. Returns []
+ * for a malformed roll instead of throwing — a bad breed payload must
+ * never blank the game. The reducer still validates each kid (valid
+ * type, stall still empty), so this is a pure diff, not an authority.
+ */
+export function farmKidsFromRoll(oldStalls, roll) {
+  if (!Array.isArray(oldStalls) || !roll || typeof roll !== "object") {
+    return [];
+  }
+  const next = roll.stalls;
+  if (!Array.isArray(next)) return [];
+  const kids = [];
+  const len = Math.min(oldStalls.length, next.length);
+  for (let i = 0; i < len; i++) {
+    const before = oldStalls[i]?.llama ?? null;
+    const after = next[i]?.llama ?? null;
+    if (before === null && after !== null) {
+      kids.push({ stallIndex: i, type: after });
+    }
+  }
+  return kids;
+}
+
+/**
+ * Apply a FARM_BREED_RESULT payload to a farm: place each kid in its
+ * stall (only if the stall is still empty — a llama bought into that
+ * stall after the roll wins, so the roll and the state can never
+ * disagree) and add new types to the unlocked list. Pure — the
+ * FARM_BREED_RESULT reducer calls this. A malformed kids payload
+ * (anything but an array) is treated as no kids instead of throwing:
+ * a bad breed payload must never blank the game.
+ */
+export function applyFarmBreedKids(farm, kids) {
+  const base = farm ?? emptyFarmState();
+  const stalls = base.stalls.map((stall) => ({ ...stall }));
+  const unlockedTypes = [...(base.unlockedTypes ?? [])];
+  if (!Array.isArray(kids)) return { ...base, stalls, unlockedTypes };
+  for (const kid of kids) {
+    if (
+      typeof kid?.stallIndex !== "number" ||
+      kid.stallIndex < 0 ||
+      kid.stallIndex >= FARM_CONFIG.stallCount ||
+      !LLAMA_TYPES.includes(kid.type)
+    ) {
+      continue;
+    }
+    if (stalls[kid.stallIndex].llama !== null) continue;
+    stalls[kid.stallIndex] = {
+      ...stalls[kid.stallIndex],
+      llama: kid.type,
+    };
+    if (!unlockedTypes.includes(kid.type)) {
+      unlockedTypes.push(kid.type);
+    }
+  }
+  return { ...base, stalls, unlockedTypes };
+}
+
 /** A farm that has never been bought: no llamas, no types, warm lights. */
 export function emptyFarmState() {
   return {
