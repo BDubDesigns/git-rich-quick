@@ -27,6 +27,7 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 import { SellCompany } from "./SellCompany.jsx";
+import { ProgressBarSettings } from "./ProgressBarSettings.jsx";
 import { SubtracterallCard } from "./SubtracterallCard.jsx";
 import { Panel } from "./Panel.jsx";
 import { APP_COMMIT, buildTimeLabel } from "../version.js";
@@ -517,6 +518,10 @@ export function Settings() {
           </Button>
         </div>
       </Panel>
+
+      {/* Progress bars (issue #128): one show/hide toggle per bar, a
+          device preference like the sound volume above. */}
+      <ProgressBarSettings />
 
       {/* Cosmetics (issue #11): the equip UI. Moved here from the
           bottom of Shop so the Shop list stays focused on hiring, and

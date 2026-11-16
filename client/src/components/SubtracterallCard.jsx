@@ -35,6 +35,7 @@ import * as shared from "../../../shared/game-balance.js";
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 /** The design's card description, verbatim. */
 const CARD_DESCRIPTION =
@@ -42,6 +43,9 @@ const CARD_DESCRIPTION =
 
 export function SubtracterallCard() {
   const { state, dispatch } = useGameContext();
+  // Progress bar toggles (issue #128): the unlock bar here follows the
+  // "unlock" toggle, like every other unlock progress bar.
+  const showUnlockBar = useProgressBarEnabled("unlock");
   // "overview" | "confirm": local UI steps, not saved. The confirm
   // step shows the tier-specific warning before a dose is taken.
   const [confirming, setConfirming] = useState(false);
@@ -96,26 +100,28 @@ export function SubtracterallCard() {
             Unlocks at {formatNumber(shared.SUBTRACTERALL_CONFIG.unlockLifetimeLoc)} lifetime LOC. You have{" "}
             {formatNumber(lifetimeLoc)}.
           </p>
-          <div
-            className="h-4 bg-gray-700 rounded relative"
-            role="progressbar"
-            aria-valuenow={Math.round(
-              Math.min(
-                100,
-                (lifetimeLoc / shared.SUBTRACTERALL_CONFIG.unlockLifetimeLoc) * 100
-              )
-            )}
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-label="Progress to SUBTRACTERALL unlock"
-          >
+          {showUnlockBar && (
             <div
-              className="h-4 bg-green-500 rounded"
-              style={{
-                width: `${Math.min(100, (lifetimeLoc / shared.SUBTRACTERALL_CONFIG.unlockLifetimeLoc) * 100)}%`,
-              }}
-            />
-          </div>
+              className="h-4 bg-gray-700 rounded relative"
+              role="progressbar"
+              aria-valuenow={Math.round(
+                Math.min(
+                  100,
+                  (lifetimeLoc / shared.SUBTRACTERALL_CONFIG.unlockLifetimeLoc) * 100
+                )
+              )}
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-label="Progress to SUBTRACTERALL unlock"
+            >
+              <div
+                className="h-4 bg-green-500 rounded"
+                style={{
+                  width: `${Math.min(100, (lifetimeLoc / shared.SUBTRACTERALL_CONFIG.unlockLifetimeLoc) * 100)}%`,
+                }}
+              />
+            </div>
+          )}
         </>
       ) : sub.phase === "burst" ? (
         <>
