@@ -196,8 +196,14 @@ export class SaveSync {
     this.onSavedAt = onSavedAt || (() => {});
     this.onRetry = onRetry || (() => {});
     this.storage = storage || defaultStorage();
-    this._setTimeout = setTimeoutFn;
-    this._clearTimeout = clearTimeoutFn;
+    // Wrap the timers rather than storing them as-is: calling a stored
+    // function as this._setTimeout(...) binds `this` to the SaveSync
+    // instance, and the browser's window.setTimeout/clearTimeout throw
+    // "TypeError: Illegal invocation" when `this` isn't window. Node's
+    // timers don't care, so only a real browser showed it. The wrappers
+    // call the functions unbound, which both browsers and test fakes accept.
+    this._setTimeout = (fn, ms) => setTimeoutFn(fn, ms);
+    this._clearTimeout = (id) => clearTimeoutFn(id);
 
     this.playerId = null;
     // Last accepted snapshot (flat save shape). The baseline for deltas.
