@@ -90,6 +90,7 @@ import {
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
   canEquipCosmetic,
+  claimableEquity,
   findCosmetic,
   normalizeSaveState,
   normalizeActions,
@@ -167,6 +168,11 @@ function checkStateShape(state) {
       "farm",
       "nextStarAtMs",
       "lastStarBuyAtMs",
+      "lifetimeEquityEarned",
+      "equitySpent",
+      "saleCount",
+      "lifetimeLocAtLastSale",
+      "lastSaleId",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -243,6 +249,31 @@ function checkStateShape(state) {
     (!Number.isInteger(state.lastStarBuyAtMs) || state.lastStarBuyAtMs < 0)
   ) {
     return "lastStarBuyAtMs must be null or a non-negative integer (ms since epoch)";
+  }
+  // Prestige (Sell the Company, Slice 1). The Equity books: Lifetime
+  // Equity earned (only grows on sale), permanent-store spending
+  // (Slice 2 — 0 in Slice 1), the sale count, the lifetime LOC at the
+  // last sale (Company LOC earned is total minus this), and the last
+  // sale's idempotency key (null = never sold). Old saves without
+  // them are backfilled to 0/null by normalizeSaveState, so a missing
+  // field here is a malformed save, not an old one.
+  if (!isInt(state.lifetimeEquityEarned) || state.lifetimeEquityEarned < 0) {
+    return "lifetimeEquityEarned must be a non-negative integer";
+  }
+  if (!isInt(state.equitySpent) || state.equitySpent < 0) {
+    return "equitySpent must be a non-negative integer";
+  }
+  if (!isInt(state.saleCount) || state.saleCount < 0) {
+    return "saleCount must be a non-negative integer";
+  }
+  if (!isNonNegNumber(state.lifetimeLocAtLastSale)) {
+    return "lifetimeLocAtLastSale must be a non-negative number";
+  }
+  if (
+    state.lastSaleId !== null &&
+    (typeof state.lastSaleId !== "string" || !UUID_RE.test(state.lastSaleId))
+  ) {
+    return "lastSaleId must be null or a UUID string";
   }
   // In-game inbox (issue #31). The client caps the inbox at
   // EMAIL_CONFIG.maxInboxEmails and deletes the oldest past it, so a
@@ -580,8 +611,13 @@ function emailEntryError(entry) {
 /**
  * Validate one save attempt against the last accepted snapshot.
  * Returns `{ ok: true }` or `{ ok: false, rule, detail }`.
+ *
+ * `options.skipRateLimit` skips the 1s rate limit: the prestige sale
+ * endpoint reuses this validation for its pre-sale state (a sale
+ * right after a save is not a flood), and the sale itself is a
+ * separate, idempotent operation, not a heartbeat save.
  */
-export function validateSave(prev, body, nowMs) {
+export function validateSave(prev, body, nowMs, options = {}) {
   // Star-era fields are backward-compatible: default them on states and
   // actions that predate Constellation, so old saves keep validating.
   // normalizeSaveState / normalizeActions return non-objects
@@ -603,8 +639,12 @@ export function validateSave(prev, body, nowMs) {
   const actions = normalizedBody.actionsSinceLastSave;
 
   // Rate limit: at most one accepted save per second — flood control
-  // only, now that the leaderboard is gone.
-  if (nowMs - prev.savedAtMs < SAVE_RATE_LIMIT_SECONDS * 1000) {
+  // only, now that the leaderboard is gone. Skipped for the prestige
+  // sale's pre-sale check (see the doc comment on validateSave).
+  if (
+    !options.skipRateLimit &&
+    nowMs - prev.savedAtMs < SAVE_RATE_LIMIT_SECONDS * 1000
+  ) {
     return fail(
       "RATE_LIMIT",
       `save too soon after the last accepted save (${SAVE_RATE_LIMIT_SECONDS}s minimum)`
@@ -676,6 +716,42 @@ export function validateSave(prev, body, nowMs) {
   }
   if (newState.totalLinesOfCode < prevState.totalLinesOfCode) {
     return fail("MONOTONIC", "totalLinesOfCode decreased");
+  }
+  // Prestige (Sell the Company, Slice 1): the Equity books only move
+  // through a sale (lifetimeEquityEarned, saleCount, lastSaleId,
+  // lifetimeLocAtLastSale) or the permanent store (equitySpent,
+  // Slice 2), never through an ordinary save. A normal save that
+  // lowers one, or changes a sale-only field at all, is rejected —
+  // the sale endpoint is the only path that writes them.
+  if (newState.lifetimeEquityEarned < prevState.lifetimeEquityEarned) {
+    return fail("MONOTONIC", "lifetimeEquityEarned decreased");
+  }
+  if (newState.equitySpent < prevState.equitySpent) {
+    return fail("MONOTONIC", "equitySpent decreased");
+  }
+  if (newState.saleCount < prevState.saleCount) {
+    return fail("MONOTONIC", "saleCount decreased");
+  }
+  if (newState.equitySpent > newState.lifetimeEquityEarned) {
+    return fail(
+      "PRESTIGE",
+      "equitySpent exceeds lifetimeEquityEarned"
+    );
+  }
+  if (newState.lifetimeLocAtLastSale > newState.totalLinesOfCode) {
+    return fail(
+      "PRESTIGE",
+      "lifetimeLocAtLastSale exceeds totalLinesOfCode"
+    );
+  }
+  if (newState.lifetimeLocAtLastSale !== prevState.lifetimeLocAtLastSale) {
+    return fail(
+      "PRESTIGE",
+      "lifetimeLocAtLastSale changed outside a sale"
+    );
+  }
+  if (newState.lastSaleId !== prevState.lastSaleId) {
+    return fail("PRESTIGE", "lastSaleId changed outside a sale");
   }
   // Llama farm (issue #79): the farm is bought once and never
   // un-bought; unlocked types only grow; and a stall's llama, once
@@ -769,4 +845,54 @@ export function validateSave(prev, body, nowMs) {
   }
 
   return { ok: true };
+}
+
+/**
+ * Validate a prestige sale's pre-sale state against the stored
+ * snapshot. The sent state is the client's freshest pre-sale state
+ * (it may be ahead of the stored one by unsaved progress — the sale
+ * settles production up to the sale, so the sale is computed from
+ * the SENT lifetime LOC, not the stored one). The Equity books in
+ * the sent state must match the stored ones exactly: only a sale
+ * changes them, and this sale is what is being validated.
+ *
+ * Returns `{ ok: true, gainedEquity }` or
+ * `{ ok: false, rule, detail }`. `rule` is SALE when there is no new
+ * Equity to claim (a zero-reward sale is never applied), PRESTIGE
+ * when the sent Equity books disagree with the stored ones. The
+ * caller applies the sale with shared.applyPrestigeSale.
+ */
+export function validatePrestigeSale(prevState, sentState, saleId) {
+  if (typeof saleId !== "string" || !UUID_RE.test(saleId)) {
+    return fail("SALE", "saleId must be a UUID string");
+  }
+  if (sentState.lifetimeEquityEarned !== prevState.lifetimeEquityEarned) {
+    return fail(
+      "PRESTIGE",
+      "lifetimeEquityEarned changed outside a sale"
+    );
+  }
+  if (sentState.equitySpent !== prevState.equitySpent) {
+    return fail("PRESTIGE", "equitySpent changed outside a sale");
+  }
+  if (sentState.saleCount !== prevState.saleCount) {
+    return fail("PRESTIGE", "saleCount changed outside a sale");
+  }
+  if (sentState.lifetimeLocAtLastSale !== prevState.lifetimeLocAtLastSale) {
+    return fail(
+      "PRESTIGE",
+      "lifetimeLocAtLastSale changed outside a sale"
+    );
+  }
+  if (sentState.lastSaleId !== prevState.lastSaleId) {
+    return fail("PRESTIGE", "lastSaleId changed outside a sale");
+  }
+  const gainedEquity = claimableEquity(
+    sentState.totalLinesOfCode,
+    prevState.lifetimeEquityEarned
+  );
+  if (gainedEquity < 1) {
+    return fail("SALE", "no new Equity to claim");
+  }
+  return { ok: true, gainedEquity };
 }

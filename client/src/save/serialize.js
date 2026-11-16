@@ -84,6 +84,18 @@ export function stateToSaveState(clientState) {
     unlockedEmployees: { ...clientState.unlockedEmployees },
     unlockedOpenSourceProjects: { ...clientState.unlockedOpenSourceProjects },
     unlockedFreelanceProjects: { ...clientState.unlockedFreelanceProjects },
+    // Prestige (Sell the Company, Slice 1). The Equity books: Lifetime
+    // Equity earned (only grows on sale), permanent-store spending
+    // (Slice 2 — 0 in Slice 1), the sale count, the lifetime LOC at
+    // the last sale, and the last sale's idempotency key. A client
+    // state from before prestige shipped has none of them — default
+    // to the fresh values, the same way the server's
+    // normalizeSaveState does on save.
+    lifetimeEquityEarned: clientState.lifetimeEquityEarned ?? 0,
+    equitySpent: clientState.equitySpent ?? 0,
+    saleCount: clientState.saleCount ?? 0,
+    lifetimeLocAtLastSale: clientState.lifetimeLocAtLastSale ?? 0,
+    lastSaleId: clientState.lastSaleId ?? null,
     // Timed golden-star buffs. A shallow copy of the array (the entries
     // are plain data); expired entries are dropped by the game tick.
     activeStarEffects: [...(clientState.activeStarEffects ?? [])],
@@ -122,6 +134,16 @@ export function saveStateToGameFields(saveState) {
     linesOfCode: saveState.linesOfCode,
     totalLinesOfCode: saveState.totalLinesOfCode,
     money: saveState.money,
+    // Prestige (Sell the Company, Slice 1). A save from before
+    // prestige shipped has none of these fields — default them to the
+    // fresh values here, the same way the server's normalizeSaveState
+    // does on save. Lifetime LOC is the save's own totalLinesOfCode,
+    // which the save already carries.
+    lifetimeEquityEarned: saveState.lifetimeEquityEarned ?? 0,
+    equitySpent: saveState.equitySpent ?? 0,
+    saleCount: saveState.saleCount ?? 0,
+    lifetimeLocAtLastSale: saveState.lifetimeLocAtLastSale ?? 0,
+    lastSaleId: saveState.lastSaleId ?? null,
     employees: inflateCounts(saveState.employees),
     aiAssistants: { noPilot: { count: saveState.aiAssistants.noPilot } },
     // A save from before PR #78 shipped the four new freelance
@@ -362,6 +384,16 @@ export function bigActionFields(saveState) {
     // values (a timestamp, or null): any change is a big action.
     nextStarAtMs: saveState.nextStarAtMs ?? null,
     lastStarBuyAtMs: saveState.lastStarBuyAtMs ?? null,
+    // Prestige (Sell the Company, Slice 1): the Equity books. A sale
+    // changes them, but the sale saves through its own endpoint, not
+    // through a big-action save — these are a safety net, so a future
+    // path that moves them without saving still persists promptly.
+    // Compared as raw values: any change is a big action.
+    lifetimeEquityEarned: saveState.lifetimeEquityEarned ?? 0,
+    equitySpent: saveState.equitySpent ?? 0,
+    saleCount: saveState.saleCount ?? 0,
+    lifetimeLocAtLastSale: saveState.lifetimeLocAtLastSale ?? 0,
+    lastSaleId: saveState.lastSaleId ?? null,
   };
 }
 
@@ -421,6 +453,13 @@ export function isInitialSaveState(saveState) {
   // star scheduled and has never bought one.
   if ((saveState.nextStarAtMs ?? null) !== null) return false;
   if ((saveState.lastStarBuyAtMs ?? null) !== null) return false;
+  // Prestige (Sell the Company, Slice 1): a fresh save has earned no
+  // Equity, spent none, sold never, and counts Company LOC from zero.
+  if ((saveState.lifetimeEquityEarned ?? 0) !== 0) return false;
+  if ((saveState.equitySpent ?? 0) !== 0) return false;
+  if ((saveState.saleCount ?? 0) !== 0) return false;
+  if ((saveState.lifetimeLocAtLastSale ?? 0) !== 0) return false;
+  if ((saveState.lastSaleId ?? null) !== null) return false;
   return true;
 }
 
@@ -468,5 +507,18 @@ export function bigActionIncreased(prev, next) {
     return true;
   if ((next.lastStarBuyAtMs ?? null) !== (prev.lastStarBuyAtMs ?? null))
     return true;
+  // Prestige (Sell the Company, Slice 1): any change to the Equity
+  // books is a big action. The sale itself saves through its own
+  // endpoint, so this is a safety net for any other path that moves
+  // them — the books must never wait for the heartbeat.
+  if ((next.lifetimeEquityEarned ?? 0) !== (prev.lifetimeEquityEarned ?? 0))
+    return true;
+  if ((next.equitySpent ?? 0) !== (prev.equitySpent ?? 0)) return true;
+  if ((next.saleCount ?? 0) !== (prev.saleCount ?? 0)) return true;
+  if (
+    (next.lifetimeLocAtLastSale ?? 0) !== (prev.lifetimeLocAtLastSale ?? 0)
+  )
+    return true;
+  if ((next.lastSaleId ?? null) !== (prev.lastSaleId ?? null)) return true;
   return false;
 }

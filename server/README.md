@@ -24,6 +24,24 @@ balance number (imported by both the client and this server).
   bodies are `400`; unknown players are `404`. A save within 30 seconds
   of the last accepted save is `429` with `Retry-After` — the client
   keeps its actions and retries on the next heartbeat.
+- `POST /api/save/sell` — Sell the Company (prestige, Slice 1): body
+  `{ playerId, state, actionsSinceLastSave, saleId }`, where `state` is
+  the client's freshest pre-sale snapshot and `saleId` is a fresh
+  uuid-v4 per sale attempt. The server validates the pre-sale state as
+  an ordinary successor of the stored state (same trust boundary as a
+  normal save, minus the rate limit), claims the Equity the lifetime
+  LOC entitles, and stores the post-sale state atomically in one
+  transaction under a row lock. Success: `200 { ok, alreadyApplied,
+  playerId, savedAt, state, sale }` where `sale` is `{ gainedEquity,
+  lifetimeEquityEarned, founderMultiplierBefore, founderMultiplierAfter,
+  saleCount }`. A retry with the same `saleId` returns the already
+  applied post-sale state with `alreadyApplied: true` and no second
+  claim. A sale with no new Equity is `409 { error: "sale-rejected",
+  rule: "SALE", lastGoodState }`. Malformed bodies are `400`; unknown
+  players are `404`. Normal saves cannot move the Equity books:
+  lowering `lifetimeEquityEarned` / `equitySpent` / `saleCount`, spending
+  more Equity than earned, or changing `lifetimeLocAtLastSale` /
+  `lastSaleId` outside a sale are rejected (`MONOTONIC` / `PRESTIGE`).
 - `GET /healthz` — liveness check for Coolify.
 - `POST /api/admin/seed-test-player` — admin seed (issue #46): overwrite
   the ONE test player's saved state, bypassing save validation (it sets
@@ -78,7 +96,10 @@ never the token).
 Shape, rate limit (one accepted save per 30s), monotonicity, unlocks
 recomputed from the snapshot, click cap (10/sec), LOC accounting
 (tolerance `max(10, 1%)`), exact money accounting, action-delta
-agreement, offline passive accrual capped at 8 hours. See `src/validate.js`
+agreement, offline passive accrual capped at 8 hours, plus the
+prestige guards (Equity books are monotonic, spending can never exceed
+lifetime Equity earned, and `lifetimeLocAtLastSale` / `lastSaleId`
+change only on a sale — see `POST /api/save/sell` above). See `src/validate.js`
 for the rules and the two deliberate deviations from the spec (new-rate
 crediting, so legitimate mid-window upgrades never false-reject; and
 400/429 instead of 409 for shape and rate-limit failures).

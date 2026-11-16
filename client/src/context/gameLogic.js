@@ -158,7 +158,10 @@ export function calculateLOCPerClick(state) {
   const base = shared.locPerClick(
     flatOpenSourceLevels(state),
     flatEmployeeCounts(state),
-    csSprint ? csSprint.multiplier : 1
+    csSprint ? csSprint.multiplier : 1,
+    // Prestige (Slice 1): the Founder multiplier applies once to
+    // click production, from Lifetime Equity earned.
+    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0)
   );
   const clickBuff = activeStarBuff(state, "click");
   return clickBuff ? base * clickBuff.multiplier : base;
@@ -204,7 +207,13 @@ export function calculateLOCPerClick(state) {
 export function calculateLOCPerSecond(state) {
   const employeeCounts = flatEmployeeCounts(state);
   const openSourceLevels = flatOpenSourceLevels(state);
-  const base = shared.locPerSecond(employeeCounts, openSourceLevels);
+  // Prestige (Slice 1): the Founder multiplier applies once to
+  // employee production, from Lifetime Equity earned. It flows into
+  // the base rate and into each Employee-buff type rate, so a Sprint
+  // scales the same boosted rate the base uses — and a Frenzy then
+  // multiplies the whole boosted total, the same as before.
+  const founder = shared.founderMultiplier(state.lifetimeEquityEarned ?? 0);
+  const base = shared.locPerSecond(employeeCounts, openSourceLevels, founder);
 
   // Employee buffs: each scales one type's contribution to the base rate.
   let total = base;
@@ -214,7 +223,8 @@ export function calculateLOCPerSecond(state) {
     const typeRate = shared.employeeBuffTypeRate(
       type,
       employeeCounts,
-      openSourceLevels
+      openSourceLevels,
+      founder
     );
     total += (buff.multiplier - 1) * typeRate;
   }
@@ -329,9 +339,18 @@ export function getStarBrokerLevel(state) {
  * shared locPerSecond the server prices a buy from — so the cost the
  * Buy Star button shows and the cost the server charges can never
  * disagree (unlike calculateLOCPerSecond, which includes live buffs).
+ * Prestige (Slice 1): the Founder multiplier is a permanent bonus,
+ * so it is IN this rate — a rate-based Airdrop and the StarBroker
+ * cost both read the healthy production rate including permanent
+ * bonuses but excluding temporary star multipliers, and the result is
+ * never multiplied again.
  */
 export function getBaseLocPerSecond(state) {
-  return shared.locPerSecond(flatEmployeeCounts(state), flatOpenSourceLevels(state));
+  return shared.locPerSecond(
+    flatEmployeeCounts(state),
+    flatOpenSourceLevels(state),
+    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0)
+  );
 }
 
 /**

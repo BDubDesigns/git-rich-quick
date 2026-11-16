@@ -59,6 +59,15 @@ const initialState = {
   linesOfCode: GAME_BALANCE_CONFIG.STARTING_LOC,
   totalLinesOfCode: 0, // cumulative LOC written over time, never decreases
   money: GAME_BALANCE_CONFIG.STARTING_MONEY,
+  // Prestige (Sell the Company, Slice 1). Lifetime LOC is
+  // totalLinesOfCode above; these are the Equity books. Saved with
+  // the game state (see serialize.js); a save from before prestige
+  // shipped backfills them to 0/null on load.
+  lifetimeEquityEarned: 0,
+  equitySpent: 0,
+  saleCount: 0,
+  lifetimeLocAtLastSale: 0,
+  lastSaleId: null,
   activeTab: "shop", // can be "shop", "projects", or "openSource"
   // Desktop pane configuration (hardcoded now, will be dynamic later)
   selectedPanes: {
@@ -1322,6 +1331,16 @@ export function GameProvider({ children }) {
     return saveSyncRef.current.resetProgress();
   }, []);
 
+  // Sell the Company (prestige, Slice 1): claim Equity from lifetime
+  // LOC and atomically reset the company, on the server AND locally.
+  // The engine restores the server's post-sale state, so the local
+  // state and the saved state can never disagree about the sale.
+  // Returns `{ ok: true, state, sale }` or `{ ok: false, error,
+  // detail }` — the caller (SellCompany) shows the result.
+  const sellCompany = useCallback(async () => {
+    return saveSyncRef.current.sellCompany();
+  }, []);
+
   // Ask the save engine for a prompt save after a golden-star claim
   // (natural or bought). The star UI calls this in the same handler
   // that dispatches APPLY_STAR_REWARD, so the claim's reward persists
@@ -1398,6 +1417,7 @@ export function GameProvider({ children }) {
         saveNow,
         getSaveDiagnostics,
         resetProgress,
+        sellCompany,
         requestClaimSave,
         measureTapLatency,
       }}

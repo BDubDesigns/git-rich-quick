@@ -44,6 +44,7 @@ import {
   loadSave,
   saveGame,
   resetSave,
+  sellCompany,
 } from "./api.js";
 import {
   stateToSaveState,
@@ -105,6 +106,23 @@ function rejectionDetail(data) {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A fresh idempotency key for one sale attempt (prestige, Slice 1).
+ * crypto.randomUUID when available; a v4-shaped Math.random fallback
+ * otherwise, so the key is always a UUID the sale endpoint accepts. */
+function newSaleId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  const hex = (n) =>
+    [...Array(n)]
+      .map(() => Math.floor(Math.random() * 16).toString(16))
+      .join("");
+  return `${hex(8)}-${hex(4)}-4${hex(3)}-${hex(4)}-${hex(12)}`;
+}
 
 function memoryStorage() {
   const map = new Map();
@@ -200,6 +218,10 @@ export class SaveSync {
     // True while resetProgress() runs: requestSave is a no-op then, so
     // no stale save can land after the reset and resurrect old progress.
     this._resetting = false;
+    // True while sellCompany() runs: requestSave is a no-op then, for
+    // the same reason — a stale pre-sale save must not land after the
+    // sale and resurrect the sold company.
+    this._selling = false;
     this._pendingSave = false;
     this._currentSave = null;
     this._retryTimer = null;
@@ -566,15 +588,154 @@ export class SaveSync {
   }
 
   /**
+   * Sell the Company (prestige, Slice 1): claim Equity from the
+   * player's lifetime LOC and atomically reset the company, on the
+   * server AND locally. The player keeps the same playerId (and the
+   * same account link); only the company goes to 0 — Lifetime LOC,
+   * Equity, cosmetics, emails, and preferences survive (see
+   * shared.applyPrestigeSale for the full reset list).
+   *
+   * The sale goes through the dedicated /api/save/sell endpoint, not
+   * the normal save: a normal save can never go backwards, so it
+   * could never carry the reset. The request sends the freshest
+   * pre-sale state (the sale settles production up to the sale) plus
+   * a fresh saleId; the server validates, claims, and stores the
+   * post-sale state in one transaction, and this method restores it
+   * locally (the same RESTORE_SAVE path as a load) and re-baselines
+   * the engine on it. While the sale runs, no other save may start
+   * (the `_selling` flag makes requestSave a no-op), and an in-flight
+   * save is awaited first, so a stale pre-sale save cannot land after
+   * the sale and resurrect the sold company.
+   *
+   * Idempotency (criterion 5): the saleId is fresh per attempt. If
+   * this attempt's response is lost and the UI retries, the retry
+   * must mint a NEW saleId — the server answers a repeated saleId
+   * with the already-applied state, and a new saleId with no new
+   * Equity behind it is a 409, not a second claim. (The SellCompany
+   * panel retries by calling this method again, which mints a new
+   * id; a retry of the same HTTP request is the transport's job, and
+   * the server's already-applied path covers it.)
+   *
+   * On failure the local state is untouched. Returns
+   * `{ ok: true, state, sale }` or `{ ok: false, error, detail }`
+   * (error is "not-initialized" | "network" | a rule like "SALE" /
+   * "PRESTIGE" | `http-<status>`).
+   */
+  async sellCompany() {
+    if (!this.initialized || !this.playerId) {
+      return { ok: false, error: "not-initialized" };
+    }
+    this._selling = true;
+    try {
+      // Wait for an in-flight save so it cannot land after the sale.
+      // Its finally flushes any save queued behind it, so by the time
+      // this await resolves nothing is pending.
+      if (this._inFlight && this._currentSave) {
+        try {
+          await this._currentSave;
+        } catch {
+          // A failed in-flight save must not block the sale.
+        }
+      }
+      this._pendingSave = false;
+      this._clearRetryTimer();
+      this.onRetry(null);
+      const current = this.getState();
+      const saveState = stateToSaveState(current);
+      const actions = {
+        clicks: this.clicks,
+        employeesBought: diffCounts(
+          this.baseline.employees,
+          saveState.employees,
+          EMPLOYEE_TYPES
+        ),
+        projectsCompleted: diffCounts(
+          this.baseline.freelanceProjectsCompleted,
+          saveState.freelanceProjectsCompleted,
+          FREELANCE_PROJECT_KEYS
+        ),
+        autoShips: diffCounts(
+          this.baseline.autoShipsCompleted,
+          saveState.autoShipsCompleted,
+          FREELANCE_PROJECT_KEYS
+        ),
+        openSourceLevelsBought: diffCounts(
+          this.baseline.openSourceProjects,
+          saveState.openSourceProjects,
+          OPEN_SOURCE_IDS
+        ),
+      };
+      let result;
+      try {
+        result = await sellCompany(this.apiBaseUrl, {
+          playerId: this.playerId,
+          saleId: newSaleId(),
+          state: saveState,
+          actionsSinceLastSave: actions,
+        });
+      } catch (err) {
+        console.warn("[save] sale failed (network):", err);
+        this._recordSaveAttempt({
+          trigger: "sale",
+          outcome: "offline",
+          status: null,
+          detail: errorDetail(err),
+        });
+        this.setStatus("error");
+        return { ok: false, error: "network" };
+      }
+      if (result.status !== 200) {
+        console.warn(
+          `[save] sale failed (HTTP ${result.status}):`,
+          result.data?.rule,
+          result.data?.detail
+        );
+        this._recordSaveAttempt({
+          trigger: "sale",
+          outcome: "error",
+          status: result.status,
+          detail: rejectionDetail(result.data),
+        });
+        this.setStatus("error");
+        return {
+          ok: false,
+          error: result.data?.rule ?? `http-${result.status}`,
+          detail: result.data?.detail ?? null,
+        };
+      }
+      const postState = result.data.state;
+      this.baseline = postState;
+      this.clicks = 0;
+      this._claimSavePending = false;
+      this._lastSeenBig = bigActionFields(postState);
+      this.needsLoad = false;
+      this.restore(postState);
+      this._reportSavedAt(Date.now());
+      this.setStatus("saved");
+      this._recordSaveAttempt({
+        trigger: "sale",
+        outcome: "sale",
+        status: 200,
+        detail: result.data.alreadyApplied
+          ? "already applied (retry)"
+          : null,
+      });
+      return { ok: true, state: postState, sale: result.data.sale ?? null };
+    } finally {
+      this._selling = false;
+    }
+  }
+
+  /**
    * Request a save. Serializes: if one is in flight, queues one after it.
    * Returns a promise that resolves when the save (and any queued flush)
    * completes, so callers can await it. Fire-and-forget callers (heartbeat,
    * retry timer) just ignore the return.
    */
   requestSave(reason, { keepalive } = {}) {
-    if (this._resetting) {
-      // A reset is running: no save may start (or queue) while it
-      // runs, or a stale save could land after the reset and bring
+    if (this._resetting || this._selling) {
+      // A reset or a sale is running: no save may start (or queue)
+      // while it runs, or a stale save could land after it and bring
       // the old progress back.
       return Promise.resolve(false);
     }
