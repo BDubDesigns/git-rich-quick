@@ -466,10 +466,13 @@ function gameReducer(state, action) {
     case "BUY_FARM": {
       const farm = state.farm ?? shared.emptyFarmState();
       if (farm.owned) return state;
-      if (state.money < shared.FARM_CONFIG.purchaseCostCents) return state;
+      // Llama economy v2 (issue #129): the barn costs 3 minutes of
+      // production at the player's BUFFED LOC/s, priced right now.
+      const barnCost = shared.farmPurchaseCostCents(getBaseLocPerSecond(state));
+      if (state.money < barnCost) return state;
       const newState = {
         ...state,
-        money: state.money - shared.FARM_CONFIG.purchaseCostCents,
+        money: state.money - barnCost,
         farm: shared.initialFarmState(),
       };
       const latched = {
@@ -531,7 +534,10 @@ function gameReducer(state, action) {
       }
       const stall = farm.stalls[stallIndex];
       if (!stall || stall.llama !== null) return state;
-      if (state.money < shared.FARM_CONFIG.llamaPriceCents) return state;
+      // Llama economy v2 (issue #129): the price is time at the
+      // player's buffed LOC/s, priced at the moment of purchase.
+      const price = shared.llamaBuyPriceCents(type, getBaseLocPerSecond(state));
+      if (!(price > 0) || state.money < price) return state;
       const stalls = farm.stalls.map((entry, i) =>
         i === stallIndex ? { ...entry, llama: type } : entry
       );
@@ -540,8 +546,10 @@ function gameReducer(state, action) {
         : [...(farm.unlockedTypes ?? []), type];
       const newState = {
         ...state,
-        money: state.money - shared.FARM_CONFIG.llamaPriceCents,
+        money: state.money - price,
         farm: { ...farm, stalls, unlockedTypes },
+        // Achievements (issue #132): lifetime llamas bought, per type.
+        achievements: shared.recordLlamaBought(state.achievements, type, 1),
       };
       const latched = {
         ...newState,
@@ -551,6 +559,53 @@ function gameReducer(state, action) {
           updateFreelanceProjectUnlockLatch(newState),
       };
       return withEmailTriggers(state, latched);
+    }
+
+    // Sell the llama in a stall (issue #129). Payload: { stallIndex }.
+    // A llama sells for half its CURRENT buy price (time at the
+    // player's buffed LOC/s right now, never the price paid), so its
+    // value rises as production rises. The stall empties and keeps its
+    // lighting. The sale is recorded per type in the achievements
+    // record (shared.recordLlamaSold): the server only lets a llama
+    // leave the barn through a recorded sale. Bred types sell too;
+    // that is the point of breeding them. An empty stall, an unowned
+    // farm, or a bad index is ignored.
+    case "SELL_LLAMA": {
+      const { stallIndex } = action.payload ?? {};
+      const farm = state.farm ?? shared.emptyFarmState();
+      if (!farm.owned) return state;
+      if (
+        !Number.isInteger(stallIndex) ||
+        stallIndex < 0 ||
+        stallIndex >= shared.FARM_CONFIG.stallCount
+      ) {
+        return state;
+      }
+      const type = farm.stalls[stallIndex]?.llama ?? null;
+      if (!type) return state;
+      const value = shared.llamaSellPriceCents(type, getBaseLocPerSecond(state));
+      if (!Number.isFinite(value) || value < 0) return state;
+      const stalls = farm.stalls.map((entry, i) =>
+        i === stallIndex ? { ...entry, llama: null } : entry
+      );
+      return {
+        ...state,
+        money: state.money + value,
+        farm: { ...farm, stalls },
+        achievements: shared.recordLlamaSold(state.achievements, type, 1),
+      };
+    }
+
+    // Move a llama to an EMPTY stall (issue #129). Payload:
+    // { fromIndex, toIndex }. Pure placement (shared.moveFarmLlama):
+    // the llama moves, each stall keeps its own lighting. Moving is
+    // free; it is how the player builds breeding nests. An invalid
+    // move (occupied target, empty source, same stall) is ignored.
+    case "MOVE_LLAMA": {
+      const { fromIndex, toIndex } = action.payload ?? {};
+      const moved = shared.moveFarmLlama(state.farm, fromIndex, toIndex);
+      if (!moved) return state;
+      return { ...state, farm: moved };
     }
 
     // Apply a locally-rolled breeding result (issue #79 feedback).

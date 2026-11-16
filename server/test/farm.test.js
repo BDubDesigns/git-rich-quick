@@ -3,18 +3,20 @@
  * buying, and the client-side breeding rules, plus the old-save
  * migration that backfills the farm.
  *
- * Key numbers (issue #79 feedback): farm costs 1000000c ($10,000); 9
+ * Key numbers (issue #79 feedback; prices per issue #129): the farm
+ * and every llama are priced as time at buffed LOC/s (see
+ * llama-economy.test.js); 9
  * stalls in a 3x3 grid; breeding check every 60s, rolled on the CLIENT
  * (shared.rollFarmBreeding, the same odds the server used) — the
  * server never sees a breed, only the kids in the next save. The barn
- * arrives EMPTY (no free llamas); base llamas cost 50000c ($500) each
+ * arrives EMPTY (no free llamas); base llamas are bought one at a time
  * in the shop, and bred types come only from breeding. A kid can only
  * be born in a stall with at least two llama neighbours, and no more
  * kids can be born in a window than there were empty stalls when the
  * window started (each kid fills a distinct empty stall). The server
  * stores whatever kid the client sends, as long as the state is
- * well-formed (MONOTONIC still holds a stall's llama, so a kid cannot
- * overwrite or vanish one) — kid origins are not policed anymore.
+ * well-formed (MONOTONIC only lets a llama leave the barn through a
+ * recorded sale, issue #129) — kid origins are not policed anymore.
  */
 
 import test from "node:test";
@@ -29,8 +31,10 @@ import {
   farmKidsFromRoll,
   farmLlamaCount,
   farmMaxKidsPerWindow,
+  farmPurchaseCostCents,
   farmStallNeighbours,
   initialFarmState,
+  llamaBuyPriceCents,
   initialSaveState,
   normalizeSaveState,
   rollFarmBreeding,
@@ -108,7 +112,7 @@ function stockedFarm() {
       llama: placed[i] ?? null,
       lighting: "warm",
     })),
-    unlockedTypes: [...LLAMA_BASE_TYPES],
+    unlockedTypes: ["classic", "drama"],
   };
 }
 
@@ -161,8 +165,10 @@ test("the farm starts empty: no free llamas, no unlocked types", () => {
   assert.equal(farm.owned, true);
   assert.equal(farmLlamaCount(farm.stalls), 0);
   assert.deepEqual(farm.unlockedTypes, []);
-  assert.equal(FARM_CONFIG.purchaseCostCents, 1000000);
-  assert.equal(FARM_CONFIG.llamaPriceCents, 50000);
+  // Issue #129: no fixed dollars anymore. At P = 0 the price floor
+  // applies (priced as 10 LOC/s x 60c/LOC = 600c of value per second).
+  assert.equal(farmPurchaseCostCents(0), 180 * 600);
+  assert.equal(llamaBuyPriceCents("classic", 0), 90 * 600);
   assert.equal(FARM_CONFIG.breedingTickSeconds, 60);
 });
 
@@ -295,10 +301,10 @@ test("applyFarmBreedKids never throws on a malformed kids payload (live crash re
 
 // ---- Farm purchase ----
 
-test("buying the farm deducts $10,000 and leaves the barn empty", () => {
+test("buying the farm deducts the barn price and leaves the barn empty", () => {
   const before = stateWith({ money: 2000000, farm: emptyFarmState() });
   const after = stateWith({
-    money: 2000000 - FARM_CONFIG.purchaseCostCents,
+    money: 2000000 - farmPurchaseCostCents(0),
     farm: initialFarmState(),
   });
   const result = validateSave(
@@ -335,8 +341,8 @@ test("buying the farm and two llamas in one window is accepted", () => {
   const after = stateWith({
     money:
       2000000 -
-      FARM_CONFIG.purchaseCostCents -
-      2 * FARM_CONFIG.llamaPriceCents,
+      farmPurchaseCostCents(0) -
+      2 * llamaBuyPriceCents("classic", 0),
     farm,
   });
   const result = validateSave(
@@ -355,8 +361,8 @@ test("buying the farm with a non-base llama is accepted (leaderboard killed: lla
   const after = stateWith({
     money:
       2000000 -
-      FARM_CONFIG.purchaseCostCents -
-      FARM_CONFIG.llamaPriceCents,
+      farmPurchaseCostCents(0) -
+      llamaBuyPriceCents("classic", 0),
     farm,
   });
   const result = validateSave(
@@ -374,7 +380,7 @@ test("buying the farm while claiming an unlocked type with no llama is accepted 
   const farm = initialFarmState();
   farm.unlockedTypes = ["classic"];
   const after = stateWith({
-    money: 2000000 - FARM_CONFIG.purchaseCostCents,
+    money: 2000000 - farmPurchaseCostCents(0),
     farm,
   });
   const result = validateSave(
@@ -392,7 +398,7 @@ test("buying a base llama deducts the price and places it", () => {
   const farm = withStall(before.farm, 0, { llama: "classic" });
   farm.unlockedTypes = ["classic"];
   const after = stateWith({
-    money: 100000 - FARM_CONFIG.llamaPriceCents,
+    money: 100000 - llamaBuyPriceCents("classic", 0),
     farm,
   });
   const result = validateSave(
@@ -426,7 +432,7 @@ test("buying a non-base llama is accepted (leaderboard killed: llama types are t
   const farm = withStall(before.farm, 0, { llama: "quantum" });
   farm.unlockedTypes = ["quantum"];
   const after = stateWith({
-    money: 100000 - FARM_CONFIG.llamaPriceCents,
+    money: 100000 - llamaBuyPriceCents("classic", 0),
     farm,
   });
   const result = validateSave(
@@ -550,7 +556,7 @@ test("a bought llama and a bred kid in one window are both accepted", () => {
   let farm = withStall(before.farm, 1, { llama: "classic" });
   farm = withStall(farm, 5, { llama: "drama" });
   const after = stateWith({
-    money: 75000 - FARM_CONFIG.llamaPriceCents,
+    money: 75000 - llamaBuyPriceCents("classic", 0),
     farm,
   });
   const result = validate(before, after, T0 + 60_000);
@@ -729,7 +735,7 @@ test("a save with a partial farm gets its missing pieces defaulted", () => {
   const normalized = normalizeSaveState(before);
   assert.deepEqual(
     [...normalized.farm.unlockedTypes].sort(),
-    [...LLAMA_BASE_TYPES].sort()
+    ["classic", "drama"]
   );
   const after = initialSaveState();
   after.farm = stockedFarm();

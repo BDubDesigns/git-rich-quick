@@ -441,6 +441,12 @@ export function bigActionFields(saveState) {
       (saveState.farm?.stalls ?? []).map((stall) => stall.lighting ?? "warm")
     ),
     farmUnlockedTypes: (saveState.farm?.unlockedTypes ?? []).length,
+    // Llama economy v2 (issue #129): which llama sits in which stall.
+    // A move or a sale changes the layout, and both are deliberate
+    // player actions (a sale moves money), so they save promptly.
+    farmLayout: JSON.stringify(
+      (saveState.farm?.stalls ?? []).map((stall) => stall.llama ?? null)
+    ),
     // Release Manager assignments: changing an assignment is a
     // deliberate player choice (like an equip), so it saves promptly.
     // Compared as a string because any change (one project's count)
@@ -632,6 +638,7 @@ export function bigActionIncreased(prev, next) {
   if ((next.farmUnlockedTypes ?? 0) > (prev.farmUnlockedTypes ?? 0))
     return true;
   if ((next.farmLighting ?? "") !== (prev.farmLighting ?? "")) return true;
+  if ((next.farmLayout ?? "") !== (prev.farmLayout ?? "")) return true;
   // Release Manager assignments: any change (one project's count) is
   // a big action, like an equip.
   if (

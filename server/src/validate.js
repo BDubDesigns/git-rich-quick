@@ -95,6 +95,7 @@ import {
   availableEquity,
   canEquipCosmetic,
   claimableEquity,
+  farmLlamaCountsByType,
   findCosmetic,
   normalizeSaveState,
   normalizeActions,
@@ -913,10 +914,14 @@ export function validateSave(prev, body, nowMs, options = {}) {
     );
   }
   // Llama farm (issue #79): the farm is bought once and never
-  // un-bought; unlocked types only grow; and a stall's llama, once
-  // placed, never changes type and never goes back to empty — there is
-  // no sell/cull in v1, so a llama disappearing or swapping types is
-  // tampered, not gameplay.
+  // un-bought, and unlocked types only grow. Llama economy v2 (issue
+  // #129): llamas MOVE between stalls and can be SOLD, so a stall's
+  // llama may change or leave. What still holds: llamas of a type only
+  // leave the barn through a recorded sale. For every type, the drop
+  // in that type's barn count can be at most the rise in that type's
+  // lifetime sold counter (achievements.llamasSold, written by the
+  // sale). A move keeps every count, so it always passes; a llama that
+  // vanishes or swaps type without a sale is tampered, not gameplay.
   if (prevState.farm.owned && !newState.farm.owned) {
     return fail("MONOTONIC", "farm ownership flipped back");
   }
@@ -925,13 +930,18 @@ export function validateSave(prev, body, nowMs, options = {}) {
       return fail("MONOTONIC", `farm llama type unlock lost: ${type}`);
     }
   }
-  for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
-    const prevLlama = prevState.farm.stalls[i]?.llama ?? null;
-    const newLlama = newState.farm.stalls[i]?.llama ?? null;
-    if (prevLlama !== null && newLlama !== prevLlama) {
+  const prevLlamaCounts = farmLlamaCountsByType(prevState.farm.stalls);
+  const newLlamaCounts = farmLlamaCountsByType(newState.farm.stalls);
+  for (const type of LLAMA_TYPES) {
+    const left = prevLlamaCounts[type] - newLlamaCounts[type];
+    if (left <= 0) continue;
+    const sold =
+      (newState.achievements?.llamasSold?.[type] ?? 0) -
+      (prevState.achievements?.llamasSold?.[type] ?? 0);
+    if (left > sold) {
       return fail(
         "MONOTONIC",
-        `farm stall ${i} llama changed or disappeared: ${prevLlama} -> ${newLlama}`
+        `farm lost ${left} ${type} llama(s) but recorded ${sold} sale(s)`
       );
     }
   }
