@@ -42,6 +42,7 @@ import {
   isEmployeeUnlocked,
   isOpenSourceProjectUnlocked,
   isFreelanceProjectUnlocked,
+  isFarmUnlockMet,
   flatEmployeeCounts,
   flatOpenSourceLevels,
 } from "./gameLogic.js";
@@ -466,6 +467,10 @@ function gameReducer(state, action) {
     case "BUY_FARM": {
       const farm = state.farm ?? shared.emptyFarmState();
       if (farm.owned) return state;
+      // The barn is locked until 10 Senior Developers are on payroll
+      // (FARM_CONFIG.unlockConditions). The Farm tab disables the
+      // button; this is the second line of defence.
+      if (!isFarmUnlockMet(state)) return state;
       // Llama economy v2 (issue #129): the barn costs 3 minutes of
       // production at the player's BUFFED LOC/s, priced right now.
       const barnCost = shared.farmPurchaseCostCents(getBaseLocPerSecond(state));

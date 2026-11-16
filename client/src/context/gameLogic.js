@@ -21,7 +21,9 @@ export {
   getUnlockProgress,
   getUnlockProgressForOpenSource,
   getUnlockProgressForFreelanceProject,
+  getUnlockProgressForFarm,
   hasCrossedUnlockThreshold,
+  isFarmUnlockMet,
   sortOpenSourceProjectIds,
 } from "../utils/unlockProgress.js";
 
