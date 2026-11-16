@@ -706,7 +706,9 @@ export function maxReleaseManagerShips(managerCount, elapsedSeconds) {
  * without restructuring it.
  *
  * Feedback (Brandon, Nov 10): the farm is a cool first mini-game
- * unlock, so it costs $10,000, not $250. No free llamas — the barn
+ * unlock, so it costs $10,000, not $250. (Issue #129 replaced the
+ * fixed dollars: the barn and every llama are priced as time at the
+ * player's buffed LOC/s now, see LLAMA_ECONOMY.) No free llamas — the barn
  * arrives empty and you buy llamas yourself. Breeding is slow (a
  * 60s tick, not 5s) and the roll happens on the CLIENT now (it used
  * to be server-rolled and issued): the client rolls the outcome from
@@ -714,19 +716,9 @@ export function maxReleaseManagerShips(managerCount, elapsedSeconds) {
  * kid in the farm stalls.
  */
 export const FARM_CONFIG = Object.freeze({
-  /**
-   * One-time purchase cost, in cents ($10,000). The money is the gate —
-   * the farm has no unlock condition in v1. Tuning value (Brandon:
-   * "at least 10k").
-   */
-  purchaseCostCents: 1000000,
-  /**
-   * Price of one base llama (Classic or Drama), in cents ($500).
-   * Bred types are never for sale — they come only from breeding.
-   * Tuning value: cheap enough that a player who just spent $10,000
-   * on the barn can afford a pair to start breeding.
-   */
-  llamaPriceCents: 50000,
+  // Prices are no longer fixed dollars (issue #129): the barn and
+  // every llama type are priced as time at the player's buffed LOC/s.
+  // See LLAMA_ECONOMY and farmPurchaseCostCents / llamaBuyPriceCents.
   /** Barn stalls in the grid (3x3). Each stall holds at most one llama. */
   stallCount: 9,
   /** Columns in the stall grid (used for orthogonal adjacency). */
@@ -747,19 +739,26 @@ export const FARM_CONFIG = Object.freeze({
 export const LLAMA_TYPES = Object.freeze([
   "classic",
   "drama",
+  "mama",
   "spaghetti",
   "quantum",
   "blockchain",
   "ai",
 ]);
 
-/** The two base types for sale in the shop. Bred types are never sold. */
-export const LLAMA_BASE_TYPES = Object.freeze(["classic", "drama"]);
+/**
+ * The types for sale in the shop: the two base types and the Mama
+ * Llama (issue #129). Bred types are never for sale in the shop; they
+ * come only from breeding (they still have a value, and sell for half
+ * of it). The Mama Llama is shop-only: breeding never discovers one.
+ */
+export const LLAMA_BASE_TYPES = Object.freeze(["classic", "drama", "mama"]);
 
 /** Display names for the llama types. */
 export const LLAMA_TYPE_NAMES = Object.freeze({
   classic: "Classic Llama",
   drama: "Drama Llama",
+  mama: "Mama Llama",
   spaghetti: "Spaghetti Llama",
   quantum: "Quantum Llama",
   blockchain: "Blockchain Llama",
@@ -772,6 +771,8 @@ export const LLAMA_TYPE_DESCRIPTIONS = Object.freeze({
     "The original. Ships on time, never spits on the deploy, and has been here since v1. Nobody remembers hiring it.",
   drama:
     "Causes an incident every sprint, then acts surprised. Spits on the production deploy and blames the intern.",
+  mama:
+    "Cheap to hire, impossible to slow down. Every llama next to her breeds way faster, and she never once asks for parental leave. HR is investigating.",
   spaghetti:
     "Its code is tangled, its wool is tangled, everything is tangled. Somehow it still works. Nobody dares refactor it.",
   quantum:
@@ -904,18 +905,183 @@ export function rollFarmKid(stallIndex, stalls, unlockedTypes, rng = Math.random
   const stall = stalls[stallIndex];
   if (!stall || stall.llama) return null;
   const lighting = FARM_LIGHTING[stall.lighting] ?? FARM_LIGHTING.warm;
-  if (rng() >= lighting.kidChance) return null;
   const parentTypes = farmStallNeighbours(stallIndex)
     .map((n) => stalls[n].llama)
     .filter(Boolean);
   if (parentTypes.length < 2) return null;
+  if (rng() >= farmKidChance(stall.lighting, parentTypes)) return null;
+  // The Mama Llama is shop-only: breeding never discovers one.
   const undiscovered = LLAMA_TYPES.filter(
-    (type) => !(unlockedTypes ?? []).includes(type)
+    (type) => type !== "mama" && !(unlockedTypes ?? []).includes(type)
   );
   if (undiscovered.length > 0 && rng() < lighting.newTypeChance) {
     return undiscovered[Math.floor(rng() * undiscovered.length)];
   }
-  return parentTypes[Math.floor(rng() * parentTypes.length)];
+  // A Mama Llama raises everyone else's kids: the kid takes a
+  // non-mama parent's type when there is one (a mama-only nest has a
+  // Mama kid).
+  const kidPool = parentTypes.some((type) => type !== "mama")
+    ? parentTypes.filter((type) => type !== "mama")
+    : parentTypes;
+  return kidPool[Math.floor(rng() * kidPool.length)];
+}
+
+/**
+ * The chance a kid is born in an eligible stall on one breeding tick:
+ * the stall's lighting sets the base chance, and a Mama Llama among
+ * the neighbouring parents multiplies it (issue #129), capped at
+ * LLAMA_ECONOMY.maxKidChance. One mama is enough; two do not stack.
+ */
+export function farmKidChance(lightingId, parentTypes) {
+  const lighting = FARM_LIGHTING[lightingId] ?? FARM_LIGHTING.warm;
+  const hasMama = (parentTypes ?? []).includes("mama");
+  if (!hasMama) return lighting.kidChance;
+  return Math.min(
+    LLAMA_ECONOMY.maxKidChance,
+    lighting.kidChance * LLAMA_ECONOMY.mamaKidChanceMultiplier
+  );
+}
+
+/**
+ * Llama economy v2 (issue #129). Every farm price is TIME at the
+ * player's production, never fixed dollars, so prices keep pace as
+ * the player grows:
+ *
+ *   R = best cents per LOC = 60 (the To Do List App: 50 LOC for $30,
+ *       the cheapest project at the best rate; derived from BALANCE
+ *       below so it can never drift).
+ *   P = the player's passive LOC/s, BUFFED: buffedLocPerSecond, with
+ *       the Founder multiplier and the achievement buff (issue #132)
+ *       in, temporary star and SUBTRACTERALL multipliers out. Never
+ *       raw base LOC/s.
+ *   B = P x R, cents per second of production value.
+ *
+ * A price is `seconds x B`. The barn is 3 minutes of production (the
+ * earlier Farm Economy anchor, 180 x B). Every llama costs minutes,
+ * never seconds or hours, rising with the type: the cheap Mama Llama
+ * is 1 minute, a Classic 1.5 (the old 30 x B anchor was 30 seconds,
+ * raised to minutes per the issue), an AI Llama 15. A llama sells for half its
+ * CURRENT buy price: the value is not locked at purchase, so as P
+ * rises the price and the sell value of every type rise with it.
+ *
+ * P is floored at minPricingLocPerSecond for pricing only, so the barn
+ * and the llamas are never free for a player with no employees yet.
+ * Tuning values, one line each; tune from play.
+ */
+export const LLAMA_ECONOMY = Object.freeze({
+  /** Floor on P for pricing (LOC/s), so nothing is ever free. */
+  minPricingLocPerSecond: 10,
+  /** The barn: seconds of production value (180 x B, 3 minutes). */
+  barnSeconds: 180,
+  /** Buy price per type, in seconds of production value. */
+  typeSeconds: Object.freeze({
+    mama: 60,
+    classic: 90,
+    drama: 120,
+    spaghetti: 240,
+    quantum: 360,
+    blockchain: 600,
+    ai: 900,
+  }),
+  /** A llama sells for this fraction of its current buy price. */
+  sellFraction: 0.5,
+  /** Kid chance multiplier for a stall beside a Mama Llama. */
+  mamaKidChanceMultiplier: 3,
+  /** The kid chance never goes above this, Mama or not. */
+  maxKidChance: 0.9,
+});
+
+/**
+ * R: the best cents per LOC any freelance project pays (60, the To Do
+ * List App). Derived from BALANCE so the anchor can never drift.
+ */
+export function bestCentsPerLoc() {
+  let best = 0;
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    const project = BALANCE.freelanceProjects[key];
+    best = Math.max(best, project.reward / project.loc);
+  }
+  return best;
+}
+
+/**
+ * B: cents per second of production value at buffed LOC/s `p` (floored
+ * at minPricingLocPerSecond, NaN-guarded).
+ */
+export function farmProductionValueCentsPerSecond(buffedLocPerSec) {
+  const p = Number(buffedLocPerSec);
+  const rate = Number.isFinite(p) && p > 0 ? p : 0;
+  return (
+    Math.max(LLAMA_ECONOMY.minPricingLocPerSecond, rate) * bestCentsPerLoc()
+  );
+}
+
+/** The barn's price in whole cents: barnSeconds x B. */
+export function farmPurchaseCostCents(buffedLocPerSec) {
+  return Math.round(
+    LLAMA_ECONOMY.barnSeconds * farmProductionValueCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/**
+ * What a llama of `type` costs right now, in whole cents: typeSeconds x
+ * B. 0 for an unknown type. Bred types have a price too (it is what
+ * they are worth), they just are not for sale in the shop.
+ */
+export function llamaBuyPriceCents(type, buffedLocPerSec) {
+  const seconds = LLAMA_ECONOMY.typeSeconds[type];
+  if (!seconds) return 0;
+  return Math.round(
+    seconds * farmProductionValueCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/** What a llama of `type` sells for right now: half its current buy price. */
+export function llamaSellPriceCents(type, buffedLocPerSec) {
+  return Math.floor(
+    LLAMA_ECONOMY.sellFraction * llamaBuyPriceCents(type, buffedLocPerSec)
+  );
+}
+
+/**
+ * Move a llama from one stall to an EMPTY stall (pure). The lighting
+ * stays with the stall (it is the stall's mood, not the llama's).
+ * Returns the new farm, or null when the move is not allowed: farm
+ * not owned, bad indices, the same stall, no llama in `from`, or
+ * `to` occupied.
+ */
+export function moveFarmLlama(farm, fromIndex, toIndex) {
+  if (!farm?.owned || !Array.isArray(farm.stalls)) return null;
+  const valid = (i) =>
+    Number.isInteger(i) && i >= 0 && i < FARM_CONFIG.stallCount;
+  if (!valid(fromIndex) || !valid(toIndex) || fromIndex === toIndex) {
+    return null;
+  }
+  const from = farm.stalls[fromIndex];
+  const to = farm.stalls[toIndex];
+  if (!from?.llama || !to || to.llama !== null) return null;
+  const stalls = farm.stalls.map((stall, i) => {
+    if (i === fromIndex) return { ...stall, llama: null };
+    if (i === toIndex) return { ...stall, llama: from.llama };
+    return { ...stall };
+  });
+  return { ...farm, stalls };
+}
+
+/**
+ * Llama counts per type in the barn (every LLAMA_TYPES key, 0 when
+ * absent). The server uses it to check that llamas only leave the barn
+ * through a recorded sale.
+ */
+export function farmLlamaCountsByType(stalls) {
+  const counts = {};
+  for (const type of LLAMA_TYPES) counts[type] = 0;
+  for (const stall of stalls ?? []) {
+    if (stall?.llama && counts[stall.llama] !== undefined) {
+      counts[stall.llama] += 1;
+    }
+  }
+  return counts;
 }
 
 /**
@@ -4712,7 +4878,9 @@ export function buildFarmPurchasedEmail() {
       `their notice of quitting, so technically they are still ` +
       `employees. HR has questions. You do not have answers.\n\n` +
       `Buy some llamas, move them in, set the lights, and let them ` +
-      `breed. The llamas generate no cash yet. They generate vibes.`,
+      `breed. Sell the kids for cash: a llama goes for half of what ` +
+      `it would cost you today, and that price grows with your ` +
+      `team. Get a Mama Llama. Trust us on the Mama Llama.`,
   };
 }
 
