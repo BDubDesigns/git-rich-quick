@@ -159,9 +159,10 @@ export function calculateLOCPerClick(state) {
     flatOpenSourceLevels(state),
     flatEmployeeCounts(state),
     csSprint ? csSprint.multiplier : 1,
-    // Prestige (Slice 1): the Founder multiplier applies once to
-    // click production, from Lifetime Equity earned.
-    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0),
+    // Prestige (Slice 1) and achievements (issue #132): the Founder
+    // multiplier and the achievement LOC buff apply once to click
+    // production, through the one shared buff helper.
+    shared.buffedLocMultiplier(state),
     // Permanent store (Slice 2): the Keyboard rank adds to the base
     // click and the Engineering Handbook rank multiplies production
     // once, both inside shared locPerClick.
@@ -216,7 +217,10 @@ export function calculateLOCPerSecond(state) {
   // the base rate and into each Employee-buff type rate, so a Sprint
   // scales the same boosted rate the base uses — and a Frenzy then
   // multiplies the whole boosted total, the same as before.
-  const founder = shared.founderMultiplier(state.lifetimeEquityEarned ?? 0);
+  // Achievements (issue #132): the achievement LOC buff rides on the
+  // same permanent multiplier as the Founder bonus (shared
+  // buffedLocMultiplier), so it reaches the base and every type rate.
+  const founder = shared.buffedLocMultiplier(state);
   // Permanent store (Slice 2): the Engineering Handbook rank
   // multiplies production once, inside shared locPerSecond and the
   // type rates below, so a Sprint scales the same boosted rate the
@@ -368,12 +372,36 @@ export function getStarBrokerLevel(state) {
  * estimates both read it.
  */
 export function getBaseLocPerSecond(state) {
-  return shared.locPerSecond(
-    flatEmployeeCounts(state),
-    flatOpenSourceLevels(state),
-    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0),
-    state.permanentStoreRanks ?? {}
-  );
+  // Achievements (issue #132): the BUFFED healthy rate, computed by the
+  // one shared helper (Founder and achievement buffs in, temporary
+  // multipliers out). Everything priced off LOC/s reads this.
+  return shared.buffedLocPerSecond({
+    employees: flatEmployeeCounts(state),
+    openSourceProjects: flatOpenSourceLevels(state),
+    lifetimeEquityEarned: state.lifetimeEquityEarned ?? 0,
+    achievements: state.achievements,
+    permanentStoreRanks: state.permanentStoreRanks ?? {},
+  });
+}
+
+/**
+ * The save-shaped context the shared achievement metrics read
+ * (issue #132): flat employee counts, the LOC totals, the farm, the
+ * inbox size, and the achievements record itself.
+ */
+export function achievementContext(state) {
+  return {
+    achievements: state.achievements,
+    totalLinesOfCode: state.totalLinesOfCode ?? 0,
+    lifetimeLocAtLastSale: state.lifetimeLocAtLastSale ?? 0,
+    employees: flatEmployeeCounts(state),
+    freelanceProjectsCompleted: state.freelanceProjectsCompleted ?? {},
+    money: state.money ?? 0,
+    saleCount: state.saleCount ?? 0,
+    farm: state.farm,
+    emailCount: (state.emails ?? []).length,
+    subtracterall: state.subtracterall,
+  };
 }
 
 /**

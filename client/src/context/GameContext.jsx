@@ -38,6 +38,7 @@ import {
   calculateCPS,
   calculateLOCPerSecond,
   getBaseLocPerSecond,
+  achievementContext,
   isEmployeeUnlocked,
   isOpenSourceProjectUnlocked,
   isFreelanceProjectUnlocked,
@@ -45,6 +46,7 @@ import {
   flatOpenSourceLevels,
 } from "./gameLogic.js";
 import {
+  addEmail,
   collectTriggerEmails,
   deleteEmail,
   markAllEmailsRead,
@@ -86,6 +88,13 @@ const initialState = {
   // separate mechanic) that persists across sales.
   subtracterall: shared.zeroSubtracterallState(),
   overtimeReskin: false,
+  // Achievements (issue #132): tier state and the lifetime counters
+  // the achievements read (hires per type, clicks, peak LOC/s, llamas
+  // bought and sold). Saved with the game state; a save without it
+  // restores a fresh record. Evaluated after every game action (see
+  // withAchievements), and the tiers earned are a permanent LOC buff
+  // (shared.buffedLocMultiplier).
+  achievements: shared.zeroAchievementsState(),
   activeTab: "shop", // can be "shop", "projects", or "openSource"
   // Desktop pane configuration (hardcoded now, will be dynamic later)
   selectedPanes: {
@@ -232,6 +241,7 @@ const initialState = {
       farm: { isDescriptionVisible: true },
       settings: { isDescriptionVisible: true },
       email: { isDescriptionVisible: true },
+      achievements: { isDescriptionVisible: true },
     },
   },
 };
@@ -277,6 +287,8 @@ function gameReducer(state, action) {
         linesOfCode: state.linesOfCode + locPerClick,
         totalLinesOfCode: state.totalLinesOfCode + locPerClick,
         subtracterall: clickResult.state,
+        // Achievements (issue #132): every manual commit counts.
+        achievements: shared.recordClicks(state.achievements, 1),
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
       };
@@ -333,6 +345,13 @@ function gameReducer(state, action) {
               count: employee.count + quantity,
             },
           },
+          // Achievements (issue #132): lifetime hires per type. A bulk
+          // buy counts every hire in it.
+          achievements: shared.recordHires(
+            state.achievements,
+            employeeType,
+            quantity
+          ),
           // Cosmetics (issue #11): a hire can cross a cosmetic's
           // hire-count trigger — threshold-crossing, so a bulk buy
           // that jumps past a trigger still unlocks it. Only
@@ -1355,9 +1374,81 @@ function withEmailTriggers(prevState, newState, starClaim = null) {
   };
 }
 
+/**
+ * Actions that only move UI state (tabs, open mail, collapsed
+ * descriptions): they cannot earn an achievement, so the evaluation
+ * pass skips them. RESTORE_SAVE is skipped too: a load must never mail
+ * a burst of old unlocks; the next tick evaluates the restored state.
+ */
+const ACHIEVEMENT_SKIP_ACTIONS = new Set([
+  "SET_ACTIVE_TAB",
+  "TOGGLE_SECTION_DESC_VISIBILITY",
+  "OPEN_EMAIL",
+  "CLOSE_EMAIL",
+  "DISMISS_EMAIL_NOTIFICATION",
+  "RESTORE_SAVE",
+]);
+
+/**
+ * Achievements (issue #132): after a game action, raise the peak LOC/s
+ * to the buffed healthy rate, evaluate every achievement against the
+ * new state, and latch any new tiers. Newly earned tiers send ONE
+ * inbox mail per action (however many landed). The record is
+ * sanitized first (NaN guard), so a bad counter can never unlock a
+ * tier. Pure: returns the same state object when nothing changed.
+ *
+ * @private
+ */
+function withAchievements(state) {
+  const withPeak = shared.recordPeakLocPerSecond(
+    state.achievements,
+    getBaseLocPerSecond(state)
+  );
+  const { achievements, unlocked } = shared.evaluateAchievements(
+    withPeak,
+    achievementContext({ ...state, achievements: withPeak })
+  );
+  if (unlocked.length === 0) {
+    if (withPeak.peakLocPerSecond === state.achievements?.peakLocPerSecond) {
+      return state;
+    }
+    return { ...state, achievements: withPeak };
+  }
+  const first = unlocked[0];
+  const { emails, added } = addEmail(
+    state.emails,
+    shared.buildAchievementEmail({ unlocked }),
+    `achievement:${first.id}:${first.tier}`,
+    Date.now()
+  );
+  return {
+    ...state,
+    achievements,
+    emails,
+    emailNotification:
+      added && state.activeTab !== "email"
+        ? { emailId: added.id }
+        : state.emailNotification,
+  };
+}
+
+/**
+ * The reducer the provider runs: the game reducer, then the
+ * achievements pass for any action that changed game state.
+ *
+ * @private
+ */
+function rootReducer(state, action) {
+  const next = gameReducer(state, action);
+  if (next === state || ACHIEVEMENT_SKIP_ACTIONS.has(action.type)) {
+    return next;
+  }
+  return withAchievements(next);
+}
+
 // GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {
-  const [state, dispatch] = useReducer(gameReducer, initialState);
+  const [state, dispatch] = useReducer(rootReducer, initialState);
   const stateRef = useRef(state);
   const [saveStatus, setSaveStatus] = useState("loading");
   const [savePlayerId, setSavePlayerId] = useState(null);
