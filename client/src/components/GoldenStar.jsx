@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FaStar } from "react-icons/fa";
 import { useGameContext } from "../context/useGameContext";
@@ -16,6 +16,8 @@ import {
   rollStarEffect,
   rollStarGood,
   resolveStarClaim,
+  shootingStarsChainClaim,
+  shootingStarsChainContinues,
   starBrokerBuyCost,
   starBrokerCooldownSeconds,
   starBuffDurationSeconds,
@@ -155,6 +157,19 @@ export function GoldenStar() {
   const [boughtStar, setBoughtStar] = useState(null);
   const [boughtFading, setBoughtFading] = useState(false);
   const [boughtStarAtMs, setBoughtStarAtMs] = useState(null);
+  // Shooting Stars chain (issue #138): transient, never saved (a reload
+  // mid-chain ends it). `chain` is { step, totalLoc, fromNatural } while
+  // a chain runs; `chainStar` is the on-screen chain star's position
+  // (null between stars, during the 3s spawn delay).
+  const [chain, setChain] = useState(null);
+  const [chainStar, setChainStar] = useState(null);
+  const [chainFading, setChainFading] = useState(false);
+  const chainActive = chain !== null;
+  const chainStep = chain?.step ?? null;
+  // endChain reads the natural countdown through a ref: secondsLeft
+  // ticks every second, and a dependency on it would re-arm the chain
+  // star's miss timer every second (it would never expire).
+  const secondsLeftRef = useRef(null);
   // Whether the star bar area (countdown, effect bars, buy) is
   // collapsed to a thin strip. A device preference (localStorage, like
   // the sound settings) — never in the server save. Tap the countdown
@@ -375,6 +390,9 @@ export function GoldenStar() {
   useEffect(() => {
     if (
       star !== null ||
+      // While a Shooting Stars chain runs, the next star IS the chain
+      // star; the natural star waits until the chain ends.
+      chainActive ||
       secondsLeft !== 0 ||
       countdownStartedAtMs === null ||
       countdownTotalSeconds === null
@@ -394,6 +412,7 @@ export function GoldenStar() {
     playStarSpawnSound();
   }, [
     star,
+    chainActive,
     secondsLeft,
     countdownStartedAtMs,
     countdownTotalSeconds,
@@ -548,6 +567,121 @@ export function GoldenStar() {
     });
   }, [constellationLevel, state]);
 
+  // End the Shooting Stars chain (issue #138): one summary email for
+  // the whole chain, then the natural timer resumes. A chain started
+  // by the natural star restarts the natural interval from now; a chain
+  // started by a bought star leaves the natural schedule alone unless
+  // the natural star came due while the chain ran.
+  const endChain = useCallback(
+    ({ stars, totalLoc, reason, fromNatural }) => {
+      setChain(null);
+      setChainStar(null);
+      setChainFading(false);
+      dispatch({
+        type: "SHOOTING_STARS_CHAIN_END",
+        payload: { stars, totalLoc, reason },
+      });
+      if (fromNatural || secondsLeftRef.current === 0) {
+        setSecondsLeft(null);
+        setCountdownTotalSeconds(null);
+        setCountdownStartedAtMs(null);
+        rollNextStar();
+      }
+    },
+    [dispatch, rollNextStar]
+  );
+
+  useEffect(() => {
+    secondsLeftRef.current = secondsLeft;
+  }, [secondsLeft]);
+
+  // Start a chain from the click that paid chain step 1. The chain goes
+  // on only if the shared rule allows a next payout (6-hour cap, half
+  // the LOC on hand, the 1% roll); otherwise it ends right here.
+  const startChain = useCallback(
+    (firstClaim, fromNatural) => {
+      const verdict = shootingStarsChainContinues({
+        step: 1,
+        locPerSecond: getBaseLocPerSecond(state),
+        linesOfCode: state.linesOfCode + firstClaim.locDelta,
+      });
+      if (!verdict.continues) {
+        endChain({
+          stars: 1,
+          totalLoc: firstClaim.locDelta,
+          reason: verdict.reason,
+          fromNatural,
+        });
+        return;
+      }
+      setChain({ step: 1, totalLoc: firstClaim.locDelta, fromNatural });
+    },
+    [state, endChain]
+  );
+
+  // Spawn the next chain star spawnDelaySeconds after each paid step.
+  useEffect(() => {
+    if (chainStep === null) return undefined;
+    const id = setTimeout(() => {
+      setChainFading(false);
+      setChainStar(randomStarPosition());
+      playStarSpawnSound();
+    }, STAR_CONFIG.shootingStarsChain.spawnDelaySeconds * 1000);
+    return () => clearTimeout(id);
+  }, [chainStep]);
+
+  // A chain star lives lifetimeSeconds (fading in the last 2s); missing
+  // it ends the chain.
+  useEffect(() => {
+    if (chainStar === null || chain === null) return undefined;
+    const lifetimeMs = STAR_CONFIG.shootingStarsChain.lifetimeSeconds * 1000;
+    const fadeId = setTimeout(
+      () => setChainFading(true),
+      Math.max(0, lifetimeMs - 2000)
+    );
+    const missId = setTimeout(() => {
+      endChain({
+        stars: chain.step,
+        totalLoc: chain.totalLoc,
+        reason: "missed",
+        fromNatural: chain.fromNatural,
+      });
+    }, lifetimeMs);
+    return () => {
+      clearTimeout(fadeId);
+      clearTimeout(missId);
+    };
+  }, [chainStar, chain, endChain]);
+
+  // Click a chain star: pay the next step (10x the last plus 7x LOC/s),
+  // then go on or end by the shared rule.
+  const handleChainStarClick = useCallback(() => {
+    if (!chainStar || !chain) return;
+    const position = chainStar;
+    setChainStar(null);
+    setChainFading(false);
+    const step = chain.step + 1;
+    const rate = getBaseLocPerSecond(state);
+    const claim = shootingStarsChainClaim(step, rate);
+    applyClaim(claim, position);
+    const totalLoc = chain.totalLoc + claim.locDelta;
+    const verdict = shootingStarsChainContinues({
+      step,
+      locPerSecond: rate,
+      linesOfCode: state.linesOfCode + claim.locDelta,
+    });
+    if (verdict.continues) {
+      setChain({ ...chain, step, totalLoc });
+    } else {
+      endChain({
+        stars: step,
+        totalLoc,
+        reason: verdict.reason,
+        fromNatural: chain.fromNatural,
+      });
+    }
+  }, [chainStar, chain, state, applyClaim, endChain]);
+
   const handleStarClick = useCallback(() => {
     if (!star) return;
     // Hide the star immediately so a double-click cannot claim twice,
@@ -568,8 +702,12 @@ export function GoldenStar() {
       return;
     }
     applyClaim(claim, position);
+    // The fresh schedule is rolled even for a Shooting Stars chain, so a
+    // reload mid-chain resumes the natural timer cleanly; the star
+    // itself stays hidden until the chain ends (endChain re-rolls).
     rollNextStar();
-  }, [star, rollClaim, applyClaim, rollNextStar]);
+    if (claim.effect === "shootingStars") startChain(claim, true);
+  }, [star, rollClaim, applyClaim, rollNextStar, startChain]);
 
   // Buy a golden star (StarBroker). Validated client-side now (the
   // server no longer polices buys): the player must own StarBroker,
@@ -613,7 +751,12 @@ export function GoldenStar() {
     const claim = rollClaim();
     if (claim === null) return;
     applyClaim(claim, position);
-  }, [boughtStar, rollClaim, applyClaim]);
+    // A bought Shooting Stars starts a chain; during a running chain it
+    // just pays its normal reward and never advances or breaks it.
+    if (claim.effect === "shootingStars" && !chainActive) {
+      startChain(claim, false);
+    }
+  }, [boughtStar, rollClaim, applyClaim, chainActive, startChain]);
 
   // Whether the next-star countdown may be shown (a client-side
   // unlock now): the player reaches Constellation level
@@ -624,6 +767,7 @@ export function GoldenStar() {
 
   const showCountdown =
     countdownUnlocked &&
+    !chainActive &&
     star === null &&
     secondsLeft !== null &&
     secondsLeft > 0;
@@ -657,6 +801,19 @@ export function GoldenStar() {
           <FaStar size={STAR_SIZE_PX} color="#ffd700" />
         </button>
       )}
+      {/* Shooting Stars chain star (issue #138): same look, a 6s life,
+          and it pays the next step of the chain. */}
+      {chainStar && (
+        <button
+          type="button"
+          aria-label={`Shooting star, chain ${(chainStep ?? 0) + 1}: click before it falls`}
+          className={chainFading ? "golden-star fading" : "golden-star"}
+          style={{ left: `${chainStar.x}px`, top: `${chainStar.y}px` }}
+          onClick={handleChainStarClick}
+        >
+          <FaStar size={STAR_SIZE_PX} color="#ffd700" />
+        </button>
+      )}
       {/* A bought star renders exactly like a natural star (same
           presentation, same lifetime) and is independently clickable —
           the two can be on screen at once, which is the whole point of
@@ -672,6 +829,21 @@ export function GoldenStar() {
           <FaStar size={STAR_SIZE_PX} color="#ffd700" />
         </button>
       )}
+      {/* Shooting Stars chain strip (issue #138): while a chain runs,
+          the countdown slot shows the chain instead of the natural
+          countdown (the natural star waits for the chain to end). */}
+      {chainActive &&
+        countdownSlot &&
+        createPortal(
+          <div className="star-bar-row">
+            <div className="star-countdown-bar" role="status">
+              <span className="star-countdown-bar-text">
+                ★ Shooting Stars chain x{chainStep}: +{formatNumber(chain.totalLoc)} LOC
+              </span>
+            </div>
+          </div>,
+          countdownSlot
+        )}
       {/* Collapsed star bar area: a thin strip in the countdown slot.
           Tap it (or the chevron) to reopen the bars. Shown instead of
           all three bars when the area is collapsed, unless every star

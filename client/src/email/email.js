@@ -405,7 +405,10 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     }
   }
 
-  if (starClaim) {
+  // Shooting Stars is a Cookie Chain (issue #138): its clicks never
+  // mail one by one; the whole chain sends one summary when it ends
+  // (SHOOTING_STARS_CHAIN_END).
+  if (starClaim && starClaim.effect !== "shootingStars") {
     const employeeTypeName =
       EMPLOYEE_DISPLAY_NAMES[starClaim.employeeType] ??
       starClaim.employeeType;
