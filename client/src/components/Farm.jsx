@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
-import { getBaseLocPerSecond } from "../context/gameLogic.js";
+import {
+  getBaseLocPerSecond,
+  getUnlockProgressForFarm,
+  isFarmUnlockMet,
+} from "../context/gameLogic.js";
+import { formatCondition } from "../utils/formatCondition.js";
+import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
+import { ProgressBar } from "./ProgressBar.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { Panel } from "./Panel.jsx";
@@ -51,6 +58,9 @@ export function Farm() {
   const [selectedStall, setSelectedStall] = useState(null);
   const [moving, setMoving] = useState(false);
   const pricingRate = getBaseLocPerSecond(state);
+  // Progress bar toggles (issue #128): the farm's unlock bar follows
+  // the "unlock" toggle, like every other unlock bar.
+  const showUnlockBar = useProgressBarEnabled("unlock");
 
   const clearSelection = () => {
     setSelectedStall(null);
@@ -113,6 +123,34 @@ export function Farm() {
     dispatch({ type: "SELL_LLAMA", payload: { stallIndex: selectedStall } });
     clearSelection();
   };
+
+  if (!farm.owned && !isFarmUnlockMet(state)) {
+    return (
+      <SectionLayout sectionId="farm">
+        <Panel className="flex flex-col gap-2 p-3">
+          <p className="m-0 text-sm">
+            Every Senior Developer has the same exit plan: quit and
+            raise alpacas. Get enough of them on payroll and they stop
+            talking about it and start building. You still pay for the
+            barn.
+          </p>
+          <p className="m-0 text-xs font-semibold">Unlock requirement:</p>
+          {getUnlockProgressForFarm(state).map((entry, index) => (
+            <ProgressBar
+              key={index}
+              current={entry.current}
+              target={entry.target}
+              label={formatCondition(entry)}
+              showBar={showUnlockBar}
+            />
+          ))}
+          <Button onClick={handleBuyFarm} disabled>
+            Llama Farm (locked)
+          </Button>
+        </Panel>
+      </SectionLayout>
+    );
+  }
 
   if (!farm.owned) {
     const barnCost = farmPurchaseCostCents(pricingRate);

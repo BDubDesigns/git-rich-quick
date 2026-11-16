@@ -22,7 +22,7 @@ export const PROGRESS_BARS = Object.freeze([
     id: "unlock",
     label: "Unlock progress",
     description:
-      "The bars on locked hires, projects, and open source, plus the SUBTRACTERALL unlock bar. Hidden, the requirement still shows as text.",
+      "The bars on locked hires, projects, open source, and the Llama Farm, plus the SUBTRACTERALL unlock bar. Hidden, the requirement still shows as text.",
   }),
   Object.freeze({
     id: "equityStrip",

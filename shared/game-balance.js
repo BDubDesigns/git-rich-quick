@@ -719,6 +719,22 @@ export const FARM_CONFIG = Object.freeze({
   // Prices are no longer fixed dollars (issue #129): the barn and
   // every llama type are priced as time at the player's buffed LOC/s.
   // See LLAMA_ECONOMY and farmPurchaseCostCents / llamaBuyPriceCents.
+  /**
+   * The barn's unlock gate: 10 Senior Developers on payroll (they are
+   * the ones who always want to quit and start a farm). Same condition
+   * shape and evaluation as every employee/project unlock
+   * (conditionMet). There is no saved latch: Seniors cannot be fired,
+   * so the condition can never un-meet within a company, and a sale
+   * zeroes the Seniors (and empties the farm), so the gate has to be
+   * earned again each company, like every other unlock. Tuning value.
+   */
+  unlockConditions: Object.freeze([
+    Object.freeze({
+      type: "SPECIFIC_EMPLOYEE_COUNT",
+      employeeType: "senior",
+      target: 10,
+    }),
+  ]),
   /** Barn stalls in the grid (3x3). Each stall holds at most one llama. */
   stallCount: 9,
   /** Columns in the stall grid (used for orthogonal adjacency). */
@@ -2931,6 +2947,21 @@ export function conditionMet(condition, state) {
   }
 }
 
+/**
+ * Whether the barn can be bought: every FARM_CONFIG unlock condition
+ * is met by a save-shaped state (flat employee counts). A missing
+ * count reads 0.
+ */
+export function farmUnlockConditionsMet(state) {
+  return FARM_CONFIG.unlockConditions.every((condition) =>
+    conditionMet(condition, {
+      totalLinesOfCode: state?.totalLinesOfCode ?? 0,
+      employees: state?.employees ?? {},
+      freelanceProjectsCompleted: state?.freelanceProjectsCompleted ?? {},
+    })
+  );
+}
+
 /** Total freelance projects shipped, from the flat completion counts. */
 export function totalProjectsShipped(freelanceProjectsCompleted) {
   return FREELANCE_PROJECT_KEYS.reduce(
@@ -4965,6 +4996,38 @@ export function buildFarmPurchasedEmail() {
       `breed. Sell the kids for cash: a llama goes for half of what ` +
       `it would cost you today, and that price grows with your ` +
       `team. Get a Mama Llama. Trust us on the Mama Llama.`,
+  };
+}
+
+/**
+ * The farm became VISIBLE but is not unlocked yet (the first Senior
+ * Developer was hired): a teaser and a goal. `requirementText` is the
+ * human-readable requirement, e.g. "Hire 10 Senior Developers".
+ */
+export function buildFarmVisibleEmail({ requirementText }) {
+  return {
+    sender: "Your Team",
+    subject: "A Senior wants to talk about alpacas",
+    body:
+      `Your new Senior Developer used the phrase "exit strategy" in ` +
+      `standup, then showed everyone pictures of a barn. This is how ` +
+      `it starts.\n\n` +
+      `To unlock the Llama Farm: ${requirementText}. Get enough of ` +
+      `them dreaming the same dream and they will build it for you. ` +
+      `You still pay for the barn. They are dreamers, not donors.`,
+  };
+}
+
+/** The farm's unlock requirement is met: the barn can be bought now. */
+export function buildFarmUnlockedEmail() {
+  return {
+    sender: "Your Team",
+    subject: "The Seniors have drawn up barn plans",
+    body:
+      `Ten Senior Developers, one shared dream. They have stopped ` +
+      `pretending to code and started sketching stalls on the ` +
+      `whiteboard. The Llama Farm is unlocked: open the Farm tab and ` +
+      `buy the barn before they put the deposit on the company card.`,
   };
 }
 

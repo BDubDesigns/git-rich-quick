@@ -34,6 +34,8 @@ import {
   buildEmployeeVisibleEmail,
   buildFarmNewTypeEmail,
   buildFarmPurchasedEmail,
+  buildFarmUnlockedEmail,
+  buildFarmVisibleEmail,
   buildFreelanceProjectUnlockedEmail,
   buildFreelanceProjectVisibleEmail,
   buildOpenSourceLevelEmail,
@@ -45,9 +47,11 @@ import {
 } from "../../../shared/game-balance.js";
 import {
   getUnlockProgress,
+  getUnlockProgressForFarm,
   getUnlockProgressForFreelanceProject,
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
+  isFarmUnlockMet,
 } from "../utils/unlockProgress.js";
 import { formatCondition } from "../utils/formatCondition.js";
 
@@ -217,6 +221,7 @@ const TEASER_TRIGGER_PREFIXES = [
   "employee-visible:",
   "opensource-visible:",
   "freelance-visible:",
+  "farm-visible:",
 ];
 
 export function isTeaserEmail(email) {
@@ -412,6 +417,32 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
       }),
       `star-reward:${starClaim.claimId}`
     );
+  }
+
+  // Llama farm unlock (10 Senior Developers): a teaser when the goal
+  // first becomes visible (the first Senior), and an unlock mail when
+  // the requirement is met. Both fire only on a transition, so a
+  // restored save never re-mails, and neither fires once the barn is
+  // already owned.
+  if (!(newState.farm?.owned ?? false)) {
+    const farmWasUnlocked = isFarmUnlockMet(prevState);
+    const farmIsUnlocked = isFarmUnlockMet(newState);
+    if (!farmWasUnlocked && farmIsUnlocked) {
+      send(buildFarmUnlockedEmail(), "farm-unlocked:barn");
+    } else if (
+      !farmIsUnlocked &&
+      !hasCrossedUnlockThreshold("farm", null, prevState) &&
+      hasCrossedUnlockThreshold("farm", null, newState)
+    ) {
+      send(
+        buildFarmVisibleEmail({
+          requirementText: describeUnlockRequirements(
+            getUnlockProgressForFarm(newState)
+          ),
+        }),
+        "farm-visible:barn"
+      );
+    }
   }
 
   // Llama farm (issue #79): buying the farm mails once, and each

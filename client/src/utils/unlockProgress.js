@@ -20,6 +20,7 @@
 import {
   BALANCE,
   EMPLOYEE_DISPLAY_NAMES,
+  FARM_CONFIG,
   FREELANCE_PROJECT_DISPLAY_NAMES,
   UNLOCK_VISIBILITY_THRESHOLD,
 } from "../../../shared/game-balance.js";
@@ -92,6 +93,21 @@ export function getUnlockProgressForFreelanceProject(projectKey, state) {
   }
 
   return progressForConditions(config.unlockConditions, state);
+}
+
+/**
+ * Progress toward unlocking the Llama Farm (10 Senior Developers).
+ * Same shape as getUnlockProgress; conditions come from FARM_CONFIG.
+ */
+export function getUnlockProgressForFarm(state) {
+  return progressForConditions(FARM_CONFIG.unlockConditions, state);
+}
+
+/** Whether every farm unlock condition is met right now. */
+export function isFarmUnlockMet(state) {
+  return getUnlockProgressForFarm(state).every(
+    (entry) => entry.current >= entry.target
+  );
 }
 
 /** Shared condition -> progress mapping for both unlock types. */
@@ -179,6 +195,12 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
   // Handle freelanceProject unlock type
   if (unlockType === "freelanceProject") {
     const progress = getUnlockProgressForFreelanceProject(unlockUnit, state);
+    return checkProgressAgainstThreshold(progress, UNLOCK_VISIBILITY_THRESHOLD);
+  }
+
+  // Handle the farm (a single unlockable; unlockUnit is ignored)
+  if (unlockType === "farm") {
+    const progress = getUnlockProgressForFarm(state);
     return checkProgressAgainstThreshold(progress, UNLOCK_VISIBILITY_THRESHOLD);
   }
 
