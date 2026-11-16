@@ -20,11 +20,13 @@ import {
   getLinkedPlayerId,
   unlinkSaveFromAccount,
   currentGuestPlayerId,
+  submitAccountForm,
 } from "../authClient.js";
 import { useGameContext } from "../context/useGameContext.js";
 import { PLAYER_ID_KEY } from "../save/api.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
+import { AccountForm } from "./AccountForm.jsx";
 import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 import { SellCompany } from "./SellCompany.jsx";
 import { ProgressBarSettings } from "./ProgressBarSettings.jsx";
@@ -38,7 +40,7 @@ import {
   setSoundMuted,
 } from "../utils/sound.js";
 
-const { useSession, signUp, signIn, signOut } = authClient;
+const { useSession, signOut } = authClient;
 
 function shortId(id) {
   if (!id) return "—";
@@ -128,10 +130,6 @@ export function Settings() {
   const { resetProgress, savePlayerId, getSaveDiagnostics } =
     useGameContext();
 
-  const [mode, setMode] = useState("signin"); // "signin" | "signup"
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null); // { kind: "ok" | "error", text }
   const [linkedPlayerId, setLinkedPlayerId] = useState(null);
@@ -240,29 +238,29 @@ export function Settings() {
     return () => window.removeEventListener("focus", update);
   }, []);
 
-  async function handleAuthSubmit(event) {
-    event.preventDefault();
+  // The form fields live in the shared AccountForm (issue #140, also
+  // on the splash); this handler keeps the Settings messages. Resolves
+  // to true on success, so the form clears the password.
+  async function handleAuthSubmit(fields) {
     setBusy(true);
     setMessage(null);
     try {
-      const result =
-        mode === "signup"
-          ? await signUp.email({ email, password, name: name || "Player" })
-          : await signIn.email({ email, password });
+      const result = await submitAccountForm(fields);
       if (result.error) {
         setMessage({ kind: "error", text: result.error.message });
-      } else {
-        setMessage({
-          kind: "ok",
-          text:
-            mode === "signup"
-              ? "Account created. Link your save below so it survives clearing browser data."
-              : "Signed in.",
-        });
-        setPassword("");
+        return false;
       }
+      setMessage({
+        kind: "ok",
+        text:
+          fields.mode === "signup"
+            ? "Account created. Link your save below so it survives clearing browser data."
+            : "Signed in.",
+      });
+      return true;
     } catch (err) {
       setMessage({ kind: "error", text: String(err?.message ?? err) });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -376,58 +374,7 @@ export function Settings() {
         {isPending ? (
           <p className="m-0 text-xs">Checking session…</p>
         ) : !user ? (
-          <form onSubmit={handleAuthSubmit} className="flex flex-col gap-2">
-            {mode === "signup" && (
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Name (optional)"
-                autoComplete="name"
-                className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
-              />
-            )}
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              required
-              autoComplete="email"
-              className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password (8+ characters)"
-              required
-              minLength={8}
-              autoComplete={
-                mode === "signup" ? "new-password" : "current-password"
-              }
-              className="rounded border border-[#2d2d2d] bg-[#252526] px-2 py-1 text-sm text-[#cccccc] placeholder:text-[#858585]"
-            />
-            <Button type="submit" disabled={busy}>
-              {busy
-                ? "Working…"
-                : mode === "signup"
-                  ? "Create account"
-                  : "Sign in"}
-            </Button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                setMode(mode === "signup" ? "signin" : "signup")
-              }
-              className="text-xs underline"
-            >
-              {mode === "signup"
-                ? "Already have an account? Sign in"
-                : "No account yet? Create one"}
-            </button>
-          </form>
+          <AccountForm busy={busy} onSubmit={handleAuthSubmit} />
         ) : (
           <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-[#cccccc]">

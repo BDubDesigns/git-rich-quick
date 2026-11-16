@@ -37,6 +37,18 @@ export const authClient = createAuthClient({
 
 export const { signUp, signIn, signOut, useSession } = authClient;
 
+/**
+ * Submit the account form (Settings and the splash, issue #140): sign
+ * up or sign in with email and password. One implementation, so both
+ * screens create and sign in to accounts the same way. Resolves to
+ * Better Auth's result ({ data, error }).
+ */
+export function submitAccountForm({ mode, email, password, name }) {
+  return mode === "signup"
+    ? signUp.email({ email, password, name: name || "Player" })
+    : signIn.email({ email, password });
+}
+
 async function accountRequest(path, { method = "GET", body } = {}) {
   const res = await fetch(`${SAVE_API_URL}${path}`, {
     method,

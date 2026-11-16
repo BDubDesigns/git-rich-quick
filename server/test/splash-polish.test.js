@@ -19,7 +19,8 @@ const css = read("index.css");
 
 test("the splash uses the shared Panel for the header and both content boxes", () => {
   assert.match(splash, /import \{ Panel \} from "\.\/Panel\.jsx";/);
-  assert.equal((splash.match(/<Panel\b/g) ?? []).length, 3);
+  // Header, pitch and PASS panels (the #140 account box is a Panel too).
+  assert.ok((splash.match(/<Panel\b/g) ?? []).length >= 3);
   // The title bar sits inside the header Panel.
   const header = splash.slice(splash.indexOf("<Panel"), splash.indexOf("</Panel>"));
   assert.match(header, /className="title-bar/);
