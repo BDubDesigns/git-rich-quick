@@ -1,5 +1,15 @@
+import { useState } from "react";
 import { Button } from "./Button.jsx";
 import { Panel } from "./Panel.jsx";
+import { AccountForm } from "./AccountForm.jsx";
+import {
+  currentGuestPlayerId,
+  getLinkedPlayerId,
+  linkSaveToAccount,
+  submitAccountForm,
+} from "../authClient.js";
+import { PLAYER_ID_KEY } from "../save/api.js";
+import { runSplashAccountFlow } from "../utils/splashAccountFlow.js";
 import duckLogo from "../img/duck_logo.png";
 
 /**
@@ -20,10 +30,54 @@ import duckLogo from "../img/duck_logo.png";
  * `npm start` button ends in a blinking terminal cursor (no blink under
  * prefers-reduced-motion).
  *
+ * Accounts (issue #140): below `npm start`, a returning player can sign
+ * in (their linked cloud save loads right away) and a new player can
+ * create an account (their fresh save is linked to it). Guest stays the
+ * primary action; the account options are optional and folded away
+ * until asked for. The flow lives in utils/splashAccountFlow.js.
+ *
  * @param {Object} props
  * @param {() => void} props.onStart - Dismiss the splash and start the game.
  */
 export function SplashScreen({ onStart }) {
+  // null (options folded) | "signin" | "signup"
+  const [accountMode, setAccountMode] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleAccountSubmit(fields) {
+    setBusy(true);
+    setError(null);
+    const result = await runSplashAccountFlow(fields, {
+      submitAccountForm,
+      getLinkedPlayerId,
+      linkSaveToAccount,
+      getGuestPlayerId: currentGuestPlayerId,
+      setStoredPlayerId: (playerId) => {
+        try {
+          localStorage.setItem(PLAYER_ID_KEY, playerId);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return false;
+    }
+    if (result.action === "load") {
+      // Dismiss for good, then reload so the save engine boots from
+      // the linked save (the same mechanism as Settings).
+      onStart();
+      window.location.reload();
+      return true;
+    }
+    onStart();
+    return true;
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-[var(--main-bg-color)]">
       <div className="min-h-full flex flex-col items-center px-4 py-6 sm:max-w-2xl sm:mx-auto w-full">
@@ -92,6 +146,38 @@ export function SplashScreen({ onStart }) {
             </span>
           </span>
         </Button>
+
+        {/* Accounts (issue #140): optional, below the guest action. */}
+        <Panel className="w-full font-mono text-xs p-3 mb-4 flex flex-col gap-2">
+          <div className="comment-text">
+            {"// Played before, or want your save backed up?"}
+          </div>
+          {accountMode === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => setAccountMode("signin")}>
+                Sign in
+              </Button>
+              <Button type="button" onClick={() => setAccountMode("signup")}>
+                Create account
+              </Button>
+            </div>
+          ) : (
+            <>
+              <p className="m-0">
+                {accountMode === "signin"
+                  ? "Sign in and your cloud save loads right away."
+                  : "Create an account and this new save is linked to it, so clearing browser data cannot lose it. No email verification."}
+              </p>
+              <AccountForm
+                initialMode={accountMode}
+                busy={busy}
+                onSubmit={handleAccountSubmit}
+                onModeChange={setAccountMode}
+              />
+            </>
+          )}
+          {error && <p className="m-0 text-[#f48771]">{error}</p>}
+        </Panel>
 
         {/* PASS test panel (mockup: /src/game-features.test.js). */}
         <Panel className="w-full font-mono text-xs overflow-hidden p-3">
