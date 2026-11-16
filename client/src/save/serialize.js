@@ -25,6 +25,7 @@ import {
   freelanceProjectUnlockConditionsMet,
   initialSaveState,
   openSourceUnlockConditionsMet,
+  zeroSubtracterallState,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
 
@@ -138,6 +139,15 @@ export function stateToSaveState(clientState) {
     // survive a reload; a missing value defaults to null.
     nextStarAtMs: clientState.nextStarAtMs ?? null,
     lastStarBuyAtMs: clientState.lastStarBuyAtMs ?? null,
+    // SUBTRACTERALL (Slice 3). Phase, remaining credited seconds,
+    // liability, tolerance, active tier, per-company dose supply,
+    // and recovery progress. Copied per field so the save never
+    // shares a reference with the live state. The Overtime reskin
+    // setting persists across sales.
+    subtracterall: {
+      ...(clientState.subtracterall ?? zeroSubtracterallState()),
+    },
+    overtimeReskin: clientState.overtimeReskin ?? false,
   };
 }
 
@@ -307,6 +317,16 @@ export function saveStateToGameFields(saveState) {
     // schedule on load when Constellation is unlocked.
     nextStarAtMs: saveState.nextStarAtMs ?? null,
     lastStarBuyAtMs: saveState.lastStarBuyAtMs ?? null,
+    // SUBTRACTERALL (Slice 3). A save from before it shipped has no
+    // subtracterall field — default it to the fresh Ready state here,
+    // the same way the server's normalizeSaveState does on save. Only
+    // MISSING keys are filled; a present phase, liability, or
+    // tolerance is never reset here, because selling must not cure
+    // withdrawal or reset tolerance, and neither may a load.
+    subtracterall: {
+      ...(saveState.subtracterall ?? zeroSubtracterallState()),
+    },
+    overtimeReskin: saveState.overtimeReskin ?? false,
   };
 }
 
@@ -432,6 +452,19 @@ export function bigActionFields(saveState) {
     favoriteOpenSourceProjects: JSON.stringify(
       saveState.favoriteOpenSourceProjects ?? []
     ),
+    // SUBTRACTERALL (Slice 3): taking a dose (phase ready -> burst,
+    // dosesUsed up) and toggling the Overtime reskin are deliberate
+    // player choices, so they save promptly. The phase is here too,
+    // so a phase flip (burst -> withdrawal, withdrawal -> ready)
+    // persists promptly. The per-tick drift — remaining seconds,
+    // liability, recovery progress — is deliberately NOT here: it
+    // moves every second during a phase, and saving on every tick
+    // would spam the 1s rate limit. It persists via the 60s
+    // heartbeat and the keepalive on tab hide/unload, the same as
+    // the LOC balance.
+    subtracterallPhase: saveState.subtracterall?.phase ?? "ready",
+    subtracterallDosesUsed: saveState.subtracterall?.dosesUsed ?? 0,
+    overtimeReskin: saveState.overtimeReskin ?? false,
   };
 }
 
@@ -509,6 +542,15 @@ export function isInitialSaveState(saveState) {
   if ((saveState.prestigeIntermission ?? null) !== null) return false;
   if ((saveState.favoriteOpenSourceProjects ?? []).length !== 0)
     return false;
+  // SUBTRACTERALL (Slice 3): a fresh save has never dosed — Ready
+  // phase, no liability, tolerance 0, three doses available, no
+  // recovery progress, and the reskin off.
+  if ((saveState.subtracterall?.phase ?? "ready") !== "ready") return false;
+  if ((saveState.subtracterall?.liability ?? 0) !== 0) return false;
+  if ((saveState.subtracterall?.tolerance ?? 0) !== 0) return false;
+  if ((saveState.subtracterall?.dosesUsed ?? 0) !== 0) return false;
+  if ((saveState.subtracterall?.recoverySeconds ?? 0) !== 0) return false;
+  if ((saveState.overtimeReskin ?? false) !== false) return false;
   return true;
 }
 
@@ -585,6 +627,21 @@ export function bigActionIncreased(prev, next) {
     (next.favoriteOpenSourceProjects ?? "") !==
     (prev.favoriteOpenSourceProjects ?? "")
   )
+    return true;
+  // SUBTRACTERALL (Slice 3): a dose taken (phase or doses used
+  // changed), a phase flipped, or the reskin toggled. The per-tick
+  // drift (remaining seconds, liability, recovery) is not a big
+  // action — see bigActionFields.
+  if (
+    (next.subtracterallPhase ?? "ready") !==
+    (prev.subtracterallPhase ?? "ready")
+  )
+    return true;
+  if (
+    (next.subtracterallDosesUsed ?? 0) !== (prev.subtracterallDosesUsed ?? 0)
+  )
+    return true;
+  if ((next.overtimeReskin ?? false) !== (prev.overtimeReskin ?? false))
     return true;
   return false;
 }

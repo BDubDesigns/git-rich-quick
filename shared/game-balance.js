@@ -1684,6 +1684,388 @@ export function formatEstimateDuration(seconds) {
     : `${hours}h ${minuteRemainder}m`;
 }
 
+/** ===== Prestige — SUBTRACTERALL (Slice 3) =====
+ *
+ * An optional burst that borrows productivity from later, per the v2
+ * prestige design section 5 as refined by Brandon's Nov 15, 2026
+ * decisions. Canonical spelling is SUBTRACTERALL with two Ls.
+ * The Overtime reskin is a SETTING (a text/framing layer, not a
+ * separate mechanic): when enabled, the same mechanics are framed as
+ * Overtime, and recovery is framed as a "wellness clinic" visit
+ * instead of rehab. Mechanics are identical either way.
+ *
+ * Model: phase timers advance in CREDITED simulation seconds (one
+ * GAME_TICK = one credited second), never wall-clock. There is no
+ * offline production in the game yet (Night Shift is unbuilt), so
+ * uncredited absence advances nothing: a player who doses and closes
+ * the game comes back to the same phase with the same remaining
+ * time and the same liability. That is deliberate (design section 6):
+ * a wall-clock timer would let a player dose during Overclock and
+ * log out during the crash. The quantity-based liability is the
+ * real cost, and it can only be repaid by actual production.
+ *
+ * State (persisted in the save):
+ *   phase: "ready" | "burst" | "withdrawal"
+ *   phaseRemainingSeconds: credited seconds left in the current
+ *     phase's minimum duration (burst duration, or min withdrawal)
+ *   liability: outstanding production liability (LOC, float)
+ *   tolerance: 0..2 (persists across sales)
+ *   activeTier: the tolerance tier at activation (0..2), which sets
+ *     the current phase's durations
+ *   dosesUsed: per company, 0..3 (RESETS on sale; the only
+ *     SUBTRACTERALL field the sale touches)
+ *   recoverySeconds: credited healthy seconds toward the next
+ *     tolerance drop (6h = 21,600 per tier; persists across sales)
+ *
+ * Liability (the core anti-exploit, implemented exactly):
+ *   Burst: healthy output B is credited 3B; 3B is added to liability
+ *     (1.5 x the 2B extra output).
+ *   Withdrawal: healthy output B is credited 0.25B; the withheld
+ *     0.75B reduces liability, down to zero.
+ *   Withdrawal ends only when BOTH the minimum duration has elapsed
+ *     AND liability is zero. If the minimum duration ends first, the
+ *     withdrawal continues at 0.25x until the debt clears, ending at
+ *     the exact debt-clear point. If the liability clears first, the
+ *     withdrawal continues at 0.25x until the minimum timer ends;
+ *     surplus withholding is never banked against a future dose.
+ *   Airdrops neither create nor repay liability. Clicks count only
+ *   when actually performed.
+ *
+ * Tolerance recovery: after withdrawal ends, 6 credited healthy
+ * hours (positive employee production, no active phase) reduce
+ * tolerance by one; a further 6 hours removes another level. Partial
+ * progress carries across sales. Taking another dose resets partial
+ * recovery progress to zero.
+ *
+ * Copy rules: no em dashes in any player-facing string. The design's
+ * copy is used verbatim: card description "Management has discovered
+ * a way to borrow tomorrow's productivity at tomorrow's interest
+ * rate.", dose action "Take Dose" (never "Optimize", "Upgrade", or
+ * "Free Boost"), withdrawal "The sprint has ended. The consequences
+ * have not.", sale warning "The company changes hands. The
+ * founder's obligations do not."
+ */
+
+/** SUBTRACTERALL constants (design section 5). */
+export const SUBTRACTERALL_CONFIG = Object.freeze({
+  /** Lifetime LOC that permanently unlocks SUBTRACTERALL. */
+  unlockLifetimeLoc: 100_000,
+  /** Doses per company. No cash purchase, random drop, or refill. */
+  maxDosesPerCompany: 3,
+  /** Credited healthy seconds to drop one tolerance tier (6 hours). */
+  recoverySecondsPerTolerance: 6 * 60 * 60,
+  /** Production multiplier during Burst. */
+  burstMultiplier: 3,
+  /** Production multiplier during Withdrawal. */
+  withdrawalMultiplier: 0.25,
+  /** Liability added per healthy LOC produced during Burst: 1.5 x
+   *  the extra output (2B) = 3B. */
+  liabilityPerHealthyBurst: 3,
+  /** Liability repaid per healthy LOC during Withdrawal: the 0.75
+   *  not credited (1 - 0.25). */
+  withheldPerHealthyWithdrawal: 0.75,
+  /** Per-tier durations (tolerance at activation, 0..2). The
+   *  minimum withdrawal curve is 60 x (tier + 1)^2 seconds, capped
+   *  at tier 3. */
+  tiers: Object.freeze([
+    Object.freeze({ burstSeconds: 60, minWithdrawalSeconds: 240 }),
+    Object.freeze({ burstSeconds: 40, minWithdrawalSeconds: 540 }),
+    Object.freeze({ burstSeconds: 25, minWithdrawalSeconds: 960 }),
+  ]),
+});
+
+/** Framing for the SUBTRACTERALL card and phase strip. The Overtime
+ * reskin (Brandon, Nov 15) is a text layer only: same mechanics, and
+ * recovery is framed as a "wellness clinic" visit instead of rehab. */
+export const SUBTRACTERALL_FRAMING = Object.freeze({
+  subtracterall: Object.freeze({
+    name: "SUBTRACTERALL",
+    doseAction: "Take Dose",
+    burstLabel: "Burst",
+    withdrawalLabel: "Withdrawal",
+    withdrawalDescription:
+      "The sprint has ended. The consequences have not.",
+    recoveryLabel: "Tolerance recovery",
+  }),
+  overtime: Object.freeze({
+    name: "Overtime",
+    doseAction: "Work Overtime",
+    burstLabel: "Overtime",
+    withdrawalLabel: "Wellness clinic",
+    withdrawalDescription:
+      "The overtime is over. Time to visit the wellness clinic.",
+    recoveryLabel: "Wellness clinic recovery",
+  }),
+});
+
+/** The framing for the current reskin setting (false = SUBTRACTERALL). */
+export function subtracterallFraming(overtimeReskin) {
+  return overtimeReskin
+    ? SUBTRACTERALL_FRAMING.overtime
+    : SUBTRACTERALL_FRAMING.subtracterall;
+}
+
+/** A fresh SUBTRACTERALL state (new save, or a save from before it shipped). */
+export function zeroSubtracterallState() {
+  return {
+    phase: "ready",
+    phaseRemainingSeconds: 0,
+    liability: 0,
+    tolerance: 0,
+    activeTier: 0,
+    dosesUsed: 0,
+    recoverySeconds: 0,
+  };
+}
+
+/** Whether SUBTRACTERALL is permanently unlocked at this lifetime LOC. */
+export function subtracterallUnlocked(lifetimeLoc) {
+  return (
+    Math.max(0, lifetimeLoc ?? 0) >=
+    SUBTRACTERALL_CONFIG.unlockLifetimeLoc
+  );
+}
+
+/**
+ * Whether a dose can be taken right now: the phase is Ready, supply
+ * remains, and there is at least one employee with positive healthy
+ * production (`healthyPassiveLocPerSec` is the healthy passive rate,
+ * permanent bonuses included, temporary star multipliers excluded).
+ * The unlock (lifetime LOC) is checked separately by the caller.
+ */
+export function subtracterallCanDose(sub, healthyPassiveLocPerSec) {
+  const s = sub ?? zeroSubtracterallState();
+  return (
+    s.phase === "ready" &&
+    Math.max(0, s.dosesUsed ?? 0) <
+      SUBTRACTERALL_CONFIG.maxDosesPerCompany &&
+    (healthyPassiveLocPerSec ?? 0) > 0
+  );
+}
+
+/**
+ * Take a dose: Ready -> Burst at the current tolerance tier, then
+ * tolerance rises by one (capped at 2) and partial recovery progress
+ * resets to zero. Returns null when no dose can be taken (phase is
+ * not Ready, or the company supply is exhausted); the caller checks
+ * the unlock and the healthy-production requirement first.
+ */
+export function subtracterallTakeDose(sub) {
+  const s = { ...(sub ?? zeroSubtracterallState()) };
+  if (s.phase !== "ready") return null;
+  if (
+    Math.max(0, s.dosesUsed ?? 0) >= SUBTRACTERALL_CONFIG.maxDosesPerCompany
+  ) {
+    return null;
+  }
+  const tier = Math.min(2, Math.max(0, Math.floor(s.tolerance ?? 0)));
+  return {
+    ...s,
+    phase: "burst",
+    phaseRemainingSeconds:
+      SUBTRACTERALL_CONFIG.tiers[tier].burstSeconds,
+    activeTier: tier,
+    tolerance: Math.min(2, tier + 1),
+    dosesUsed: Math.max(0, s.dosesUsed ?? 0) + 1,
+    recoverySeconds: 0,
+  };
+}
+
+/**
+ * Advance SUBTRACTERALL over `elapsedSeconds` of credited simulation
+ * time at `healthyPerSec` (the LOC/s the player would earn without
+ * SUBTRACTERALL, all other modifiers included: star buffs, Founder,
+ * Handbook, doubling). Returns `{ state, credited }`: the next
+ * SUBTRACTERALL state and the LOC credited over the interval (a
+ * float; the caller floors the final total, the same rule as the
+ * tick and the click).
+ *
+ * The interval is split at phase boundaries, so a phase ending
+ * mid-interval does not round a whole interval into the wrong phase:
+ * a burst ending partway credits the burst part at 3x and the rest
+ * at the next phase's rate, and a withdrawal whose minimum duration
+ * has already elapsed ends at the exact debt-clear point, crediting
+ * the remainder at 1x. Liability is exact in float; only the
+ * credited total is floored, by the caller.
+ *
+ * Recovery accrues only in the Ready phase with positive employee
+ * production (rate > 0): 6 credited healthy hours per tolerance
+ * tier, partial progress carried in recoverySeconds. A tick with no
+ * production still advances the phase clock (the tick IS credited
+ * simulation time) but repays no liability and accrues no recovery.
+ */
+export function advanceSubtracterall(sub, healthyPerSec, elapsedSeconds) {
+  const s = { ...(sub ?? zeroSubtracterallState()) };
+  const rate = Math.max(0, healthyPerSec ?? 0);
+  let remaining = Math.max(0, elapsedSeconds ?? 0);
+  let credited = 0;
+  // Each iteration consumes time (a phase segment) or ends a phase,
+  // so at most a handful of iterations happen per call. The cap is a
+  // safety net against a malformed state looping forever.
+  let guard = 0;
+  while (remaining > 0 && guard < 10) {
+    guard += 1;
+    if (s.phase === "ready") {
+      credited += rate * remaining;
+      if (rate > 0 && (s.tolerance ?? 0) > 0) {
+        let recovery = (s.recoverySeconds ?? 0) + remaining;
+        let tolerance = s.tolerance;
+        while (
+          recovery >=
+            SUBTRACTERALL_CONFIG.recoverySecondsPerTolerance &&
+          tolerance > 0
+        ) {
+          recovery -= SUBTRACTERALL_CONFIG.recoverySecondsPerTolerance;
+          tolerance -= 1;
+        }
+        s.recoverySeconds = tolerance > 0 ? recovery : 0;
+        s.tolerance = tolerance;
+      }
+      remaining = 0;
+    } else if (s.phase === "burst") {
+      const seg = Math.min(remaining, Math.max(0, s.phaseRemainingSeconds ?? 0));
+      const healthy = rate * seg;
+      credited += SUBTRACTERALL_CONFIG.burstMultiplier * healthy;
+      s.liability =
+        Math.max(0, s.liability ?? 0) +
+        SUBTRACTERALL_CONFIG.liabilityPerHealthyBurst * healthy;
+      s.phaseRemainingSeconds = Math.max(
+        0,
+        (s.phaseRemainingSeconds ?? 0) - seg
+      );
+      remaining -= seg;
+      if (s.phaseRemainingSeconds <= 0) {
+        const tier = Math.min(2, Math.max(0, Math.floor(s.activeTier ?? 0)));
+        s.phase = "withdrawal";
+        s.phaseRemainingSeconds =
+          SUBTRACTERALL_CONFIG.tiers[tier].minWithdrawalSeconds;
+      }
+    } else {
+      // Withdrawal.
+      if ((s.phaseRemainingSeconds ?? 0) > 0) {
+        const seg = Math.min(remaining, s.phaseRemainingSeconds);
+        const healthy = rate * seg;
+        credited += SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthy;
+        s.liability = Math.max(
+          0,
+          (s.liability ?? 0) -
+            SUBTRACTERALL_CONFIG.withheldPerHealthyWithdrawal * healthy
+        );
+        s.phaseRemainingSeconds = Math.max(0, s.phaseRemainingSeconds - seg);
+        remaining -= seg;
+        if (s.phaseRemainingSeconds <= 0 && s.liability <= 0) {
+          s.phase = "ready";
+          s.phaseRemainingSeconds = 0;
+        }
+      } else {
+        // Minimum duration already elapsed: the withdrawal ends at
+        // the exact debt-clear point. Healthy production needed to
+        // clear the debt is liability / 0.75 (the withheld fraction).
+        const liability = Math.max(0, s.liability ?? 0);
+        if (liability <= 0) {
+          s.phase = "ready";
+          s.phaseRemainingSeconds = 0;
+          credited += rate * remaining;
+          remaining = 0;
+          continue;
+        }
+        const healthyToClear =
+          liability / SUBTRACTERALL_CONFIG.withheldPerHealthyWithdrawal;
+        const healthyAvailable = rate * remaining;
+        if (healthyAvailable >= healthyToClear) {
+          credited +=
+            SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthyToClear +
+            (healthyAvailable - healthyToClear);
+          s.liability = 0;
+          s.phase = "ready";
+          s.phaseRemainingSeconds = 0;
+          remaining = 0;
+        } else {
+          credited +=
+            SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthyAvailable;
+          s.liability = Math.max(
+            0,
+            liability -
+              SUBTRACTERALL_CONFIG.withheldPerHealthyWithdrawal *
+                healthyAvailable
+          );
+          remaining = 0;
+        }
+      }
+    }
+  }
+  return { state: s, credited };
+}
+
+/**
+ * Apply one click's healthy LOC through the current phase. `healthy`
+ * is the LOC the click would have produced without SUBTRACTERALL
+ * (an integer: the floored click total, all other modifiers
+ * included). Returns `{ state, credited }` with an integer credit:
+ * burst credits 3x and adds 3x to liability; withdrawal credits
+ * floor(0.25x) and the withheld remainder (healthy minus credited)
+ * repays liability exactly, so credited + withheld always equals
+ * the healthy click; ready credits the healthy click unchanged.
+ * A click never advances time, so it never ends a phase on the
+ * clock — but when the minimum duration has already elapsed and
+ * the click clears the last of the liability, the withdrawal ends
+ * right there (the exact debt-clear point).
+ */
+export function subtracterallApplyClick(sub, healthy) {
+  const s = { ...(sub ?? zeroSubtracterallState()) };
+  const healthyLoc = Math.max(0, healthy ?? 0);
+  if (s.phase === "burst") {
+    return {
+      state: {
+        ...s,
+        liability:
+          Math.max(0, s.liability ?? 0) +
+          SUBTRACTERALL_CONFIG.liabilityPerHealthyBurst * healthyLoc,
+      },
+      credited: SUBTRACTERALL_CONFIG.burstMultiplier * healthyLoc,
+    };
+  }
+  if (s.phase === "withdrawal") {
+    const credited = Math.floor(
+      SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthyLoc
+    );
+    const withheld = healthyLoc - credited;
+    const liability = Math.max(0, (s.liability ?? 0) - withheld);
+    const next = { ...s, liability };
+    if ((s.phaseRemainingSeconds ?? 0) <= 0 && liability <= 0) {
+      next.phase = "ready";
+      next.phaseRemainingSeconds = 0;
+    }
+    return { state: next, credited };
+  }
+  return { state: s, credited: healthyLoc };
+}
+
+/**
+ * Estimated seconds until a withdrawal ends at the current employee
+ * production rate, or null when there is no employee production
+ * ("Completion depends on future production" in the UI, never an
+ * infinite or false countdown) or the phase is not withdrawal.
+ * The estimate is labeled "at current employee production,
+ * excluding future clicks and star changes" by the caller.
+ */
+export function subtracterallWithdrawalEstimateSeconds(sub, healthyPerSec) {
+  const s = sub ?? zeroSubtracterallState();
+  if (s.phase !== "withdrawal") return null;
+  const rate = Math.max(0, healthyPerSec ?? 0);
+  if (rate <= 0) return null;
+  const remaining = Math.max(0, s.phaseRemainingSeconds ?? 0);
+  const liability = Math.max(0, s.liability ?? 0);
+  const repayDuringMin =
+    SUBTRACTERALL_CONFIG.withheldPerHealthyWithdrawal * rate * remaining;
+  if (liability <= repayDuringMin) return remaining;
+  const leftover = liability - repayDuringMin;
+  return (
+    remaining +
+    leftover / (SUBTRACTERALL_CONFIG.withheldPerHealthyWithdrawal * rate)
+  );
+}
+
 /**
  * Build the post-sale state for a prestige sale (Sell the Company).
  * Pure: the caller validates the sale first (see
@@ -1695,10 +2077,10 @@ export function formatEstimateDuration(seconds) {
  * Structure (Slice 3-proof): start from the pre-sale state and
  * overwrite ONLY the explicit company-local allowlist below. Any
  * field NOT on the list survives the sale by default — that is how
- * future persistent fields (SUBTRACTERALL phase, liability,
- * tolerance, recovery progress) persist without a reset change.
- * Slice 3 must add the SUBTRACTERALL supply counter to the reset
- * list below: it is company-local and resets to three doses on sale.
+ * the SUBTRACTERALL phase, liability, tolerance, and recovery
+ * progress persist without a reset change (Slice 3: only the
+ * SUBTRACTERALL supply counter is reset, in the list below — it is
+ * company-local and resets to three doses on sale).
  *
  * RESETS (company-local): cash and spendable LOC; all hired
  * employees including managers; run upgrades, project progression
@@ -1710,7 +2092,10 @@ export function formatEstimateDuration(seconds) {
  * new company to re-earn them); run-local project queues; golden-star
  * buffs and uncollected stars; company-specific timers; the llama
  * farm (ownership, stalls, llamas, discovered types — Brandon,
- * Nov 15: the farm RESETS, it does not survive as a collection).
+ * Nov 15: the farm RESETS, it does not survive as a collection);
+ * the SUBTRACTERALL dose supply counter (Slice 3: the new company
+ * gets three fresh doses — the phase, liability, tolerance, and
+ * recovery progress are NOT on this list and survive the sale).
  *
  * PERSISTS: Lifetime LOC and earned/unspent Equity; achievements and
  * cosmetic unlocks (without regranting rewards); the inbox (its
@@ -1793,6 +2178,17 @@ export function applyPrestigeSale(preSaleState, saleId) {
     unlockedFreelanceProjects: {},
     activeStarEffects: [],
     farm: emptyFarmState(),
+    // SUBTRACTERALL (Slice 3): the phase, liability, tolerance,
+    // recovery progress, and active tier SURVIVE the sale — selling
+    // does not cure withdrawal or reset tolerance, and the phase
+    // continues into the new company with its exact remaining
+    // duration. Only the company supply counter resets: the new
+    // company gets three fresh doses, but taking one stays disabled
+    // until the surviving phase ends.
+    subtracterall: {
+      ...(preSaleState.subtracterall ?? zeroSubtracterallState()),
+      dosesUsed: 0,
+    },
     favoriteOpenSourceProjects: favorites,
     lifetimeEquityEarned: earnedBefore + gainedEquity,
     saleCount: Math.max(0, preSaleState.saleCount ?? 0) + 1,
@@ -2412,6 +2808,12 @@ export function initialSaveState() {
     permanentStoreRanks: zeroStoreRanks(),
     prestigeIntermission: null,
     favoriteOpenSourceProjects: [],
+    // SUBTRACTERALL (Slice 3): phase, liability, tolerance, recovery,
+    // and per-company dose supply. Overtime reskin setting: a
+    // text/framing layer over SUBTRACTERALL, never a separate
+    // mechanic. It persists across sales.
+    subtracterall: zeroSubtracterallState(),
+    overtimeReskin: false,
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
     // (10-60s); expired entries are dropped by the client tick.
@@ -2838,6 +3240,31 @@ export function normalizeSaveState(state) {
       next.favoriteOpenSourceProjects = kept;
     }
   }
+  // SUBTRACTERALL (Slice 3): a save from before it shipped has no
+  // subtracterall field at all, and no overtimeReskin setting.
+  // Backfill the state to a fresh Ready state (no phase, no
+  // liability, tolerance 0, three doses available) and the reskin to
+  // off, so the save keeps validating. Only MISSING keys are filled:
+  // a present-but-wrong value is left alone so the shape check
+  // rejects it — in particular, a present phase, liability, or
+  // tolerance is never reset here, because selling must not cure
+  // withdrawal or reset tolerance, and neither may a load.
+  if (
+    next.subtracterall === undefined ||
+    next.subtracterall === null ||
+    typeof next.subtracterall !== "object" ||
+    Array.isArray(next.subtracterall)
+  ) {
+    next.subtracterall = zeroSubtracterallState();
+  } else {
+    const fresh = zeroSubtracterallState();
+    const sub = { ...next.subtracterall };
+    for (const key of Object.keys(fresh)) {
+      if (sub[key] === undefined) sub[key] = fresh[key];
+    }
+    next.subtracterall = sub;
+  }
+  if (next.overtimeReskin === undefined) next.overtimeReskin = false;
   return next;
 }
 

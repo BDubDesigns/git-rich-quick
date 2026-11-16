@@ -180,6 +180,8 @@ function checkStateShape(state) {
       "permanentStoreRanks",
       "prestigeIntermission",
       "favoriteOpenSourceProjects",
+      "subtracterall",
+      "overtimeReskin",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -336,6 +338,61 @@ function checkStateShape(state) {
     state.favoriteOpenSourceProjects.length
   ) {
     return "favoriteOpenSourceProjects must not contain duplicates";
+  }
+  // SUBTRACTERALL (Slice 3): phase, remaining credited seconds,
+  // liability, tolerance, active tier, per-company dose supply, and
+  // recovery progress. The Overtime reskin is a boolean setting. The
+  // server bounds the shape only — it never polices how the LOC was
+  // earned (the burst is honest production, not cheating), and it
+  // never resets a phase, liability, or tolerance here: a sale may
+  // not cure withdrawal, and neither may a load.
+  const sub = state.subtracterall;
+  if (
+    !sub ||
+    typeof sub !== "object" ||
+    Array.isArray(sub) ||
+    !hasExactKeys(sub, [
+      "phase",
+      "phaseRemainingSeconds",
+      "liability",
+      "tolerance",
+      "activeTier",
+      "dosesUsed",
+      "recoverySeconds",
+    ])
+  ) {
+    return "subtracterall has unknown or missing keys";
+  }
+  if (!["ready", "burst", "withdrawal"].includes(sub.phase)) {
+    return "subtracterall phase must be ready, burst, or withdrawal";
+  }
+  if (
+    !Number.isInteger(sub.phaseRemainingSeconds) ||
+    sub.phaseRemainingSeconds < 0
+  ) {
+    return "subtracterall phaseRemainingSeconds must be a non-negative integer";
+  }
+  if (!isNonNegNumber(sub.liability)) {
+    return "subtracterall liability must be a non-negative number";
+  }
+  if (!Number.isInteger(sub.tolerance) || sub.tolerance < 0 || sub.tolerance > 2) {
+    return "subtracterall tolerance must be an integer from 0 to 2";
+  }
+  if (
+    !Number.isInteger(sub.activeTier) ||
+    sub.activeTier < 0 ||
+    sub.activeTier > 2
+  ) {
+    return "subtracterall activeTier must be an integer from 0 to 2";
+  }
+  if (!Number.isInteger(sub.dosesUsed) || sub.dosesUsed < 0 || sub.dosesUsed > 3) {
+    return "subtracterall dosesUsed must be an integer from 0 to 3";
+  }
+  if (!isNonNegNumber(sub.recoverySeconds)) {
+    return "subtracterall recoverySeconds must be a non-negative number";
+  }
+  if (typeof state.overtimeReskin !== "boolean") {
+    return "overtimeReskin must be a boolean";
   }
   // In-game inbox (issue #31). The client caps the inbox at
   // EMAIL_CONFIG.maxInboxEmails and deletes the oldest past it, so a

@@ -37,6 +37,7 @@ import {
   calculateLOCPerClick,
   calculateCPS,
   calculateLOCPerSecond,
+  getBaseLocPerSecond,
   isEmployeeUnlocked,
   isOpenSourceProjectUnlocked,
   isFreelanceProjectUnlocked,
@@ -77,6 +78,14 @@ const initialState = {
   permanentStoreRanks: shared.zeroStoreRanks(),
   prestigeIntermission: null,
   favoriteOpenSourceProjects: [],
+  // SUBTRACTERALL (Slice 3). Phase, remaining credited seconds,
+  // liability, tolerance, active tier, per-company dose supply, and
+  // recovery progress. Saved with the game state; a save from before
+  // it shipped backfills to a fresh Ready state on load. The
+  // Overtime reskin is a setting (a text/framing layer, never a
+  // separate mechanic) that persists across sales.
+  subtracterall: shared.zeroSubtracterallState(),
+  overtimeReskin: false,
   activeTab: "shop", // can be "shop", "projects", or "openSource"
   // Desktop pane configuration (hardcoded now, will be dynamic later)
   selectedPanes: {
@@ -241,7 +250,19 @@ function gameReducer(state, action) {
     }
     // Player clicks the "Write Code" button
     case "WRITE_CODE": {
-      const locPerClick = calculateLOCPerClick(state);
+      // SUBTRACTERALL (Slice 3): the click's healthy LOC (the floored
+      // click total, all other modifiers included) is run through
+      // the current phase. Burst credits 3x and adds 3x to liability;
+      // withdrawal credits floor(0.25x) and repays liability with
+      // the withheld remainder; ready credits the healthy click.
+      // The phase state is part of the new state, so the liability
+      // and any phase flip it causes persist with the click.
+      const healthyClick = calculateLOCPerClick(state);
+      const clickResult = shared.subtracterallApplyClick(
+        state.subtracterall ?? shared.zeroSubtracterallState(),
+        healthyClick
+      );
+      const locPerClick = clickResult.credited;
       // Update click history for CPS calculation
       const newClickHistory = [...state.clickHistory, Date.now()];
       // Clean up old clicks (older than 10 seconds to save memory)
@@ -255,6 +276,7 @@ function gameReducer(state, action) {
         ...state,
         linesOfCode: state.linesOfCode + locPerClick,
         totalLinesOfCode: state.totalLinesOfCode + locPerClick,
+        subtracterall: clickResult.state,
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
       };
@@ -631,7 +653,28 @@ function gameReducer(state, action) {
 
     // Game tick: called every second to generate LOC from employees
     case "GAME_TICK": {
-      const totalPassiveLOC = calculateLOCPerSecond(state);
+      // SUBTRACTERALL (Slice 3): the tick's healthy passive LOC
+      // (the floored passive rate, star buffs included) is run
+      // through the current phase over one credited second. Burst
+      // credits 3x and adds 3x to liability; withdrawal credits
+      // 0.25x and repays liability with the withheld remainder; ready
+      // credits the healthy rate and accrues tolerance recovery when
+      // there is positive employee production. The credited total is
+      // floored to a whole LOC (a tick must never commit a fractional
+      // amount) with the +1e-9 epsilon guard against float error —
+      // the same function gameLogic.calculateTickCredit uses for the
+      // floating-text amount, so the display and the balance can
+      // never disagree. The phase timers advance in credited
+      // seconds, never wall-clock: a player who closes the game
+      // mid-phase comes back to the same phase with the same
+      // remaining time and the same liability.
+      const healthyPassiveLOC = calculateLOCPerSecond(state);
+      const subResult = shared.advanceSubtracterall(
+        state.subtracterall ?? shared.zeroSubtracterallState(),
+        healthyPassiveLOC,
+        1
+      );
+      const totalPassiveLOC = Math.floor(subResult.credited + 1e-9);
       const cleanedHistory = state.clickHistory.filter(
         (ts) => ts > Date.now() - 10000
       );
@@ -731,6 +774,10 @@ function gameReducer(state, action) {
         farmBreedTicks: nextBreedTicks,
         farmBreedDue,
         releaseManagerShipTicks: nextShipTicks,
+        // SUBTRACTERALL (Slice 3): the advanced phase state (new
+        // liability, remaining time, any phase flip, tolerance
+        // recovery progress).
+        subtracterall: subResult.state,
       };
 
       // Check for unlocks (same centralized helper as WRITE_CODE and BUY_EMPLOYEE)
@@ -857,6 +904,43 @@ function gameReducer(state, action) {
         ...state,
         nextStarAtMs: nextAt ?? null,
       };
+    }
+
+    // Take a SUBTRACTERALL dose (Slice 3). No payload. The dose is
+    // taken only when every requirement holds: permanently unlocked
+    // (100,000 lifetime LOC), the phase is Ready, the company supply
+    // remains, and there is at least one employee with positive
+    // healthy production (the healthy passive rate, permanent
+    // bonuses included, temporary star multipliers excluded). A
+    // failed dose returns the state unchanged — the card disables
+    // the button when it cannot be taken, and this is the second
+    // line of defence. Taking a dose is a big action (the phase
+    // flips ready -> burst and dosesUsed rises), so it saves
+    // promptly. Tolerance rises by one on activation (capped at 2)
+    // and partial recovery progress resets to zero.
+    case "TAKE_SUBTRACTERALL_DOSE": {
+      const sub = state.subtracterall ?? shared.zeroSubtracterallState();
+      if (!shared.subtracterallUnlocked(state.totalLinesOfCode ?? 0)) {
+        return state;
+      }
+      if (!shared.subtracterallCanDose(sub, getBaseLocPerSecond(state))) {
+        return state;
+      }
+      const next = shared.subtracterallTakeDose(sub);
+      if (!next) return state;
+      return { ...state, subtracterall: next };
+    }
+
+    // Toggle the Overtime reskin setting (Slice 3). Payload:
+    // { enabled } — a boolean. The reskin is a text/framing layer
+    // only: the same mechanics are framed as Overtime instead of
+    // SUBTRACTERALL, and recovery is framed as a "wellness clinic"
+    // visit instead of rehab. Toggling it is a big action, so it
+    // saves promptly, and it persists across sales.
+    case "SET_OVERTIME_RESKIN": {
+      const { enabled } = action.payload ?? {};
+      if (typeof enabled !== "boolean") return state;
+      return { ...state, overtimeReskin: enabled };
     }
 
     // Apply a golden-star claim (issue #33). The payload is the claim
