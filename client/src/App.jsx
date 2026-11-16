@@ -11,6 +11,7 @@ import { Shop } from "./components/Shop";
 import { Projects } from "./components/Projects";
 import { OpenSource } from "./components/OpenSource";
 import { Farm } from "./components/Farm";
+import { Achievements } from "./components/Achievements";
 import { Settings } from "./components/Settings";
 import { Email } from "./components/Email";
 import { GameLayout } from "./components/GameLayout";
@@ -138,6 +139,7 @@ function App() {
             {(state.activeTab === "shop" ||
               state.activeTab === "projects") && <OpenSource />}
             {state.activeTab === "farm" && <Farm />}
+            {state.activeTab === "achievements" && <Achievements />}
             {state.activeTab === "settings" && <Settings />}
             {state.activeTab === "email" && <Email />}
           </ScrollAffordanceFrame>
@@ -157,6 +159,7 @@ function App() {
           {state.activeTab === "projects" && <Projects />}
           {state.activeTab === "openSource" && <OpenSource />}
           {state.activeTab === "farm" && <Farm />}
+          {state.activeTab === "achievements" && <Achievements />}
           {state.activeTab === "settings" && <Settings />}
           {state.activeTab === "email" && <Email />}
         </div>

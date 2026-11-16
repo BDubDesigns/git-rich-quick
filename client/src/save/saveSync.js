@@ -54,6 +54,7 @@ import {
   bigActionIncreased,
   diffCounts,
   isInitialSaveState,
+  savePayloadError,
 } from "./serialize.js";
 import {
   EMPLOYEE_TYPES,
@@ -1090,6 +1091,18 @@ export class SaveSync {
 
       const current = this.getState();
       const saveState = stateToSaveState(current);
+      // Validate the payload before writing (issue #132): a NaN or a
+      // malformed achievements record would 400 on the server anyway,
+      // so catch it here, keep the actions, and say why in the
+      // diagnostics instead of sending a write the server must refuse.
+      const payloadError = savePayloadError(saveState);
+      if (payloadError) {
+        console.error(`[save] not sending an invalid payload: ${payloadError}`);
+        note("invalid-payload", null, payloadError);
+        this.setStatus("error");
+        outcome = "invalid-payload";
+        return;
+      }
       const sentClicks = this.clicks;
       const actions = {
         clicks: sentClicks,

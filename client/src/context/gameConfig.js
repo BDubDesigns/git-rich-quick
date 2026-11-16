@@ -18,7 +18,7 @@ import { FaClipboardList, FaKeyboard, FaShip, FaRocket } from "react-icons/fa";
 
 // import icons for navigation tabs
 import { FaPeopleGroup } from "react-icons/fa6";
-import { FaGithub } from "react-icons/fa";
+import { FaGithub, FaTrophy } from "react-icons/fa";
 import { IoSettings } from "react-icons/io5";
 import { MdRocketLaunch } from "react-icons/md";
 import { GiBarn } from "react-icons/gi";
@@ -99,6 +99,7 @@ export const NAV_TABS = Object.freeze([
   { id: "projects", label: "Projects", Icon: MdRocketLaunch },
   { id: "openSource", label: "Open Source", Icon: FaGithub },
   { id: "farm", label: "Farm", Icon: GiBarn },
+  { id: "achievements", label: "Trophies", Icon: FaTrophy },
   { id: "settings", label: "Settings", Icon: IoSettings },
 ]);
 
@@ -126,6 +127,12 @@ export const SECTIONS_CONFIG = Object.freeze({
     displayName: "Llama Farm",
     description:
       "Your staff have been dreaming of quitting to start an alpaca farm. You let them build it, but you never accepted their notice, so they're still employees. The llamas are unionizing. The barn has mood lighting. This is fine.",
+  },
+  achievements: {
+    id: "achievements",
+    displayName: "Achievements",
+    description:
+      "Participation trophies, but you actually had to participate. Every tier is a permanent boost to all LOC, typed or passive. Management will frame them and then take credit for them.",
   },
   settings: {
     id: "settings",

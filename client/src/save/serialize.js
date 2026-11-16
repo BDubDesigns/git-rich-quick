@@ -25,6 +25,9 @@ import {
   freelanceProjectUnlockConditionsMet,
   initialSaveState,
   openSourceUnlockConditionsMet,
+  achievementTiersEarned,
+  achievementsStateError,
+  sanitizeAchievementsState,
   zeroSubtracterallState,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
@@ -64,7 +67,7 @@ function inflateLevels(flat) {
   }, {});
 }
 
-/** Client reducer state -> the flat 14-field save shape the server stores. */
+/** Client reducer state -> the flat save shape the server stores. */
 export function stateToSaveState(clientState) {
   return {
     linesOfCode: clientState.linesOfCode,
@@ -148,10 +151,34 @@ export function stateToSaveState(clientState) {
       ...(clientState.subtracterall ?? zeroSubtracterallState()),
     },
     overtimeReskin: clientState.overtimeReskin ?? false,
+    // Achievements (issue #132): sanitized on the way out, so a NaN
+    // or missing counter is written as 0, never as null (JSON turns
+    // NaN into null and the server's shape check would reject it).
+    achievements: sanitizeAchievementsState(clientState.achievements),
   };
 }
 
-/** Server flat save shape -> the 19 game fields in client reducer shape. */
+/**
+ * Validate a save payload before it is written (issue #132): the
+ * numeric balances must be finite and non-negative (a NaN would be
+ * serialized as null and poison the save), and the achievements record
+ * must pass the same shared shape rule the server applies. Returns an
+ * error string, or null when the payload is safe to send.
+ */
+export function savePayloadError(saveState) {
+  if (!saveState || typeof saveState !== "object") {
+    return "save state must be an object";
+  }
+  for (const field of ["linesOfCode", "totalLinesOfCode", "money"]) {
+    const value = saveState[field];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      return `${field} must be a finite non-negative number`;
+    }
+  }
+  return achievementsStateError(saveState.achievements);
+}
+
+/** Server flat save shape -> the saved game fields in client reducer shape. */
 export function saveStateToGameFields(saveState) {
   return {
     linesOfCode: saveState.linesOfCode,
@@ -327,6 +354,9 @@ export function saveStateToGameFields(saveState) {
       ...(saveState.subtracterall ?? zeroSubtracterallState()),
     },
     overtimeReskin: saveState.overtimeReskin ?? false,
+    // Achievements (issue #132): a save without a record restores a
+    // fresh one (every tier locked, every counter 0).
+    achievements: sanitizeAchievementsState(saveState.achievements),
   };
 }
 
@@ -465,6 +495,11 @@ export function bigActionFields(saveState) {
     subtracterallPhase: saveState.subtracterall?.phase ?? "ready",
     subtracterallDosesUsed: saveState.subtracterall?.dosesUsed ?? 0,
     overtimeReskin: saveState.overtimeReskin ?? false,
+    // Achievements (issue #132): a newly earned tier is a big action,
+    // so a permanent buff is never lost to a tab close. The per-action
+    // counters (clicks, hires, peak LOC/s) ride along with whatever
+    // save comes next.
+    achievementTiers: achievementTiersEarned(saveState.achievements),
   };
 }
 
@@ -551,6 +586,19 @@ export function isInitialSaveState(saveState) {
   if ((saveState.subtracterall?.dosesUsed ?? 0) !== 0) return false;
   if ((saveState.subtracterall?.recoverySeconds ?? 0) !== 0) return false;
   if ((saveState.overtimeReskin ?? false) !== false) return false;
+  // Achievements (issue #132): any earned tier or counter is progress.
+  const achievements = sanitizeAchievementsState(saveState.achievements);
+  if (achievementTiersEarned(achievements) !== 0) return false;
+  if (achievements.clicks !== 0 || achievements.peakLocPerSecond !== 0) {
+    return false;
+  }
+  for (const map of [
+    achievements.hires,
+    achievements.llamasBought,
+    achievements.llamasSold,
+  ]) {
+    if (Object.values(map).some((count) => count !== 0)) return false;
+  }
   return true;
 }
 
@@ -643,5 +691,6 @@ export function bigActionIncreased(prev, next) {
     return true;
   if ((next.overtimeReskin ?? false) !== (prev.overtimeReskin ?? false))
     return true;
+  if ((next.achievementTiers ?? 0) > (prev.achievementTiers ?? 0)) return true;
   return false;
 }

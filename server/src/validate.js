@@ -90,6 +90,8 @@ import {
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
   PRESTIGE_STORE_IDS,
+  achievementsDecreased,
+  achievementsStateError,
   availableEquity,
   canEquipCosmetic,
   claimableEquity,
@@ -182,6 +184,7 @@ function checkStateShape(state) {
       "favoriteOpenSourceProjects",
       "subtracterall",
       "overtimeReskin",
+      "achievements",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -394,6 +397,12 @@ function checkStateShape(state) {
   if (typeof state.overtimeReskin !== "boolean") {
     return "overtimeReskin must be a boolean";
   }
+  // Achievements (issue #132): tier state and the lifetime counters
+  // the achievements read. The rule is shared with the client's
+  // pre-write payload check (shared.achievementsStateError), so the
+  // two can never disagree about a well-formed record.
+  const achievementsError = achievementsStateError(state.achievements);
+  if (achievementsError) return achievementsError;
   // In-game inbox (issue #31). The client caps the inbox at
   // EMAIL_CONFIG.maxInboxEmails and deletes the oldest past it, so a
   // save with more is malformed/tampered and fails the shape check
@@ -925,6 +934,17 @@ export function validateSave(prev, body, nowMs, options = {}) {
         `farm stall ${i} llama changed or disappeared: ${prevLlama} -> ${newLlama}`
       );
     }
+  }
+
+  // Achievements (issue #132): an earned tier is never revoked, and
+  // the lifetime counters (hires, clicks, peak LOC/s, llamas bought and
+  // sold) only grow. A sale carries them over untouched.
+  const achievementDrop = achievementsDecreased(
+    prevState.achievements,
+    newState.achievements
+  );
+  if (achievementDrop) {
+    return fail("MONOTONIC", `achievements ${achievementDrop} decreased`);
   }
 
   // Cosmetics (issue #11): only the equip check survives — an equipped

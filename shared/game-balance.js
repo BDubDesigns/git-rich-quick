@@ -1652,15 +1652,11 @@ export function bestFreelancePayoutPerLocCents(
  * ranks).
  */
 export function prestigeSaleQuote(preSaleState) {
-  const founder = founderMultiplier(preSaleState.lifetimeEquityEarned ?? 0);
   const ranks = preSaleState.permanentStoreRanks ?? {};
   return {
-    healthyPassiveLocPerSec: locPerSecond(
-      preSaleState.employees ?? {},
-      preSaleState.openSourceProjects ?? {},
-      founder,
-      ranks
-    ),
+    // The buffed healthy rate (Founder and achievement buffs in,
+    // issue #132): the same rate the client's production runs at.
+    healthyPassiveLocPerSec: buffedLocPerSecond(preSaleState),
     bestPayoutPerLocCents: bestFreelancePayoutPerLocCents(
       preSaleState.unlockedFreelanceProjects ?? {},
       ranks
@@ -2416,6 +2412,8 @@ export function passiveBonus(openSourceLevels) {
  * `founderMultiplierValue` is the prestige Founder multiplier
  * (1 + 0.10P, from Lifetime Equity earned): it applies ONCE to click
  * production, inside the same final floor as everything else.
+ * Callers pass buffedLocMultiplier(state) (issue #132), which also
+ * carries the achievement LOC buff.
  * `storeRanks` is the permanent store ranks (Slice 2): the Keyboard
  * adds to the base click (1 base becomes 4 at max rank, before
  * multipliers), and the Engineering Handbook multiplies all
@@ -2588,7 +2586,11 @@ export function employeeBuffTypeRate(
  *
  * `founderMultiplierValue` is the prestige Founder multiplier
  * (1 + 0.10P, from Lifetime Equity earned): it applies ONCE to
- * employee production here, like the click total in locPerClick. It
+ * employee production here, like the click total in locPerClick.
+ * Callers pass buffedLocMultiplier(state) here (issue #132): the
+ * Founder multiplier times the achievement LOC buff, one permanent
+ * multiplier, so the achievement buff applies everywhere the Founder
+ * multiplier does. It
  * does NOT multiply cash payouts, fixed LOC grants, or rewards
  * already calculated from boosted production. `storeRanks` is the
  * permanent store ranks (Slice 2): the Engineering Handbook
@@ -2810,6 +2812,903 @@ export function canEquipCosmetic(slot, cosmeticId, unlockedCosmetics) {
   return (unlockedCosmetics ?? []).includes(cosmeticId);
 }
 
+/** ===== Achievements (issue #132) =====
+ *
+ * A second progression layer: tiered achievements, each tier a small
+ * PERMANENT boost to all LOC earned (passive LOC/s AND clicks). The
+ * same achievement has several tiers (same name, higher thresholds);
+ * the tier earned only ever goes up, and achievements survive a sale
+ * (the sale spreads the pre-sale state and never touches them).
+ *
+ * The buff, in ONE place: `achievementLocMultiplier` turns the tiers
+ * earned into a multiplier, and `buffedLocMultiplier` combines it with
+ * the Founder multiplier. Every system that needs the player's real
+ * production reads `buffedLocMultiplier` (the client's click and
+ * passive rate, the healthy rate that prices StarBroker stars and
+ * SUBTRACTERALL, the Starting Capital quote) or `buffedLocPerSecond`
+ * (the buffed passive LOC/s for a save-shaped state). Anything priced
+ * off LOC/s must price off these, never off raw base LOC/s, or prices
+ * go stale-cheap as the player earns achievements.
+ *
+ * Buff per tier: tier 1 is +1%, tier 2 +2%, tier 3 +3%, tier 4 and up
+ * +5% (ACHIEVEMENT_TIER_BUFF_PERCENTS). A higher tier never gives less
+ * than a lower one. Tiers of one achievement stack (earning tier 3
+ * means tiers 1, 2 and 3 are all earned: +6%), and all achievements
+ * add together into one multiplier, 1 + total% / 100. The multiplier
+ * is not compounded per achievement, so the number the Achievements
+ * tab shows is exactly the number production uses.
+ *
+ * Tracking (persisted in the save as `achievements`):
+ *   tiers: { [achievementId]: highest tier earned (0 = locked) }
+ *   hires: { [employeeType]: lifetime hires of that type }
+ *     (counts hires across every company; a sale does not reset it)
+ *   clicks: lifetime manual commits (the Commit button)
+ *   peakLocPerSecond: highest buffed healthy passive LOC/s reached
+ *     (permanent bonuses in, temporary star and SUBTRACTERALL
+ *     multipliers out, so a Frenzy cannot cheese the ladder)
+ *   llamasBought / llamasSold: { [llamaType]: lifetime count }
+ *     (written by the llama economy, issue #129, through
+ *     recordLlamaBought / recordLlamaSold; totals are the sums)
+ * Total hires, LOC in a run (totalLinesOfCode - lifetimeLocAtLastSale),
+ * lifetime LOC (totalLinesOfCode), and the achievements-unlocked count
+ * (achievementTiersEarned) are derived from persisted fields, never
+ * stored twice.
+ *
+ * No migration: a save from before achievements gets a fresh
+ * zeroAchievementsState() (every counter 0, every tier locked), and
+ * the next action evaluates the tiers from the live state.
+ *
+ * Copy rules: punny, sarcastic dev satire; no em dashes anywhere.
+ */
+
+/** Percent of extra LOC per tier: index 0 is tier 1. Tier 4+ is 5%. */
+export const ACHIEVEMENT_TIER_BUFF_PERCENTS = Object.freeze([1, 2, 3, 5]);
+
+/** The LOC buff (percent) one tier of an achievement grants (1-based). */
+export function achievementTierBuffPercent(tier) {
+  const t = Math.floor(Number(tier) || 0);
+  if (t < 1) return 0;
+  const percents = ACHIEVEMENT_TIER_BUFF_PERCENTS;
+  return percents[Math.min(t, percents.length) - 1];
+}
+
+/** Total buff percent of tiers 1..tier of one achievement. */
+export function achievementCumulativeBuffPercent(tier) {
+  let total = 0;
+  for (let t = 1; t <= Math.floor(Number(tier) || 0); t += 1) {
+    total += achievementTierBuffPercent(t);
+  }
+  return total;
+}
+
+function countNoun(n, singular, plural = `${singular}s`) {
+  return `${formatNumber(n)} ${n === 1 ? singular : plural}`;
+}
+
+/**
+ * Every achievement. `metric` names the number the tiers are measured
+ * against (see achievementMetricValue); `thresholds` are the tier
+ * targets in order (tier 1 first); `describe(n)` is the goal text for
+ * a threshold. `hidden` achievements show as ??? until earned. The
+ * order here is the display order.
+ */
+export const ACHIEVEMENTS = Object.freeze(
+  [
+    {
+      id: "helloWorld",
+      name: "Hello, World",
+      flavor: "Every empire starts with a print statement and a dream.",
+      metric: "clicks",
+      thresholds: [1],
+      describe: () => "Write your very first line of code by hand.",
+    },
+    {
+      id: "carpalTunnelVision",
+      name: "Carpal Tunnel Vision",
+      flavor:
+        "Your mouse has filed a complaint with HR. HR is an Intern, so it went nowhere.",
+      metric: "clicks",
+      thresholds: [100, 1000, 10000, 100000, 1000000],
+      describe: (n) => `Commit by hand ${countNoun(n, "time")}.`,
+    },
+    {
+      id: "internalAffairs",
+      name: "Intern-al Affairs",
+      flavor:
+        "They work for exposure. Mostly exposure to the production database.",
+      metric: "hires:intern",
+      thresholds: [1, 5, 10, 25, 100],
+      describe: (n) => `Hire ${countNoun(n, "Intern")}.`,
+    },
+    {
+      id: "juniorMintCondition",
+      name: "Junior Mint Condition",
+      flavor:
+        "Still has that new-grad smell and a very loud opinion about tabs.",
+      metric: "hires:junior",
+      thresholds: [1, 5, 10, 25, 100],
+      describe: (n) => `Hire ${countNoun(n, "Junior Developer")}.`,
+    },
+    {
+      id: "greyBeardsGreenBuilds",
+      name: "Grey Beards, Green Builds",
+      flavor:
+        "They remember when the cloud was just someone else's computer. It still is.",
+      metric: "hires:senior",
+      thresholds: [1, 5, 10, 25, 100],
+      describe: (n) => `Hire ${countNoun(n, "Senior Developer")}.`,
+    },
+    {
+      id: "ganttStopWontStop",
+      name: "Gantt Stop, Won't Stop",
+      flavor:
+        "Every meeting could have been an email. Every email is now a meeting.",
+      metric: "hires:projectManager",
+      thresholds: [1, 5, 10, 25, 100],
+      describe: (n) => `Hire ${countNoun(n, "Project Manager")}.`,
+    },
+    {
+      id: "commitmentCeremony",
+      name: "Commitment Ceremony",
+      flavor:
+        "They will commit to the repo. They will not commit to a second date.",
+      metric: "hires:commitSpecialist",
+      thresholds: [1, 5, 10, 25, 100],
+      describe: (n) => `Hire ${countNoun(n, "Commit Specialist")}.`,
+    },
+    {
+      id: "releaseTheHounds",
+      name: "Release the Hounds",
+      flavor:
+        "Ships every Friday at 4:59 PM. Has never once read a changelog.",
+      metric: "hires:releaseManager",
+      thresholds: [1, 5, 10, 25, 100],
+      describe: (n) => `Hire ${countNoun(n, "Release Manager")}.`,
+    },
+    {
+      id: "headcountHoarder",
+      name: "Headcount Hoarder",
+      flavor:
+        "HR stopped asking questions. HR was also replaced by an Intern.",
+      metric: "totalHires",
+      thresholds: [1, 5, 10, 25, 100, 250, 500],
+      describe: (n) =>
+        `Hire ${countNoun(n, "employee")} in total, across every company you have run.`,
+    },
+    {
+      id: "fullStack",
+      name: "Full Stack",
+      flavor:
+        "Front end, back end, and a Project Manager in the middle end.",
+      metric: "distinctRoles",
+      thresholds: [EMPLOYEE_TYPES.length],
+      describe: () =>
+        "Employ at least one of every role at the same time.",
+    },
+    {
+      id: "rateExpectations",
+      name: "Rate Expectations",
+      flavor:
+        "Management has decided this is the only number. Management can count to one.",
+      metric: "peakLocPerSecond",
+      thresholds: [10, 100, 1000, 10000, 100000, 1000000],
+      describe: (n) =>
+        `Reach ${formatNumber(n)} LOC per second. Permanent bonuses count; star buffs do not.`,
+    },
+    {
+      id: "runningCode",
+      name: "Running Code",
+      flavor:
+        "Every line is load-bearing. Nobody remembers which ones.",
+      metric: "runLoc",
+      thresholds: [1000, 10000, 100000, 1000000, 10000000, 100000000],
+      describe: (n) =>
+        `Write ${formatNumber(n)} lines of code in one company (since your last sale).`,
+    },
+    {
+      id: "legacyCode",
+      name: "Legacy Code",
+      flavor:
+        "Somewhere, a stranger is maintaining all of this. Light a candle for them.",
+      metric: "lifetimeLoc",
+      thresholds: [
+        10000, 100000, 1000000, 10000000, 100000000, 1000000000,
+      ],
+      describe: (n) =>
+        `Write ${formatNumber(n)} lines of code over your whole career, across every sale.`,
+    },
+    {
+      id: "shipShape",
+      name: "Ship Shape",
+      flavor: "Shipped to production. Production has notes.",
+      metric: "projectsShipped",
+      thresholds: [1, 10, 100, 1000, 10000],
+      describe: (n) =>
+        `Ship ${countNoun(n, "freelance project")} in one company.`,
+    },
+    {
+      id: "buyLowSpitHigh",
+      name: "Buy Low, Spit High",
+      flavor:
+        "Every llama comes with a lifetime warranty. Its lifetime, not yours.",
+      metric: "llamasBought",
+      thresholds: [1, 5, 25, 100],
+      describe: (n) => `Buy ${countNoun(n, "llama")}.`,
+    },
+    {
+      id: "noProbLlama",
+      name: "No Prob-llama",
+      flavor:
+        "They were never really yours. They were a subscription with wool.",
+      metric: "llamasSold",
+      thresholds: [1, 5, 25, 100],
+      describe: (n) => `Sell ${countNoun(n, "llama")}.`,
+    },
+    {
+      id: "herdMentality",
+      name: "Herd Mentality",
+      flavor: "Biodiversity, but make it a dependency tree.",
+      metric: "llamaTypes",
+      thresholds: [2, 4, 6],
+      describe: (n) => `Discover ${countNoun(n, "llama type")}.`,
+    },
+    {
+      id: "exitStrategy",
+      name: "Exit Strategy",
+      flavor:
+        "Founded it, flipped it, founded it again. Serial entrepreneur is a diagnosis.",
+      metric: "saleCount",
+      thresholds: [1, 3, 10],
+      describe: (n) => `Sell the company ${countNoun(n, "time")}.`,
+    },
+    {
+      id: "metaData",
+      name: "Meta Data",
+      flavor:
+        "An achievement for collecting achievements. We have become the thing we parody.",
+      metric: "achievementTiers",
+      thresholds: [5, 10, 25, 50, 75],
+      describe: (n) =>
+        `Earn ${countNoun(n, "achievement tier")} (this one does not count itself).`,
+    },
+    {
+      id: "inboxZero",
+      name: "Inbox Zero",
+      flavor: "Productivity influencers hate this one weird trick.",
+      metric: "inboxZero",
+      thresholds: [1],
+      hidden: true,
+      describe: () =>
+        "Empty your inbox completely after writing 1K lines of code.",
+    },
+    {
+      id: "burnRate",
+      name: "Burn Rate",
+      flavor: "Runway is a state of mind.",
+      metric: "brokeWithPayroll",
+      thresholds: [1],
+      hidden: true,
+      describe: () => "Hit exactly $0 with at least 10 people on payroll.",
+    },
+    {
+      id: "noVacancy",
+      name: "No Vacancy",
+      flavor:
+        "The barn is at capacity. The llamas are already asking about remote work.",
+      metric: "fullBarn",
+      thresholds: [1],
+      hidden: true,
+      describe: () => "Fill every stall in the barn with a llama.",
+    },
+    {
+      id: "seeingRed",
+      name: "Seeing Red",
+      flavor: "The llamas are not angry. They are disappointed, in red.",
+      metric: "allStallsRed",
+      thresholds: [1],
+      hidden: true,
+      describe: () => "Set every stall in the barn to Spicy Red.",
+    },
+    {
+      id: "borrowedTime",
+      name: "Borrowed Time",
+      flavor:
+        "Tomorrow's productivity, today. Tomorrow's problems, also today.",
+      metric: "dosesTaken",
+      thresholds: [1],
+      hidden: true,
+      describe: () => "Take your first dose of the forbidden productivity.",
+    },
+  ].map((def) =>
+    Object.freeze({
+      hidden: false,
+      ...def,
+      thresholds: Object.freeze([...def.thresholds]),
+    })
+  )
+);
+
+/** Achievement ids, in display order. */
+export const ACHIEVEMENT_IDS = Object.freeze(ACHIEVEMENTS.map((a) => a.id));
+
+/** The achievement definition for an id, or null. */
+export function findAchievement(id) {
+  return ACHIEVEMENTS.find((a) => a.id === id) ?? null;
+}
+
+/** Highest tier an achievement has (0 for an unknown id). */
+export function achievementMaxTier(id) {
+  return findAchievement(id)?.thresholds.length ?? 0;
+}
+
+/** The goal text for one tier (1-based) of an achievement. */
+export function achievementTierDescription(id, tier) {
+  const def = findAchievement(id);
+  if (!def) return "";
+  const t = Math.min(Math.max(1, Math.floor(tier || 1)), def.thresholds.length);
+  return def.describe(def.thresholds[t - 1]);
+}
+
+/** Roman numeral for a tier (1-10), for the tier badges. */
+export function achievementTierLabel(tier) {
+  const numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+  return numerals[Math.floor(tier) - 1] ?? String(tier);
+}
+
+/** A non-negative finite number, or 0 (the NaN guard for counters). */
+function safeCount(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** A count map over `keys`, every value 0. */
+function zeroCountMap(keys) {
+  const map = {};
+  for (const key of keys) map[key] = 0;
+  return map;
+}
+
+/** A fresh achievements record: every tier locked, every counter 0. */
+export function zeroAchievementsState() {
+  return {
+    tiers: zeroCountMap(ACHIEVEMENT_IDS),
+    hires: zeroCountMap(EMPLOYEE_TYPES),
+    clicks: 0,
+    peakLocPerSecond: 0,
+    llamasBought: zeroCountMap(LLAMA_TYPES),
+    llamasSold: zeroCountMap(LLAMA_TYPES),
+  };
+}
+
+/** The keys of an achievements record, for the exact-keys shape check. */
+export const ACHIEVEMENTS_STATE_KEYS = Object.freeze([
+  "tiers",
+  "hires",
+  "clicks",
+  "peakLocPerSecond",
+  "llamasBought",
+  "llamasSold",
+]);
+
+/**
+ * Fill in what an achievements record is MISSING (undefined), the
+ * same rule as normalizeSaveState: a missing record becomes a fresh
+ * one, a missing count becomes 0, a missing tier becomes locked. A
+ * present-but-wrong value is left alone so the save shape check
+ * rejects it. Used by normalizeSaveState (server and load).
+ */
+export function normalizeAchievementsState(achievements) {
+  if (
+    achievements === undefined ||
+    achievements === null ||
+    typeof achievements !== "object" ||
+    Array.isArray(achievements)
+  ) {
+    return achievements === undefined || achievements === null
+      ? zeroAchievementsState()
+      : achievements;
+  }
+  const next = { ...achievements };
+  const fillMap = (field, keys) => {
+    const value = next[field];
+    if (value === undefined || value === null) {
+      next[field] = zeroCountMap(keys);
+      return;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) return;
+    const filled = { ...value };
+    for (const key of keys) {
+      if (filled[key] === undefined) filled[key] = 0;
+    }
+    next[field] = filled;
+  };
+  fillMap("tiers", ACHIEVEMENT_IDS);
+  fillMap("hires", EMPLOYEE_TYPES);
+  fillMap("llamasBought", LLAMA_TYPES);
+  fillMap("llamasSold", LLAMA_TYPES);
+  if (next.clicks === undefined) next.clicks = 0;
+  if (next.peakLocPerSecond === undefined) next.peakLocPerSecond = 0;
+  return next;
+}
+
+/**
+ * Coerce an achievements record into a well-formed one: every known
+ * key present, every counter a finite non-negative whole number (NaN,
+ * negative, or missing becomes 0), every tier clamped to 0..max,
+ * unknown keys dropped. The client runs this before every unlock
+ * evaluation and before every save write, so a NaN can never reach a
+ * tier check or the server. The peak LOC/s may be fractional (it is
+ * a rate), so it is only guarded, not floored.
+ */
+export function sanitizeAchievementsState(achievements) {
+  const source =
+    achievements && typeof achievements === "object" && !Array.isArray(achievements)
+      ? achievements
+      : {};
+  const intMap = (value, keys) => {
+    const map = {};
+    for (const key of keys) map[key] = Math.floor(safeCount(value?.[key]));
+    return map;
+  };
+  const tiers = {};
+  for (const id of ACHIEVEMENT_IDS) {
+    tiers[id] = Math.min(
+      Math.floor(safeCount(source.tiers?.[id])),
+      achievementMaxTier(id)
+    );
+  }
+  return {
+    tiers,
+    hires: intMap(source.hires, EMPLOYEE_TYPES),
+    clicks: Math.floor(safeCount(source.clicks)),
+    peakLocPerSecond: safeCount(source.peakLocPerSecond),
+    llamasBought: intMap(source.llamasBought, LLAMA_TYPES),
+    llamasSold: intMap(source.llamasSold, LLAMA_TYPES),
+  };
+}
+
+/**
+ * Shape-check an achievements record (the save payload check). Returns
+ * an error string, or null when it is well-formed. Shared, so the
+ * server's save validation and the client's pre-write check are the
+ * same rule.
+ */
+export function achievementsStateError(achievements) {
+  if (
+    achievements === null ||
+    typeof achievements !== "object" ||
+    Array.isArray(achievements)
+  ) {
+    return "achievements must be an object";
+  }
+  const keys = Object.keys(achievements);
+  if (
+    keys.length !== ACHIEVEMENTS_STATE_KEYS.length ||
+    !ACHIEVEMENTS_STATE_KEYS.every((key) => key in achievements)
+  ) {
+    return "achievements has unknown or missing keys";
+  }
+  const countMapError = (value, allowedKeys, label) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return `achievements.${label} must be an object`;
+    }
+    for (const [key, count] of Object.entries(value)) {
+      if (!allowedKeys.includes(key)) {
+        return `achievements.${label} has an unknown key: ${key}`;
+      }
+      if (!Number.isInteger(count) || count < 0) {
+        return `achievements.${label}.${key} must be a non-negative integer`;
+      }
+    }
+    for (const key of allowedKeys) {
+      if (!(key in value)) {
+        return `achievements.${label} is missing ${key}`;
+      }
+    }
+    return null;
+  };
+  const tiersError = countMapError(achievements.tiers, ACHIEVEMENT_IDS, "tiers");
+  if (tiersError) return tiersError;
+  for (const id of ACHIEVEMENT_IDS) {
+    if (achievements.tiers[id] > achievementMaxTier(id)) {
+      return `achievements.tiers.${id} exceeds its max tier`;
+    }
+  }
+  const hiresError = countMapError(achievements.hires, EMPLOYEE_TYPES, "hires");
+  if (hiresError) return hiresError;
+  const boughtError = countMapError(
+    achievements.llamasBought,
+    LLAMA_TYPES,
+    "llamasBought"
+  );
+  if (boughtError) return boughtError;
+  const soldError = countMapError(
+    achievements.llamasSold,
+    LLAMA_TYPES,
+    "llamasSold"
+  );
+  if (soldError) return soldError;
+  if (!Number.isInteger(achievements.clicks) || achievements.clicks < 0) {
+    return "achievements.clicks must be a non-negative integer";
+  }
+  if (
+    typeof achievements.peakLocPerSecond !== "number" ||
+    !Number.isFinite(achievements.peakLocPerSecond) ||
+    achievements.peakLocPerSecond < 0
+  ) {
+    return "achievements.peakLocPerSecond must be a non-negative number";
+  }
+  return null;
+}
+
+/**
+ * The counters that only grow, as [label, prev, next] pairs, for the
+ * server's MONOTONIC rule: tiers, lifetime hires, clicks, peak LOC/s,
+ * llamas bought and sold. Returns the label of the first counter that
+ * went down, or null. Both records must already be well-formed.
+ */
+export function achievementsDecreased(prev, next) {
+  if (!prev || !next) return null;
+  for (const id of ACHIEVEMENT_IDS) {
+    if ((next.tiers?.[id] ?? 0) < (prev.tiers?.[id] ?? 0)) {
+      return `tiers.${id}`;
+    }
+  }
+  for (const type of EMPLOYEE_TYPES) {
+    if ((next.hires?.[type] ?? 0) < (prev.hires?.[type] ?? 0)) {
+      return `hires.${type}`;
+    }
+  }
+  for (const type of LLAMA_TYPES) {
+    if ((next.llamasBought?.[type] ?? 0) < (prev.llamasBought?.[type] ?? 0)) {
+      return `llamasBought.${type}`;
+    }
+    if ((next.llamasSold?.[type] ?? 0) < (prev.llamasSold?.[type] ?? 0)) {
+      return `llamasSold.${type}`;
+    }
+  }
+  if ((next.clicks ?? 0) < (prev.clicks ?? 0)) return "clicks";
+  if ((next.peakLocPerSecond ?? 0) < (prev.peakLocPerSecond ?? 0)) {
+    return "peakLocPerSecond";
+  }
+  return null;
+}
+
+/** Sum of a per-type count map (total llamas bought, total hires). */
+export function sumCounts(map) {
+  return Object.values(map ?? {}).reduce(
+    (sum, count) => sum + safeCount(count),
+    0
+  );
+}
+
+/** Record `n` hires of a type on an achievements record (pure). */
+export function recordHires(achievements, employeeType, n = 1) {
+  const base = sanitizeAchievementsState(achievements);
+  if (!EMPLOYEE_TYPES.includes(employeeType)) return base;
+  return {
+    ...base,
+    hires: {
+      ...base.hires,
+      [employeeType]: base.hires[employeeType] + Math.floor(safeCount(n)),
+    },
+  };
+}
+
+/** Record `n` manual commits on an achievements record (pure). */
+export function recordClicks(achievements, n = 1) {
+  const base = sanitizeAchievementsState(achievements);
+  return { ...base, clicks: base.clicks + Math.floor(safeCount(n)) };
+}
+
+/**
+ * Record `n` llamas of a type bought (pure). The llama economy (issue
+ * #129) calls this on every successful buy; the bought total is
+ * sumCounts(achievements.llamasBought).
+ */
+export function recordLlamaBought(achievements, llamaType, n = 1) {
+  const base = sanitizeAchievementsState(achievements);
+  if (!LLAMA_TYPES.includes(llamaType)) return base;
+  return {
+    ...base,
+    llamasBought: {
+      ...base.llamasBought,
+      [llamaType]: base.llamasBought[llamaType] + Math.floor(safeCount(n)),
+    },
+  };
+}
+
+/**
+ * Record `n` llamas of a type sold (pure). The llama economy (issue
+ * #129) calls this on every successful sale; the sold total is
+ * sumCounts(achievements.llamasSold).
+ */
+export function recordLlamaSold(achievements, llamaType, n = 1) {
+  const base = sanitizeAchievementsState(achievements);
+  if (!LLAMA_TYPES.includes(llamaType)) return base;
+  return {
+    ...base,
+    llamasSold: {
+      ...base.llamasSold,
+      [llamaType]: base.llamasSold[llamaType] + Math.floor(safeCount(n)),
+    },
+  };
+}
+
+/**
+ * Raise the recorded peak LOC/s to `locPerSecondValue` if it is
+ * higher (pure). The caller passes the BUFFED healthy passive rate
+ * (buffedLocPerSecond), so star buffs never count toward the ladder.
+ */
+export function recordPeakLocPerSecond(achievements, locPerSecondValue) {
+  const base = sanitizeAchievementsState(achievements);
+  const rate = safeCount(locPerSecondValue);
+  if (rate <= base.peakLocPerSecond) return base;
+  return { ...base, peakLocPerSecond: rate };
+}
+
+/** How many achievement tiers are earned in total (the unlocked count). */
+export function achievementTiersEarned(achievements, { excludeId = null } = {}) {
+  let total = 0;
+  for (const id of ACHIEVEMENT_IDS) {
+    if (id === excludeId) continue;
+    total += Math.min(
+      Math.floor(safeCount(achievements?.tiers?.[id])),
+      achievementMaxTier(id)
+    );
+  }
+  return total;
+}
+
+/** Total LOC buff percent from every tier earned (e.g. 12 for +12%). */
+export function achievementBuffPercent(achievements) {
+  let total = 0;
+  for (const id of ACHIEVEMENT_IDS) {
+    const tier = Math.min(
+      Math.floor(safeCount(achievements?.tiers?.[id])),
+      achievementMaxTier(id)
+    );
+    total += achievementCumulativeBuffPercent(tier);
+  }
+  return total;
+}
+
+/** The highest buff percent the achievements can ever grant. */
+export function maxAchievementBuffPercent() {
+  return ACHIEVEMENTS.reduce(
+    (sum, def) => sum + achievementCumulativeBuffPercent(def.thresholds.length),
+    0
+  );
+}
+
+/**
+ * THE achievement LOC buff: the permanent multiplier every tier earned
+ * adds to all LOC (passive and clicks). 1 with nothing earned.
+ */
+export function achievementLocMultiplier(achievements) {
+  return 1 + achievementBuffPercent(achievements) / 100;
+}
+
+/**
+ * The permanent LOC multiplier a state's production runs at: the
+ * Founder multiplier (Lifetime Equity earned) times the achievement
+ * buff. This is the ONE helper production and pricing read; it takes
+ * any state with `lifetimeEquityEarned` and `achievements`, so it
+ * works on the client's reducer state and on a save-shaped state.
+ */
+export function buffedLocMultiplier(state) {
+  return (
+    founderMultiplier(state?.lifetimeEquityEarned ?? 0) *
+    achievementLocMultiplier(state?.achievements)
+  );
+}
+
+/**
+ * The buffed healthy passive LOC/s for a SAVE-SHAPED state (flat
+ * employee counts and open-source levels): employees, open-source
+ * bonuses, the Engineering Handbook, the Founder multiplier and the
+ * achievement buff all in; temporary star and SUBTRACTERALL
+ * multipliers out. Price anything LOC/s-scaled off this (P in the
+ * llama economy), never off raw baseLocPerSecond.
+ */
+export function buffedLocPerSecond(state) {
+  return locPerSecond(
+    state?.employees ?? {},
+    state?.openSourceProjects ?? {},
+    buffedLocMultiplier(state),
+    state?.permanentStoreRanks ?? {}
+  );
+}
+
+/**
+ * The live number an achievement metric reads. `ctx` is save-shaped
+ * (flat counts): { achievements, totalLinesOfCode,
+ * lifetimeLocAtLastSale, employees, freelanceProjectsCompleted, money,
+ * saleCount, farm, emailCount, subtracterall }. Every value is guarded
+ * against NaN and missing fields (a missing count reads 0).
+ */
+export function achievementMetricValue(metric, ctx = {}) {
+  const achievements = ctx.achievements ?? {};
+  if (metric.startsWith("hires:")) {
+    return safeCount(achievements.hires?.[metric.slice("hires:".length)]);
+  }
+  switch (metric) {
+    case "clicks":
+      return safeCount(achievements.clicks);
+    case "totalHires":
+      return sumCounts(achievements.hires);
+    case "distinctRoles":
+      return EMPLOYEE_TYPES.filter((type) => safeCount(ctx.employees?.[type]) > 0)
+        .length;
+    case "peakLocPerSecond":
+      return safeCount(achievements.peakLocPerSecond);
+    case "runLoc":
+      return Math.max(
+        0,
+        safeCount(ctx.totalLinesOfCode) - safeCount(ctx.lifetimeLocAtLastSale)
+      );
+    case "lifetimeLoc":
+      return safeCount(ctx.totalLinesOfCode);
+    case "projectsShipped":
+      return sumCounts(ctx.freelanceProjectsCompleted);
+    case "llamasBought":
+      return sumCounts(achievements.llamasBought);
+    case "llamasSold":
+      return sumCounts(achievements.llamasSold);
+    case "llamaTypes":
+      return Array.isArray(ctx.farm?.unlockedTypes)
+        ? ctx.farm.unlockedTypes.length
+        : 0;
+    case "saleCount":
+      return safeCount(ctx.saleCount);
+    case "achievementTiers":
+      return achievementTiersEarned(achievements, { excludeId: "metaData" });
+    case "inboxZero":
+      return safeCount(ctx.emailCount) === 0 &&
+        safeCount(ctx.totalLinesOfCode) >= 1000
+        ? 1
+        : 0;
+    case "brokeWithPayroll":
+      return safeCount(ctx.money) === 0 && totalEmployees(ctx.employees ?? {}) >= 10
+        ? 1
+        : 0;
+    case "fullBarn": {
+      const stalls = ctx.farm?.owned ? (ctx.farm.stalls ?? []) : [];
+      return stalls.length === FARM_CONFIG.stallCount &&
+        stalls.every((stall) => stall?.llama)
+        ? 1
+        : 0;
+    }
+    case "allStallsRed": {
+      const stalls = ctx.farm?.owned ? (ctx.farm.stalls ?? []) : [];
+      return stalls.length === FARM_CONFIG.stallCount &&
+        stalls.every((stall) => stall?.lighting === "red")
+        ? 1
+        : 0;
+    }
+    case "dosesTaken": {
+      const sub = ctx.subtracterall ?? {};
+      return safeCount(sub.dosesUsed) > 0 ||
+        safeCount(sub.tolerance) > 0 ||
+        (sub.phase !== undefined && sub.phase !== "ready")
+        ? 1
+        : 0;
+    }
+    default:
+      return 0;
+  }
+}
+
+/** The highest tier `value` reaches on an achievement (0 = none). */
+function tierForValue(def, value) {
+  let tier = 0;
+  for (const threshold of def.thresholds) {
+    if (value >= threshold) tier += 1;
+    else break;
+  }
+  return tier;
+}
+
+/**
+ * Evaluate every achievement against the live state and latch any new
+ * tiers. Tiers only go up. Pure: returns `{ achievements, unlocked }`
+ * where `unlocked` lists each newly earned { id, tier } (one entry per
+ * tier, lowest first), and `achievements` is the same object when
+ * nothing changed. The meta achievement is evaluated last, against the
+ * tiers just earned, so earning your 5th tier and Meta Data I can land
+ * in the same action.
+ */
+export function evaluateAchievements(achievements, ctx = {}) {
+  const base = sanitizeAchievementsState(achievements);
+  const tiers = { ...base.tiers };
+  const unlocked = [];
+  const latch = (def, current) => {
+    const reached = tierForValue(def, current);
+    const had = tiers[def.id] ?? 0;
+    if (reached > had) {
+      for (let t = had + 1; t <= reached; t += 1) {
+        unlocked.push({ id: def.id, tier: t });
+      }
+      tiers[def.id] = reached;
+    }
+  };
+  for (const def of ACHIEVEMENTS) {
+    if (def.metric === "achievementTiers") continue;
+    latch(def, achievementMetricValue(def.metric, { ...ctx, achievements: base }));
+  }
+  for (const def of ACHIEVEMENTS) {
+    if (def.metric !== "achievementTiers") continue;
+    latch(
+      def,
+      achievementMetricValue(def.metric, {
+        ...ctx,
+        achievements: { ...base, tiers },
+      })
+    );
+  }
+  if (unlocked.length === 0) {
+    return { achievements: base, unlocked };
+  }
+  return { achievements: { ...base, tiers }, unlocked };
+}
+
+/**
+ * Progress toward the next tier of one achievement, for the view:
+ * { tier, maxTier, current, nextThreshold, fraction, complete }.
+ * `fraction` is 0..1 toward the next tier (1 when every tier is done).
+ */
+export function achievementProgress(id, ctx = {}) {
+  const def = findAchievement(id);
+  if (!def) return null;
+  const tier = Math.min(
+    Math.floor(safeCount(ctx.achievements?.tiers?.[id])),
+    def.thresholds.length
+  );
+  const current = achievementMetricValue(def.metric, ctx);
+  const complete = tier >= def.thresholds.length;
+  const nextThreshold = complete ? null : def.thresholds[tier];
+  return {
+    tier,
+    maxTier: def.thresholds.length,
+    current,
+    nextThreshold,
+    fraction: complete
+      ? 1
+      : Math.max(0, Math.min(1, nextThreshold > 0 ? current / nextThreshold : 0)),
+    complete,
+  };
+}
+
+/**
+ * The inbox mail for newly earned achievement tiers (one mail per
+ * action, however many tiers landed, so a big moment never floods the
+ * 25-mail inbox). `unlocked` is evaluateAchievements' list.
+ */
+export function buildAchievementEmail({ unlocked }) {
+  const lines = unlocked.map(({ id, tier }) => {
+    const def = findAchievement(id);
+    const name = def?.name ?? id;
+    const label =
+      (def?.thresholds.length ?? 1) > 1 ? ` ${achievementTierLabel(tier)}` : "";
+    return `${name}${label}: +${achievementTierBuffPercent(tier)}% LOC`;
+  });
+  const first = findAchievement(unlocked[0]?.id);
+  const subject =
+    unlocked.length === 1
+      ? `Achievement unlocked: ${first?.name ?? "Something"}`
+      : `${unlocked.length} achievements unlocked`;
+  return {
+    sender: "The Trophy Case",
+    subject,
+    body:
+      `${lines.join("\n")}\n\n` +
+      `Every tier is a permanent boost to all LOC, clicks and passive ` +
+      `alike, and it survives selling the company. Check the Trophies ` +
+      `tab for what is next. Nobody asked for a trophy case. You got ` +
+      `one anyway.`,
+  };
+}
+
 /** The save state a brand-new player starts from. Unlocks derive from the configs. */
 export function initialSaveState() {
   const employees = {};
@@ -2919,6 +3818,10 @@ export function initialSaveState() {
     // the server only bounds the shape.
     nextStarAtMs: null,
     lastStarBuyAtMs: null,
+    // Achievements (issue #132): every tier locked, every counter 0.
+    // Survives a sale (applyPrestigeSale spreads the pre-sale state);
+    // only a progress reset starts it over.
+    achievements: zeroAchievementsState(),
   };
 }
 
@@ -3342,6 +4245,13 @@ export function normalizeSaveState(state) {
     next.subtracterall = sub;
   }
   if (next.overtimeReskin === undefined) next.overtimeReskin = false;
+  // Achievements (issue #132): a save from before achievements has no
+  // record at all. Default it to a fresh one (no backfill: every tier
+  // starts locked and every counter starts at 0, and the client
+  // evaluates the tiers from the live state on its next action). Only
+  // MISSING keys are filled; a present-but-wrong value is left alone
+  // so the shape check rejects it.
+  next.achievements = normalizeAchievementsState(next.achievements);
   return next;
 }
 
