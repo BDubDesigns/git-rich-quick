@@ -45,6 +45,8 @@ import {
   saveGame,
   resetSave,
   sellCompany,
+  buyStoreRank,
+  completeIntermission,
 } from "./api.js";
 import {
   stateToSaveState,
@@ -222,6 +224,11 @@ export class SaveSync {
     // the same reason — a stale pre-sale save must not land after the
     // sale and resurrect the sold company.
     this._selling = false;
+    // True while a store buy or an intermission completion runs:
+    // requestSave is a no-op then, for the same reason — a stale
+    // save must not land after the purchase and resurrect the spent
+    // Equity, or after the completion and resurrect the intermission.
+    this._storeBusy = false;
     this._pendingSave = false;
     this._currentSave = null;
     this._retryTimer = null;
@@ -642,29 +649,7 @@ export class SaveSync {
       this.onRetry(null);
       const current = this.getState();
       const saveState = stateToSaveState(current);
-      const actions = {
-        clicks: this.clicks,
-        employeesBought: diffCounts(
-          this.baseline.employees,
-          saveState.employees,
-          EMPLOYEE_TYPES
-        ),
-        projectsCompleted: diffCounts(
-          this.baseline.freelanceProjectsCompleted,
-          saveState.freelanceProjectsCompleted,
-          FREELANCE_PROJECT_KEYS
-        ),
-        autoShips: diffCounts(
-          this.baseline.autoShipsCompleted,
-          saveState.autoShipsCompleted,
-          FREELANCE_PROJECT_KEYS
-        ),
-        openSourceLevelsBought: diffCounts(
-          this.baseline.openSourceProjects,
-          saveState.openSourceProjects,
-          OPEN_SOURCE_IDS
-        ),
-      };
+      const actions = this._actionsSinceBaseline(saveState);
       let result;
       try {
         result = await sellCompany(this.apiBaseUrl, {
@@ -727,16 +712,258 @@ export class SaveSync {
   }
 
   /**
+   * The actions since the last accepted save, derived from state
+   * (current - baseline), never counted from dispatches — shared by
+   * the sale, the store buy, and the intermission completion, which
+   * all send the freshest state plus the same actions shape. Clicks
+   * are the one exception: WRITE_CODE always applies, so they are
+   * counted directly.
+   */
+  _actionsSinceBaseline(saveState) {
+    return {
+      clicks: this.clicks,
+      employeesBought: diffCounts(
+        this.baseline.employees,
+        saveState.employees,
+        EMPLOYEE_TYPES
+      ),
+      projectsCompleted: diffCounts(
+        this.baseline.freelanceProjectsCompleted,
+        saveState.freelanceProjectsCompleted,
+        FREELANCE_PROJECT_KEYS
+      ),
+      autoShips: diffCounts(
+        this.baseline.autoShipsCompleted,
+        saveState.autoShipsCompleted,
+        FREELANCE_PROJECT_KEYS
+      ),
+      openSourceLevelsBought: diffCounts(
+        this.baseline.openSourceProjects,
+        saveState.openSourceProjects,
+        OPEN_SOURCE_IDS
+      ),
+    };
+  }
+
+  /**
+   * Buy the next rank of one permanent-store track (prestige, Slice
+   * 2). Mirrors sellCompany: await an in-flight save first, block
+   * requestSave while it runs (the `_storeBusy` flag), send the
+   * freshest state plus the actions since the baseline, and restore
+   * the server's returned state locally (the same RESTORE_SAVE path
+   * as a load) and re-baseline the engine on it.
+   *
+   * `rank` is the rank being bought — always the next rank after the
+   * one owned, computed here from the local state, so the UI never
+   * has to track it. Idempotency: the server answers a retried
+   * purchase of an already-owned rank with the already-owned state
+   * and no second charge; this method restores that state and
+   * reports success (alreadyOwned: true), so a lost response never
+   * double-charges.
+   *
+   * On failure the local state is untouched. Returns
+   * `{ ok: true, state, purchase, alreadyOwned }` or
+   * `{ ok: false, error, detail }` (error is "not-initialized" |
+   * "network" | a rule like "STORE" / "PRESTIGE" | `http-<status>`).
+   */
+  async buyStoreRank(storeId) {
+    if (!this.initialized || !this.playerId) {
+      return { ok: false, error: "not-initialized" };
+    }
+    this._storeBusy = true;
+    try {
+      if (this._inFlight && this._currentSave) {
+        try {
+          await this._currentSave;
+        } catch {
+          // A failed in-flight save must not block the purchase.
+        }
+      }
+      this._pendingSave = false;
+      this._clearRetryTimer();
+      this.onRetry(null);
+      const current = this.getState();
+      const saveState = stateToSaveState(current);
+      const rank = (current.permanentStoreRanks?.[storeId] ?? 0) + 1;
+      const actions = this._actionsSinceBaseline(saveState);
+      let result;
+      try {
+        result = await buyStoreRank(this.apiBaseUrl, {
+          playerId: this.playerId,
+          storeId,
+          rank,
+          state: saveState,
+          actionsSinceLastSave: actions,
+        });
+      } catch (err) {
+        console.warn("[save] store buy failed (network):", err);
+        this._recordSaveAttempt({
+          trigger: "store-buy",
+          outcome: "offline",
+          status: null,
+          detail: errorDetail(err),
+        });
+        this.setStatus("error");
+        return { ok: false, error: "network" };
+      }
+      if (result.status !== 200) {
+        console.warn(
+          `[save] store buy failed (HTTP ${result.status}):`,
+          result.data?.rule,
+          result.data?.detail
+        );
+        this._recordSaveAttempt({
+          trigger: "store-buy",
+          outcome: "error",
+          status: result.status,
+          detail: rejectionDetail(result.data),
+        });
+        this.setStatus("error");
+        return {
+          ok: false,
+          error: result.data?.rule ?? `http-${result.status}`,
+          detail: result.data?.detail ?? null,
+        };
+      }
+      const postState = result.data.state;
+      this.baseline = postState;
+      this.clicks = 0;
+      this._claimSavePending = false;
+      this._lastSeenBig = bigActionFields(postState);
+      this.needsLoad = false;
+      this.restore(postState);
+      this._reportSavedAt(Date.now());
+      this.setStatus("saved");
+      this._recordSaveAttempt({
+        trigger: "store-buy",
+        outcome: "store-buy",
+        status: 200,
+        detail: result.data.alreadyOwned
+          ? "already owned (retry)"
+          : null,
+      });
+      return {
+        ok: true,
+        state: postState,
+        purchase: result.data.purchase ?? null,
+        alreadyOwned: result.data.alreadyOwned ?? false,
+      };
+    } finally {
+      this._storeBusy = false;
+    }
+  }
+
+  /**
+   * Complete the post-sale intermission (prestige, Slice 2). Mirrors
+   * sellCompany and buyStoreRank: await an in-flight save, block
+   * requestSave while it runs, send the freshest state, and restore
+   * the server's returned state locally and re-baseline on it. The
+   * server applies the Starting Capital grant once, from the frozen
+   * sale quote, and clears the intermission in the same transaction.
+   *
+   * Idempotency: the server answers a retried completion with the
+   * already-completed state and no second grant; this method restores
+   * that state and reports success (alreadyCompleted: true).
+   *
+   * On failure the local state is untouched. Returns
+   * `{ ok: true, state, grant, alreadyCompleted }` or
+   * `{ ok: false, error, detail }`.
+   */
+  async completeIntermission() {
+    if (!this.initialized || !this.playerId) {
+      return { ok: false, error: "not-initialized" };
+    }
+    this._storeBusy = true;
+    try {
+      if (this._inFlight && this._currentSave) {
+        try {
+          await this._currentSave;
+        } catch {
+          // A failed in-flight save must not block the completion.
+        }
+      }
+      this._pendingSave = false;
+      this._clearRetryTimer();
+      this.onRetry(null);
+      const current = this.getState();
+      const saveState = stateToSaveState(current);
+      const actions = this._actionsSinceBaseline(saveState);
+      let result;
+      try {
+        result = await completeIntermission(this.apiBaseUrl, {
+          playerId: this.playerId,
+          state: saveState,
+          actionsSinceLastSave: actions,
+        });
+      } catch (err) {
+        console.warn("[save] intermission completion failed (network):", err);
+        this._recordSaveAttempt({
+          trigger: "intermission-complete",
+          outcome: "offline",
+          status: null,
+          detail: errorDetail(err),
+        });
+        this.setStatus("error");
+        return { ok: false, error: "network" };
+      }
+      if (result.status !== 200) {
+        console.warn(
+          `[save] intermission completion failed (HTTP ${result.status}):`,
+          result.data?.rule,
+          result.data?.detail
+        );
+        this._recordSaveAttempt({
+          trigger: "intermission-complete",
+          outcome: "error",
+          status: result.status,
+          detail: rejectionDetail(result.data),
+        });
+        this.setStatus("error");
+        return {
+          ok: false,
+          error: result.data?.rule ?? `http-${result.status}`,
+          detail: result.data?.detail ?? null,
+        };
+      }
+      const postState = result.data.state;
+      this.baseline = postState;
+      this.clicks = 0;
+      this._claimSavePending = false;
+      this._lastSeenBig = bigActionFields(postState);
+      this.needsLoad = false;
+      this.restore(postState);
+      this._reportSavedAt(Date.now());
+      this.setStatus("saved");
+      this._recordSaveAttempt({
+        trigger: "intermission-complete",
+        outcome: "intermission-complete",
+        status: 200,
+        detail: result.data.alreadyCompleted
+          ? "already completed (retry)"
+          : null,
+      });
+      return {
+        ok: true,
+        state: postState,
+        grant: result.data.grant ?? null,
+        alreadyCompleted: result.data.alreadyCompleted ?? false,
+      };
+    } finally {
+      this._storeBusy = false;
+    }
+  }
+
+  /**
    * Request a save. Serializes: if one is in flight, queues one after it.
    * Returns a promise that resolves when the save (and any queued flush)
    * completes, so callers can await it. Fire-and-forget callers (heartbeat,
    * retry timer) just ignore the return.
    */
   requestSave(reason, { keepalive } = {}) {
-    if (this._resetting || this._selling) {
-      // A reset or a sale is running: no save may start (or queue)
-      // while it runs, or a stale save could land after it and bring
-      // the old progress back.
+    if (this._resetting || this._selling || this._storeBusy) {
+      // A reset, a sale, or a store/intermission step is running: no
+      // save may start (or queue) while it runs, or a stale save could
+      // land after it and bring the old progress back.
       return Promise.resolve(false);
     }
     if (!this.initialized || !this.playerId) {

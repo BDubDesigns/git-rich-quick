@@ -86,16 +86,29 @@ export function stateToSaveState(clientState) {
     unlockedFreelanceProjects: { ...clientState.unlockedFreelanceProjects },
     // Prestige (Sell the Company, Slice 1). The Equity books: Lifetime
     // Equity earned (only grows on sale), permanent-store spending
-    // (Slice 2 — 0 in Slice 1), the sale count, the lifetime LOC at
-    // the last sale, and the last sale's idempotency key. A client
-    // state from before prestige shipped has none of them — default
-    // to the fresh values, the same way the server's
-    // normalizeSaveState does on save.
+    // (Slice 2), the sale count, the lifetime LOC at the last sale,
+    // and the last sale's idempotency key. A client state from before
+    // prestige shipped has none of them — default to the fresh
+    // values, the same way the server's normalizeSaveState does on
+    // save.
     lifetimeEquityEarned: clientState.lifetimeEquityEarned ?? 0,
     equitySpent: clientState.equitySpent ?? 0,
     saleCount: clientState.saleCount ?? 0,
     lifetimeLocAtLastSale: clientState.lifetimeLocAtLastSale ?? 0,
     lastSaleId: clientState.lastSaleId ?? null,
+    // Permanent store (Slice 2). The store ranks (persist across
+    // sales), the post-sale intermission with its frozen Starting
+    // Capital quote (null outside a sale), and the favorited
+    // open-source projects. Copied per entry so the save never shares
+    // a reference with the live state. The intermission is copied
+    // shallow (it is a flat record); the ranks are copied per track.
+    permanentStoreRanks: { ...(clientState.permanentStoreRanks ?? {}) },
+    prestigeIntermission: clientState.prestigeIntermission
+      ? { ...clientState.prestigeIntermission }
+      : null,
+    favoriteOpenSourceProjects: [
+      ...(clientState.favoriteOpenSourceProjects ?? []),
+    ],
     // Timed golden-star buffs. A shallow copy of the array (the entries
     // are plain data); expired entries are dropped by the game tick.
     activeStarEffects: [...(clientState.activeStarEffects ?? [])],
@@ -144,6 +157,17 @@ export function saveStateToGameFields(saveState) {
     saleCount: saveState.saleCount ?? 0,
     lifetimeLocAtLastSale: saveState.lifetimeLocAtLastSale ?? 0,
     lastSaleId: saveState.lastSaleId ?? null,
+    // Permanent store (Slice 2). A save from before the store shipped
+    // has none of these fields — default them to the fresh values
+    // here, the same way the server's normalizeSaveState does on save:
+    // no ranks owned, no intermission open, no favorites yet.
+    permanentStoreRanks: { ...(saveState.permanentStoreRanks ?? {}) },
+    prestigeIntermission: saveState.prestigeIntermission
+      ? { ...saveState.prestigeIntermission }
+      : null,
+    favoriteOpenSourceProjects: [
+      ...(saveState.favoriteOpenSourceProjects ?? []),
+    ],
     employees: inflateCounts(saveState.employees),
     aiAssistants: { noPilot: { count: saveState.aiAssistants.noPilot } },
     // A save from before PR #78 shipped the four new freelance
@@ -394,6 +418,20 @@ export function bigActionFields(saveState) {
     saleCount: saveState.saleCount ?? 0,
     lifetimeLocAtLastSale: saveState.lifetimeLocAtLastSale ?? 0,
     lastSaleId: saveState.lastSaleId ?? null,
+    // Permanent store (Slice 2): the ranks and the intermission only
+    // move through the store endpoints, not through a big-action save
+    // — these are a safety net, like the Equity books above. The
+    // favorites are a deliberate player choice, so any change (add,
+    // remove, reorder) saves promptly, compared as a string.
+    permanentStoreRanks: JSON.stringify(
+      saveState.permanentStoreRanks ?? {}
+    ),
+    prestigeIntermission: JSON.stringify(
+      saveState.prestigeIntermission ?? null
+    ),
+    favoriteOpenSourceProjects: JSON.stringify(
+      saveState.favoriteOpenSourceProjects ?? []
+    ),
   };
 }
 
@@ -460,6 +498,17 @@ export function isInitialSaveState(saveState) {
   if ((saveState.saleCount ?? 0) !== 0) return false;
   if ((saveState.lifetimeLocAtLastSale ?? 0) !== 0) return false;
   if ((saveState.lastSaleId ?? null) !== null) return false;
+  // Permanent store (Slice 2): a fresh save owns no store ranks, has
+  // no intermission open, and has favorited nothing.
+  if (
+    Object.values(saveState.permanentStoreRanks ?? {}).some(
+      (rank) => rank !== 0
+    )
+  )
+    return false;
+  if ((saveState.prestigeIntermission ?? null) !== null) return false;
+  if ((saveState.favoriteOpenSourceProjects ?? []).length !== 0)
+    return false;
   return true;
 }
 
@@ -520,5 +569,22 @@ export function bigActionIncreased(prev, next) {
   )
     return true;
   if ((next.lastSaleId ?? null) !== (prev.lastSaleId ?? null)) return true;
+  // Permanent store (Slice 2): any change to the ranks or the
+  // intermission is a big action (safety net — the store endpoints
+  // save themselves), and any change to the favorites is one too,
+  // like an equip.
+  if (
+    (next.permanentStoreRanks ?? "") !== (prev.permanentStoreRanks ?? "")
+  )
+    return true;
+  if (
+    (next.prestigeIntermission ?? "") !== (prev.prestigeIntermission ?? "")
+  )
+    return true;
+  if (
+    (next.favoriteOpenSourceProjects ?? "") !==
+    (prev.favoriteOpenSourceProjects ?? "")
+  )
+    return true;
   return false;
 }

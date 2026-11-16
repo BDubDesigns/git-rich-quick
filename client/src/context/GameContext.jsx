@@ -68,6 +68,15 @@ const initialState = {
   saleCount: 0,
   lifetimeLocAtLastSale: 0,
   lastSaleId: null,
+  // Permanent store (Slice 2). The store ranks (persist across
+  // sales), the post-sale intermission with its frozen Starting
+  // Capital quote (null outside a sale), and the favorited
+  // open-source projects. Saved with the game state (see
+  // serialize.js); a save from before the store shipped backfills
+  // them to all-zero / null / empty on load.
+  permanentStoreRanks: shared.zeroStoreRanks(),
+  prestigeIntermission: null,
+  favoriteOpenSourceProjects: [],
   activeTab: "shop", // can be "shop", "projects", or "openSource"
   // Desktop pane configuration (hardcoded now, will be dynamic later)
   selectedPanes: {
@@ -573,10 +582,22 @@ function gameReducer(state, action) {
 
       // Check if player has enough LOC to complete the project if so, run completion
       if (state.linesOfCode >= project.loc) {
+        // Permanent store (Slice 2): the Client Network rank
+        // multiplies freelance cash payouts. Rounded to integer cents
+        // (money is always whole cents). It never changes LOC costs
+        // and does not affect Airdrops, investments, or other cash
+        // sources — only the freelance ship reward, here and in the
+        // Release Manager auto-ship below.
+        const payout = Math.round(
+          project.reward *
+            shared.clientNetworkPayoutMultiplier(
+              state.permanentStoreRanks ?? {}
+            )
+        );
         const newState = {
           ...state,
           linesOfCode: state.linesOfCode - project.loc,
-          money: state.money + project.reward,
+          money: state.money + payout,
           freelanceProjectsCompleted: {
             ...state.freelanceProjectsCompleted,
             // A save from before PR #78 shipped the four new projects
@@ -668,6 +689,12 @@ function gameReducer(state, action) {
       const shipsPerManager = shared.releaseManagerShipsPerInterval(
         flatOpenSourceLevels(state)
       );
+      // Permanent store (Slice 2): the Client Network rank
+      // multiplies freelance cash payouts, including auto-ships.
+      // Rounded to integer cents per ship (money is whole cents).
+      const payoutMultiplier = shared.clientNetworkPayoutMultiplier(
+        state.permanentStoreRanks ?? {}
+      );
       if (
         shipTicks >= shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds
       ) {
@@ -681,7 +708,7 @@ function gameReducer(state, action) {
           for (let i = 0; i < assigned * shipsPerManager; i++) {
             if (shipLinesOfCode < project.loc) break;
             shipLinesOfCode -= project.loc;
-            shipMoney += project.reward;
+            shipMoney += Math.round(project.reward * payoutMultiplier);
             shipCompleted[projectKey] =
               (shipCompleted[projectKey] ?? 0) + 1;
             shipAuto[projectKey] = (shipAuto[projectKey] ?? 0) + 1;
@@ -761,6 +788,32 @@ function gameReducer(state, action) {
       };
       // A new open-source level sends mail (issue #31).
       return withEmailTriggers(state, contributed);
+    }
+
+    // Favorite an open-source project (permanent store, Slice 2).
+    // Payload: { projectId }. Toggles the project in
+    // favoriteOpenSourceProjects: favoriting adds it, unfavoriting
+    // removes it. Favorites sort first in the Open Source tab, and
+    // survive a sale only when the Company Template rank is owned
+    // (the server resets them otherwise). An unknown project id is
+    // ignored — the list only ever holds real project ids. A
+    // favorite change is a big action, so it saves promptly.
+    case "FAVORITE_OPEN_SOURCE_PROJECT": {
+      const { projectId } = action.payload ?? {};
+      if (
+        typeof projectId !== "string" ||
+        !OPEN_SOURCE_PROJECTS_CONFIG[projectId]
+      ) {
+        return state;
+      }
+      const favorites = [...(state.favoriteOpenSourceProjects ?? [])];
+      const index = favorites.indexOf(projectId);
+      if (index >= 0) {
+        favorites.splice(index, 1);
+      } else {
+        favorites.push(projectId);
+      }
+      return { ...state, favoriteOpenSourceProjects: favorites };
     }
 
     // Buy a golden star (StarBroker). The payload is the cost the
@@ -1341,6 +1394,29 @@ export function GameProvider({ children }) {
     return saveSyncRef.current.sellCompany();
   }, []);
 
+  // Permanent store (prestige, Slice 2): buy the next rank of one
+  // store track during the post-sale intermission, on the server AND
+  // locally. The engine restores the server's returned state, so the
+  // local state and the saved state can never disagree about the
+  // purchase. Returns `{ ok: true, state, purchase, alreadyOwned }`
+  // or `{ ok: false, error, detail }` — the caller (PermanentStore)
+  // shows the result. A retried purchase of an already-owned rank
+  // reports success with alreadyOwned: true, never a second charge.
+  const buyStoreRank = useCallback(async (storeId) => {
+    return saveSyncRef.current.buyStoreRank(storeId);
+  }, []);
+
+  // Post-sale intermission (prestige, Slice 2): apply the Starting
+  // Capital grant once, from the frozen sale quote, and clear the
+  // intermission, on the server AND locally. The engine restores the
+  // server's returned state. Returns `{ ok: true, state, grant,
+  // alreadyCompleted }` or `{ ok: false, error, detail }` — the
+  // caller (PermanentStore) shows the result. A retried completion
+  // reports success with alreadyCompleted: true, never a second grant.
+  const completeIntermission = useCallback(async () => {
+    return saveSyncRef.current.completeIntermission();
+  }, []);
+
   // Ask the save engine for a prompt save after a golden-star claim
   // (natural or bought). The star UI calls this in the same handler
   // that dispatches APPLY_STAR_REWARD, so the claim's reward persists
@@ -1418,6 +1494,8 @@ export function GameProvider({ children }) {
         getSaveDiagnostics,
         resetProgress,
         sellCompany,
+        buyStoreRank,
+        completeIntermission,
         requestClaimSave,
         measureTapLatency,
       }}

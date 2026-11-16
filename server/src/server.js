@@ -14,6 +14,16 @@
  *   company, from the client's freshest pre-sale state. Idempotent by
  *   saleId: a retried sale returns the already-applied state without
  *   claiming again. Not rate limited. See store.applySale.
+ * - POST /api/save/store/buy — permanent store (prestige, Slice 2):
+ *   buy the next rank of one store track during the post-sale
+ *   intermission, from the client's freshest state. Idempotent by
+ *   rank: a retried purchase returns the already-owned state without
+ *   charging again. Not rate limited. See store.applyStoreBuy.
+ * - POST /api/save/intermission/complete — post-sale intermission
+ *   (prestige, Slice 2): apply the Starting Capital grant once, from
+ *   the frozen sale quote, and clear the intermission. A retried
+ *   completion returns the already-completed state without granting
+ *   again. Not rate limited. See store.completeIntermission.
  * - GET  /healthz — liveness check for Coolify
  * - /api/auth/* — Better Auth (Slice 3, issue #28): sign-up, sign-in,
  *   sign-out, session. Mounted via toNodeHandler; see auth.js.
@@ -778,6 +788,174 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     });
   }
 
+  /**
+   * Permanent store (prestige, Slice 2): POST /api/save/store/buy,
+   * body `{ playerId, storeId, rank, state, actionsSinceLastSave }`.
+   * `rank` is the rank being bought (always the next rank after the
+   * one owned); `state` is the client's freshest state, which must
+   * still carry the open intermission. The server validates the
+   * purchase (rank order, funds) and applies it atomically (see
+   * store.applyStoreBuy). A retried purchase returns the
+   * already-owned state without charging again. 400 for a malformed
+   * body, 404 for an unknown player, 409 with the last good state
+   * when the purchase is not valid (no intermission, wrong rank
+   * order, insufficient Equity). Like the sale, it is NOT rate
+   * limited: a player who just saved can still buy. The playerId is
+   * the credential here, the same as /api/save.
+   */
+  async function handleStoreBuy(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId) ||
+      typeof body.storeId !== "string" ||
+      !Number.isInteger(body.rank) ||
+      body.state === null ||
+      typeof body.state !== "object" ||
+      Array.isArray(body.state) ||
+      body.actionsSinceLastSave === null ||
+      typeof body.actionsSinceLastSave !== "object" ||
+      Array.isArray(body.actionsSinceLastSave)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-store-buy",
+        detail:
+          "playerId must be a UUID string, storeId a string, rank an integer, state and actionsSinceLastSave must be objects",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.applyStoreBuy(body.playerId, body, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "rejected") {
+      console.warn(
+        "[save] rejected store buy",
+        JSON.stringify({
+          playerId: body.playerId,
+          storeId: body.storeId,
+          rank: body.rank,
+          rule: result.rule,
+          detail: result.detail,
+          prevSavedAtMs: result.lastGood?.savedAtMs ?? null,
+          state: body.state,
+        })
+      );
+      sendJson(res, 409, {
+        error: "store-buy-rejected",
+        rule: result.rule,
+        detail: result.detail,
+        lastGoodState: snapshotBody(result.lastGood),
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      alreadyOwned: result.status === "already-owned",
+      playerId: body.playerId,
+      savedAt: iso(result.savedAtMs),
+      state: result.state,
+      purchase: result.purchase,
+    });
+  }
+
+  /**
+   * Complete the post-sale intermission (prestige, Slice 2): POST
+   * /api/save/intermission/complete, body `{ playerId, state,
+   * actionsSinceLastSave }`. The server applies the Starting Capital
+   * grant once, from the frozen quote, and clears the intermission
+   * (see store.completeIntermission). A retried completion returns
+   * the already-completed state without granting again. 400 for a
+   * malformed body, 404 for an unknown player, 409 with the last
+   * good state when the completion is not valid. Not rate limited,
+   * like the sale and the store buy.
+   */
+  async function handleCompleteIntermission(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId) ||
+      body.state === null ||
+      typeof body.state !== "object" ||
+      Array.isArray(body.state) ||
+      body.actionsSinceLastSave === null ||
+      typeof body.actionsSinceLastSave !== "object" ||
+      Array.isArray(body.actionsSinceLastSave)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-intermission-complete",
+        detail:
+          "playerId must be a UUID string, state and actionsSinceLastSave must be objects",
+      });
+      return;
+    }
+    const nowMs = clock();
+    const result = await store.completeIntermission(
+      body.playerId,
+      body,
+      nowMs
+    );
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "rejected") {
+      console.warn(
+        "[save] rejected intermission completion",
+        JSON.stringify({
+          playerId: body.playerId,
+          rule: result.rule,
+          detail: result.detail,
+          prevSavedAtMs: result.lastGood?.savedAtMs ?? null,
+          state: body.state,
+        })
+      );
+      sendJson(res, 409, {
+        error: "intermission-complete-rejected",
+        rule: result.rule,
+        detail: result.detail,
+        lastGoodState: snapshotBody(result.lastGood),
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      alreadyCompleted: result.status === "already-completed",
+      playerId: body.playerId,
+      savedAt: iso(result.savedAtMs),
+      state: result.state,
+      grant: result.grant,
+    });
+  }
+
   async function handleLoad(req, res, url) {
     const playerId = url.searchParams.get("playerId");
     if (!playerId || !UUID_RE.test(playerId)) {
@@ -811,6 +989,16 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         await handleResetSave(req, res);
       } else if (req.method === "POST" && url.pathname === "/api/save/sell") {
         await handleSellCompany(req, res);
+      } else if (
+        req.method === "POST" &&
+        url.pathname === "/api/save/store/buy"
+      ) {
+        await handleStoreBuy(req, res);
+      } else if (
+        req.method === "POST" &&
+        url.pathname === "/api/save/intermission/complete"
+      ) {
+        await handleCompleteIntermission(req, res);
       } else if (req.method === "GET" && url.pathname === "/healthz") {
         sendJson(res, 200, { ok: true });
       } else if (url.pathname === "/api/account/link" && req.method === "POST") {

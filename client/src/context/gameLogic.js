@@ -161,7 +161,11 @@ export function calculateLOCPerClick(state) {
     csSprint ? csSprint.multiplier : 1,
     // Prestige (Slice 1): the Founder multiplier applies once to
     // click production, from Lifetime Equity earned.
-    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0)
+    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0),
+    // Permanent store (Slice 2): the Keyboard rank adds to the base
+    // click and the Engineering Handbook rank multiplies production
+    // once, both inside shared locPerClick.
+    state.permanentStoreRanks ?? {}
   );
   const clickBuff = activeStarBuff(state, "click");
   return clickBuff ? base * clickBuff.multiplier : base;
@@ -213,7 +217,17 @@ export function calculateLOCPerSecond(state) {
   // scales the same boosted rate the base uses — and a Frenzy then
   // multiplies the whole boosted total, the same as before.
   const founder = shared.founderMultiplier(state.lifetimeEquityEarned ?? 0);
-  const base = shared.locPerSecond(employeeCounts, openSourceLevels, founder);
+  // Permanent store (Slice 2): the Engineering Handbook rank
+  // multiplies production once, inside shared locPerSecond and the
+  // type rates below, so a Sprint scales the same boosted rate the
+  // base uses.
+  const storeRanks = state.permanentStoreRanks ?? {};
+  const base = shared.locPerSecond(
+    employeeCounts,
+    openSourceLevels,
+    founder,
+    storeRanks
+  );
 
   // Employee buffs: each scales one type's contribution to the base rate.
   let total = base;
@@ -224,7 +238,8 @@ export function calculateLOCPerSecond(state) {
       type,
       employeeCounts,
       openSourceLevels,
-      founder
+      founder,
+      storeRanks
     );
     total += (buff.multiplier - 1) * typeRate;
   }
@@ -235,8 +250,12 @@ export function calculateLOCPerSecond(state) {
   // Floor the final total (Brandon: a tick must never commit a
   // fractional amount). The shared base rate is already floored, but a
   // live buff's extra can re-fractionalize the total, so the floor
-  // sits here, on the final total.
-  return Math.floor(total);
+  // sits here, on the final total. The +1e-9 guards it against float
+  // representation error (1 + 0.15 is 1.1499999999999999 in binary,
+  // so a Handbook-boosted type rate can land a hair below a whole
+  // number); it is far below any real fractional LOC the game
+  // produces, so a genuine 10.5 still floors to 10.
+  return Math.floor(total + 1e-9);
 }
 
 /**
@@ -343,13 +362,17 @@ export function getStarBrokerLevel(state) {
  * so it is IN this rate — a rate-based Airdrop and the StarBroker
  * cost both read the healthy production rate including permanent
  * bonuses but excluding temporary star multipliers, and the result is
- * never multiplied again.
+ * never multiplied again. Permanent store (Slice 2): the Engineering
+ * Handbook rank is a permanent bonus too, so it is IN this rate as
+ * well — the Starting Capital quote and the unaffordable-store
+ * estimates both read it.
  */
 export function getBaseLocPerSecond(state) {
   return shared.locPerSecond(
     flatEmployeeCounts(state),
     flatOpenSourceLevels(state),
-    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0)
+    shared.founderMultiplier(state.lifetimeEquityEarned ?? 0),
+    state.permanentStoreRanks ?? {}
   );
 }
 

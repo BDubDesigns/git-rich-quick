@@ -19,13 +19,17 @@
 import { randomUUID } from "node:crypto";
 import {
   applyPrestigeSale,
+  availableEquity,
+  completePrestigeIntermission,
   founderMultiplier,
   initialSaveState,
   normalizeSaveState,
 } from "../../shared/game-balance.js";
 import {
+  validateCompleteIntermission,
   validatePrestigeSale,
   validateSave,
+  validateStoreBuy,
 } from "./validate.js";
 
 const CREATE_TABLE_SQL = `
@@ -515,6 +519,259 @@ export function createStore(pool) {
               postState.lifetimeEquityEarned
             ),
             saleCount: postState.saleCount,
+          },
+        };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
+     * Permanent store (prestige, Slice 2): buy the next rank of one
+     * store track, atomically. `body` is `{ playerId, storeId, rank,
+     * state, actionsSinceLastSave }`, where `state` is the client's
+     * freshest state and `rank` is the rank being bought (always the
+     * next rank after the one owned). Purchases are available ONLY in
+     * the post-sale intermission: the stored state must still have
+     * the intermission open, and the sent state's intermission must
+     * match it.
+     *
+     * Like the sale, the sent state is first validated as an ordinary
+     * successor of the stored state (same trust boundary as a normal
+     * save, minus the rate limit — a buy right after a save is not a
+     * flood), so unsaved intermission progress (clicks) is preserved
+     * instead of being overwritten by the stored snapshot. The
+     * purchase is then validated (rank order, funds from the STORED
+     * Equity books) and applied to the sent state in the same
+     * transaction, against the locked row.
+     *
+     * Idempotency: a rank that is already owned returns
+     * "already-owned" with the stored state and no second charge —
+     * a retried purchase whose first response was lost. The client
+     * restores the stored state and treats it as success.
+     *
+     * Returns one of:
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "rejected", rule, detail, lastGood }`
+     * - `{ status: "already-owned", state, savedAtMs, purchase }`
+     * - `{ status: "ok", state, savedAtMs, purchase }` (purchase is
+     *   `{ storeId, rank, price, equitySpent, availableEquity }`)
+     */
+    async applyStoreBuy(playerId, body, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT player_id, state, saved_at, created_at
+           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const prev = rowToSnapshot(res.rows[0]);
+        const prevState = normalizeSaveState(prev.state);
+        const sentState = normalizeSaveState(body.state);
+        const buyVerdict = validateStoreBuy(
+          prevState,
+          sentState,
+          body.storeId,
+          body.rank
+        );
+        if (!buyVerdict.ok && buyVerdict.alreadyOwned) {
+          await client.query("COMMIT");
+          return {
+            status: "already-owned",
+            state: prev.state,
+            savedAtMs: prev.savedAtMs,
+            purchase: {
+              storeId: body.storeId,
+              rank: body.rank,
+              price: null,
+              equitySpent: prevState.equitySpent,
+              availableEquity: availableEquity(
+                prevState.lifetimeEquityEarned,
+                prevState.equitySpent
+              ),
+            },
+          };
+        }
+        if (!buyVerdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: buyVerdict.rule,
+            detail: buyVerdict.detail,
+            lastGood: prev,
+          };
+        }
+        // The sent state must be a valid successor of the stored
+        // state (shape, monotonicity, consistency). The purchase
+        // itself is applied below, on top of the sent state — never
+        // on the stored snapshot, or unsaved intermission progress
+        // would be lost with the restore.
+        const verdict = validateSave(prev, body, nowMs, {
+          skipRateLimit: true,
+        });
+        if (!verdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: verdict.rule,
+            detail: verdict.detail,
+            lastGood: prev,
+          };
+        }
+        const nextState = {
+          ...sentState,
+          permanentStoreRanks: {
+            ...sentState.permanentStoreRanks,
+            [body.storeId]: body.rank,
+          },
+          equitySpent:
+            (sentState.equitySpent ?? 0) + buyVerdict.price,
+        };
+        await client.query(
+          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          [
+            JSON.stringify(nextState),
+            new Date(nowMs).toISOString(),
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        return {
+          status: "ok",
+          state: nextState,
+          savedAtMs: nowMs,
+          purchase: {
+            storeId: body.storeId,
+            rank: body.rank,
+            price: buyVerdict.price,
+            equitySpent: nextState.equitySpent,
+            availableEquity: availableEquity(
+              nextState.lifetimeEquityEarned,
+              nextState.equitySpent
+            ),
+          },
+        };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
+     * Complete the post-sale intermission (prestige, Slice 2): apply
+     * the Starting Capital grant once, from the frozen quote, and
+     * clear the intermission. `body` is `{ playerId, state,
+     * actionsSinceLastSave }`, the client's freshest state. Like the
+     * sale and the store buy, the sent state is first validated as
+     * an ordinary successor (minus the rate limit), so unsaved
+     * intermission progress is preserved.
+     *
+     * The grant uses the rank the player ends the intermission with
+     * and the frozen R and q from the sale (see
+     * shared.completePrestigeIntermission): money becomes max(current
+     * money, one base-price Intern, R x q x rank seconds). With no
+     * Starting Capital rank, money is unchanged. The max() makes the
+     * grant idempotent, and the intermission is cleared in the same
+     * transaction — a retried completion finds no intermission and
+     * returns "already-completed" with the stored state, never a
+     * second grant.
+     *
+     * Returns one of:
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "rejected", rule, detail, lastGood }`
+     * - `{ status: "already-completed", state, savedAtMs, grant }`
+     * - `{ status: "ok", state, savedAtMs, grant }` (grant is
+     *   `{ applied, cashCents }`)
+     */
+    async completeIntermission(playerId, body, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT player_id, state, saved_at, created_at
+           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        const prev = rowToSnapshot(res.rows[0]);
+        const prevState = normalizeSaveState(prev.state);
+        const sentState = normalizeSaveState(body.state);
+        const completeVerdict = validateCompleteIntermission(
+          prevState,
+          sentState
+        );
+        if (!completeVerdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: completeVerdict.rule,
+            detail: completeVerdict.detail,
+            lastGood: prev,
+          };
+        }
+        if (completeVerdict.alreadyCompleted) {
+          await client.query("COMMIT");
+          return {
+            status: "already-completed",
+            state: prev.state,
+            savedAtMs: prev.savedAtMs,
+            grant: { applied: false, cashCents: prevState.money ?? 0 },
+          };
+        }
+        const verdict = validateSave(prev, body, nowMs, {
+          skipRateLimit: true,
+        });
+        if (!verdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: verdict.rule,
+            detail: verdict.detail,
+            lastGood: prev,
+          };
+        }
+        const nextState = completePrestigeIntermission(sentState);
+        await client.query(
+          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          [
+            JSON.stringify(nextState),
+            new Date(nowMs).toISOString(),
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        return {
+          status: "ok",
+          state: nextState,
+          savedAtMs: nowMs,
+          grant: {
+            applied:
+              Math.max(
+                0,
+                sentState.permanentStoreRanks?.startingCapital ?? 0
+              ) >= 1,
+            cashCents: nextState.money ?? 0,
           },
         };
       } catch (err) {

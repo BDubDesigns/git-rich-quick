@@ -66,6 +66,11 @@ export function OpenSourceCard({
   isMaxed,
   canContribute,
   onContribute,
+  // Favorites (permanent store, Slice 2): whether this project is
+  // favorited, and the toggle handler. Both default off so older
+  // callers (tests, stories) keep working without them.
+  isFavorite = false,
+  onToggleFavorite = null,
 }) {
   const isConstellation = projectId === "constellation";
   const isStarBroker = projectId === "starBroker";
@@ -222,6 +227,26 @@ export function OpenSourceCard({
               <div>Maxed Out</div>
             )}
           </ActionButton>
+
+          {/* Favorite toggle (permanent store, Slice 2): favorites
+              sort first in the tab, and survive a sale only when the
+              Company Template rank is owned. A plain text button, not
+              an icon-only one, so the action is obvious at phone size. */}
+          {onToggleFavorite && (
+            <button
+              type="button"
+              onClick={onToggleFavorite}
+              aria-pressed={isFavorite}
+              aria-label={
+                isFavorite
+                  ? `Unfavorite ${project.name}`
+                  : `Favorite ${project.name}`
+              }
+              className="text-sm text-[#cccccc] bg-transparent border-0 cursor-pointer p-0 m-0"
+            >
+              {isFavorite ? "★ Favorited" : "☆ Favorite"}
+            </button>
+          )}
         </div>
       </div>
     </Panel>

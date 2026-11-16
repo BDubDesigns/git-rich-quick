@@ -89,12 +89,16 @@ import {
   FREELANCE_PROJECT_KEYS,
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
+  PRESTIGE_STORE_IDS,
+  availableEquity,
   canEquipCosmetic,
   claimableEquity,
   findCosmetic,
   normalizeSaveState,
   normalizeActions,
   releaseManagerAssignedCount,
+  storeMaxRank,
+  storeRankCost,
 } from "../../shared/game-balance.js";
 
 /** At most one accepted save per 1 second per player (flood control only). */
@@ -173,6 +177,9 @@ function checkStateShape(state) {
       "saleCount",
       "lifetimeLocAtLastSale",
       "lastSaleId",
+      "permanentStoreRanks",
+      "prestigeIntermission",
+      "favoriteOpenSourceProjects",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -274,6 +281,61 @@ function checkStateShape(state) {
     (typeof state.lastSaleId !== "string" || !UUID_RE.test(state.lastSaleId))
   ) {
     return "lastSaleId must be null or a UUID string";
+  }
+  // Permanent store (Slice 2). Ranks are a count map over the five
+  // store tracks, each 0 to its own max (3 for the ranked tracks, 1
+  // for Company Template). The intermission is null outside a sale,
+  // or the frozen Starting Capital quote from the sale that opened
+  // it (the sale id, the healthy passive LOC/s, and the best payout
+  // per LOC in cents per LOC — both non-negative numbers, the rate
+  // may be fractional once Client Network applies). Favorites are a
+  // list of open-source project ids, deduped by normalizeSaveState;
+  // an unknown id is a stale favorite, rejected here.
+  if (!isCountMap(state.permanentStoreRanks, PRESTIGE_STORE_IDS)) {
+    return "permanentStoreRanks must be non-negative integer ranks";
+  }
+  for (const storeId of PRESTIGE_STORE_IDS) {
+    if (state.permanentStoreRanks[storeId] > storeMaxRank(storeId)) {
+      return `permanentStoreRanks ${storeId} exceeds its max rank`;
+    }
+  }
+  if (state.prestigeIntermission !== null) {
+    const intermission = state.prestigeIntermission;
+    if (
+      !hasExactKeys(intermission, [
+        "saleId",
+        "frozenHealthyPassiveLocPerSec",
+        "frozenBestPayoutPerLocCents",
+      ])
+    ) {
+      return "prestigeIntermission has unknown or missing keys";
+    }
+    if (
+      typeof intermission.saleId !== "string" ||
+      !UUID_RE.test(intermission.saleId)
+    ) {
+      return "prestigeIntermission saleId must be a UUID string";
+    }
+    if (!isNonNegNumber(intermission.frozenHealthyPassiveLocPerSec)) {
+      return "prestigeIntermission frozenHealthyPassiveLocPerSec must be a non-negative number";
+    }
+    if (!isNonNegNumber(intermission.frozenBestPayoutPerLocCents)) {
+      return "prestigeIntermission frozenBestPayoutPerLocCents must be a non-negative number";
+    }
+  }
+  if (!Array.isArray(state.favoriteOpenSourceProjects)) {
+    return "favoriteOpenSourceProjects must be an array";
+  }
+  for (const id of state.favoriteOpenSourceProjects) {
+    if (!OPEN_SOURCE_IDS.includes(id)) {
+      return `favoriteOpenSourceProjects has an unknown project id: ${id}`;
+    }
+  }
+  if (
+    new Set(state.favoriteOpenSourceProjects).size !==
+    state.favoriteOpenSourceProjects.length
+  ) {
+    return "favoriteOpenSourceProjects must not contain duplicates";
   }
   // In-game inbox (issue #31). The client caps the inbox at
   // EMAIL_CONFIG.maxInboxEmails and deletes the oldest past it, so a
@@ -753,6 +815,37 @@ export function validateSave(prev, body, nowMs, options = {}) {
   if (newState.lastSaleId !== prevState.lastSaleId) {
     return fail("PRESTIGE", "lastSaleId changed outside a sale");
   }
+  // Permanent store (Slice 2): ranks only move through the store-buy
+  // endpoint, never through an ordinary save. A normal save that
+  // changes any rank — up or down — is rejected, the same way a
+  // normal save cannot move the sale-only Equity books. The buy
+  // endpoint is the only path that writes them (and equitySpent).
+  for (const storeId of PRESTIGE_STORE_IDS) {
+    if (
+      (newState.permanentStoreRanks?.[storeId] ?? 0) !==
+      (prevState.permanentStoreRanks?.[storeId] ?? 0)
+    ) {
+      return fail(
+        "STORE",
+        `permanentStoreRanks ${storeId} changed outside the store`
+      );
+    }
+  }
+  // Post-sale intermission (Slice 2): only the sale opens it and
+  // only completing it clears it. A normal save that sets, clears,
+  // or alters the frozen quote is rejected — the frozen Starting
+  // Capital quote must survive untouched until the player completes
+  // the intermission, or the grant could be repriced from the empty
+  // new company. Compared as JSON: the record is small and flat.
+  if (
+    JSON.stringify(newState.prestigeIntermission ?? null) !==
+    JSON.stringify(prevState.prestigeIntermission ?? null)
+  ) {
+    return fail(
+      "PRESTIGE",
+      "prestigeIntermission changed outside the intermission flow"
+    );
+  }
   // Llama farm (issue #79): the farm is bought once and never
   // un-bought; unlocked types only grow; and a stall's llama, once
   // placed, never changes type and never goes back to empty — there is
@@ -895,4 +988,110 @@ export function validatePrestigeSale(prevState, sentState, saleId) {
     return fail("SALE", "no new Equity to claim");
   }
   return { ok: true, gainedEquity };
+}
+
+/**
+ * Validate a permanent-store purchase (Slice 2). `prevState` is the
+ * stored state, `sentState` the client's freshest state (already
+ * validated as an ordinary successor, so it carries the same
+ * intermission and the same Equity books as the stored state). The
+ * purchase is always for the NEXT rank of one track: ranks are
+ * bought in order, one at a time, and the price is the per-rank
+ * price, not cumulative.
+ *
+ * Returns `{ ok: true, price }`, or `{ ok: false, rule, detail }`.
+ * `rule` is STORE for a purchase that cannot apply, PRESTIGE when
+ * the intermission or the Equity books disagree with the stored
+ * ones. `alreadyOwned` is true when the rank is already bought: a
+ * retried purchase whose first response was lost. The caller returns
+ * the stored state for that case (no second charge), the same
+ * idempotency shape as a retried sale.
+ */
+export function validateStoreBuy(prevState, sentState, storeId, rank) {
+  if (typeof storeId !== "string") {
+    return fail("STORE", "storeId must be a string");
+  }
+  if (!PRESTIGE_STORE_IDS.includes(storeId)) {
+    return fail("STORE", `unknown store track: ${storeId}`);
+  }
+  if (!Number.isInteger(rank) || rank < 1) {
+    return fail("STORE", "rank must be a positive integer");
+  }
+  const intermission = prevState.prestigeIntermission ?? null;
+  if (!intermission) {
+    return fail(
+      "STORE",
+      "the permanent store is only open in the post-sale intermission"
+    );
+  }
+  const sentIntermission = sentState.prestigeIntermission ?? null;
+  if (
+    !sentIntermission ||
+    sentIntermission.saleId !== intermission.saleId
+  ) {
+    return fail(
+      "PRESTIGE",
+      "prestigeIntermission does not match the stored intermission"
+    );
+  }
+  if (sentState.equitySpent !== prevState.equitySpent) {
+    return fail("PRESTIGE", "equitySpent changed outside the store");
+  }
+  const currentRank = prevState.permanentStoreRanks?.[storeId] ?? 0;
+  if (rank <= currentRank) {
+    return {
+      ok: false,
+      rule: "STORE",
+      detail: `${storeId} rank ${rank} is already owned`,
+      alreadyOwned: true,
+    };
+  }
+  if (rank !== currentRank + 1) {
+    return fail(
+      "STORE",
+      `${storeId} rank ${rank} is not the next rank (current ${currentRank})`
+    );
+  }
+  const price = storeRankCost(storeId, rank);
+  if (price === null) {
+    return fail("STORE", `${storeId} has no rank ${rank}`);
+  }
+  const spendable = availableEquity(
+    prevState.lifetimeEquityEarned,
+    prevState.equitySpent
+  );
+  if (price > spendable) {
+    return fail(
+      "STORE",
+      `${storeId} rank ${rank} costs ${price} Equity, only ${spendable} spendable`
+    );
+  }
+  return { ok: true, price };
+}
+
+/**
+ * Validate completing the post-sale intermission (Slice 2). The
+ * stored state must still have the intermission open, and the sent
+ * state's intermission must match it (same sale). Returns
+ * `{ ok: true, alreadyCompleted }`: alreadyCompleted is true when
+ * the intermission is already gone (a retried completion whose
+ * first response was lost) — the caller returns the stored state
+ * without applying the grant a second time.
+ */
+export function validateCompleteIntermission(prevState, sentState) {
+  const intermission = prevState.prestigeIntermission ?? null;
+  if (!intermission) {
+    return { ok: true, alreadyCompleted: true };
+  }
+  const sentIntermission = sentState.prestigeIntermission ?? null;
+  if (
+    !sentIntermission ||
+    sentIntermission.saleId !== intermission.saleId
+  ) {
+    return fail(
+      "PRESTIGE",
+      "prestigeIntermission does not match the stored intermission"
+    );
+  }
+  return { ok: true, alreadyCompleted: false };
 }

@@ -200,3 +200,33 @@ export async function sellCompany(baseUrl, body) {
     body,
   });
 }
+
+/**
+ * Buy the next rank of one permanent-store track (prestige, Slice 2).
+ * POST /api/save/store/buy with `{ playerId, storeId, rank, state,
+ * actionsSinceLastSave }`. `rank` is the rank being bought (always the
+ * next rank after the one owned). The server validates the purchase
+ * and applies it atomically; a retried purchase returns the
+ * already-owned state without charging again.
+ */
+export async function buyStoreRank(baseUrl, body) {
+  return request(baseUrl, "/api/save/store/buy", {
+    method: "POST",
+    body,
+  });
+}
+
+/**
+ * Complete the post-sale intermission (prestige, Slice 2). POST
+ * /api/save/intermission/complete with `{ playerId, state,
+ * actionsSinceLastSave }`. The server applies the Starting Capital
+ * grant once, from the frozen sale quote, and clears the
+ * intermission; a retried completion returns the already-completed
+ * state without granting again.
+ */
+export async function completeIntermission(baseUrl, body) {
+  return request(baseUrl, "/api/save/intermission/complete", {
+    method: "POST",
+    body,
+  });
+}

@@ -17,6 +17,17 @@ export function OpenSource() {
     dispatch({ type: "CONTRIBUTE_TO_PROJECT", payload: { projectId } });
   };
 
+  // Favorites (permanent store, Slice 2): toggle a project in the
+  // favorite list; favorites sort first in the tab (see
+  // sortOpenSourceProjectIds) and survive a sale only when the
+  // Company Template rank is owned.
+  const handleToggleFavorite = (projectId) => {
+    dispatch({
+      type: "FAVORITE_OPEN_SOURCE_PROJECT",
+      payload: { projectId },
+    });
+  };
+
   // Maxed-out projects sink to the bottom; projects that still have
   // levels to buy stay higher (stable within each group).
   const sortedIds = sortOpenSourceProjectIds(
@@ -85,6 +96,10 @@ export function OpenSource() {
             isMaxed={isMaxed}
             canContribute={canContribute}
             onContribute={() => handleContribute(id)}
+            isFavorite={(state.favoriteOpenSourceProjects ?? []).includes(
+              id
+            )}
+            onToggleFavorite={() => handleToggleFavorite(id)}
           />
         ),
       };
