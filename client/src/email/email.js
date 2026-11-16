@@ -73,6 +73,16 @@ export function newEmailId() {
 }
 
 /**
+ * A unique id for one golden star claim. The star email is keyed by it
+ * (`star-reward:<claimId>`), so every claim is its own trigger event.
+ * GoldenStar stamps it on each claim it rolls; resolveStarClaim stays
+ * pure (tests call it with an injected rng).
+ */
+export function newStarClaimId() {
+  return newEmailId();
+}
+
+/**
  * Add one email to the inbox. Deduped by triggerKey: if an email with
  * that key already exists, the inbox is returned unchanged. Past the
  * cap, the oldest emails are dropped (the array is chronological).
@@ -418,7 +428,9 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
         rewardText: starRewardDetail(starClaim, employeeTypeName),
         good: starClaim.good,
       }),
-      `star-reward:${starClaim.claimId}`
+      // A claim without an id still gets its own key: each claim is a
+      // separate trigger event, never deduped against an older one.
+      `star-reward:${starClaim.claimId ?? newStarClaimId()}`
     );
   }
 

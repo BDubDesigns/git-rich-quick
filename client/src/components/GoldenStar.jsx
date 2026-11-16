@@ -27,6 +27,7 @@ import {
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
 import { FloatingText } from "./FloatingText.jsx";
+import { newStarClaimId } from "../email/email.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 import "./GoldenStar.css";
 
@@ -557,7 +558,7 @@ export function GoldenStar() {
     const effect = rollStarEffect(constellationLevel);
     if (effect === null) return null;
     const good = rollStarGood();
-    return resolveStarClaim({
+    const claim = resolveStarClaim({
       effect,
       good,
       locPerSecond: getBaseLocPerSecond(state),
@@ -565,6 +566,9 @@ export function GoldenStar() {
       linesOfCode: state.linesOfCode,
       employeeCounts: flatEmployeeCounts(state),
     });
+    // Each claim is its own email trigger (issue #31), so it needs a
+    // unique id: the star email is keyed `star-reward:<claimId>`.
+    return { ...claim, claimId: newStarClaimId() };
   }, [constellationLevel, state]);
 
   // End the Shooting Stars chain (issue #138): one summary email for
