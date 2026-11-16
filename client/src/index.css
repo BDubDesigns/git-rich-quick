@@ -219,3 +219,42 @@ body {
     scale: 1.15;
   }
 }
+
+/* Header progress strips (issue #131): a thin bar under the star bars,
+   the same shape as the star countdown bar so the strips read as one
+   group. The Equity fill is violet so it never reads as a star bar. */
+.progress-strip {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.progress-strip-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 1s linear;
+}
+
+.progress-strip-fill--equity {
+  background: linear-gradient(90deg, #6d28d9, #a78bfa);
+}
+
+.progress-strip-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  white-space: nowrap;
+}

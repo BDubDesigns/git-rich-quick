@@ -1,5 +1,6 @@
 import { StatBox } from "./StatBox";
 import { SubtracterallStrip } from "./SubtracterallStrip.jsx";
+import { EquityProgressStrip } from "./EquityProgressStrip.jsx";
 import smallLogo from "../img/duck_logo_small.png";
 
 export function Header() {
@@ -43,6 +44,11 @@ export function Header() {
           collapsible — GoldenStar owns the toggle (tap the countdown
           bar to hide all the bars, tap the collapsed strip to show them). */}
       <div id="star-buy-slot" className="px-2" />
+
+      {/* Equity progress strip (issue #131): progress to the next
+          Equity point and the time left at the current rate, alongside
+          the star bars, on every tab. Hidden until the goal is visible. */}
+      <EquityProgressStrip />
 
       {/* SUBTRACTERALL phase strip (Slice 3): a thin strip under the
           star area, shown only during an active Burst or Withdrawal,
