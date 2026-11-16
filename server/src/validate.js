@@ -133,9 +133,10 @@ function isCountMap(obj, keys) {
 
 /**
  * Rule 1 — shape. Only known keys, right types, no negatives, levels
- * 0 to each project's own max (5 for all three projects now), NoPilot
- * frozen at 0 (no buy action exists for it in v1). Star-era fields
- * (activeStarEffects, the star timers) are validated here too.
+ * 0 to each project's own max (5 for the original four projects, 10
+ * for the doubling upgrades), NoPilot frozen at 0 (no buy action
+ * exists for it in v1). Star-era fields (activeStarEffects, the star
+ * timers) are validated here too.
  */
 /**
  * Shape-check a bare save state (no playerId, no actions). Extracted from

@@ -178,6 +178,31 @@ export function saveStateToGameFields(saveState) {
         saveState
       ),
       starBroker: openSourceUnlockConditionsMet("starBroker", saveState),
+      // The doubling upgrades (issue #118): a save that predates
+      // them has no latch for them, so each missing one comes from
+      // the save's own employee counts (own 10 of that type) instead
+      // of defaulting to locked behind a goal it already cleared.
+      // Existing latches are trusted (??, not re-derived): these
+      // projects ship with their conditions, so no stale latch can
+      // exist, and the reducer maintains the latch from here on.
+      coffeeScript:
+        saveState.unlockedOpenSourceProjects?.coffeeScript ??
+        openSourceUnlockConditionsMet("coffeeScript", saveState),
+      juniorAchievement:
+        saveState.unlockedOpenSourceProjects?.juniorAchievement ??
+        openSourceUnlockConditionsMet("juniorAchievement", saveState),
+      seniorMoment:
+        saveState.unlockedOpenSourceProjects?.seniorMoment ??
+        openSourceUnlockConditionsMet("seniorMoment", saveState),
+      scrumMaster:
+        saveState.unlockedOpenSourceProjects?.scrumMaster ??
+        openSourceUnlockConditionsMet("scrumMaster", saveState),
+      commitmentIssues:
+        saveState.unlockedOpenSourceProjects?.commitmentIssues ??
+        openSourceUnlockConditionsMet("commitmentIssues", saveState),
+      shipHappens:
+        saveState.unlockedOpenSourceProjects?.shipHappens ??
+        openSourceUnlockConditionsMet("shipHappens", saveState),
     },
     // A save from before project unlocks shipped (issue #19) has no
     // freelance latch — the load path returns the raw stored state,

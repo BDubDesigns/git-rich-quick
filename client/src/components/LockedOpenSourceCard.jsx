@@ -1,7 +1,10 @@
 // Number abbreviation (issue #42) — the shared formatter.
 import { formatNumber } from "../../../shared/formatNumber.js";
 import {
+  DOUBLING_PROJECT_EMPLOYEE,
+  EMPLOYEE_DISPLAY_NAMES,
   formatCooldownSeconds,
+  isDoublingProject,
   starBrokerCooldownSeconds,
 } from "../../../shared/game-balance.js";
 import { Button } from "./Button.jsx";
@@ -21,7 +24,13 @@ export function LockedOpenSourceCard({
 }) {
   // StarBroker has no numeric bonus — v1.0 buys stars on an 8m
   // cooldown — so the bonus line names the cooldown, not "+0 STAR".
+  // A doubling upgrade (issue #118) has a multiplier bonus, so its
+  // line names the first level's multiplier instead of "+2 DOUBLE".
   const isStarBroker = projectId === "starBroker";
+  const isDoubling = isDoublingProject(projectId);
+  const doublingEmployeeName = isDoubling
+    ? EMPLOYEE_DISPLAY_NAMES[DOUBLING_PROJECT_EMPLOYEE[projectId]]
+    : null;
   return (
     <Panel className="locked px-3 pb-1 flex flex-col gap-1 m-0">
       {/* Two-column layout */}
@@ -43,7 +52,9 @@ export function LockedOpenSourceCard({
               value={
                 isStarBroker
                   ? `Cooldown ${formatCooldownSeconds(starBrokerCooldownSeconds(1))} between bought stars`
-                  : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`
+                  : isDoubling
+                    ? `${doublingEmployeeName} output x2`
+                    : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`
               }
               valueClassName="text-green-400"
             />

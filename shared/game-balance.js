@@ -101,6 +101,26 @@ export function starBrokerLevelUpFloatText(newLevel) {
   return `Cooldown ${formatCooldownSeconds(starBrokerCooldownSeconds(newLevel))}!`;
 }
 
+/**
+ * Ten doubling levels for one employee type (issue #118): level i+1
+ * costs base x 2^i and doubles that type's output. The bonus is
+ * { type: "DOUBLE", value: 2 } at every level — a multiplier, not an
+ * additive bonus, so totalBonusByType never sums it (the doubling
+ * multiplier is read by doublingMultiplier below, not by the
+ * CLICK_BOOST / PASSIVE_BOOST sums). Costs are exact integers:
+ * base x 2^9 at most, far below the float-precision limit.
+ */
+function doublingLevels(baseCost) {
+  return Object.freeze(
+    Array.from({ length: 10 }, (_, i) =>
+      Object.freeze({
+        locCost: baseCost * Math.pow(2, i),
+        bonus: Object.freeze({ type: "DOUBLE", value: 2 }),
+      })
+    )
+  );
+}
+
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
     tickIntervalMs: 1000,
@@ -464,6 +484,75 @@ export const BALANCE = Object.freeze({
         }),
       ]),
     }),
+    // Doubling upgrades (issue #118): one leveled GitNub project per
+    // employee type, 10 levels each. Every level doubles that type's
+    // output. Cost curve is 2x per level (Brandon, Nov 15): 10x makes
+    // the high click levels unreachable (Commitment Issues L5 would
+    // cost 10B, over a month of passive at 3,660 LOC/s) and 1.15x
+    // maxes everything in about 1.5 hours. At 2x, maxing one track
+    // costs about 1B LOC (around 3 days at 3,660/s) and maxing all six
+    // is about 16 days of passive. Unlock: own 10 of that type.
+    // Base costs are tuning values.
+    coffeeScript: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_EMPLOYEE_COUNT",
+          employeeType: "intern",
+          target: 10,
+        }),
+      ]),
+      levels: doublingLevels(100000),
+    }),
+    juniorAchievement: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_EMPLOYEE_COUNT",
+          employeeType: "junior",
+          target: 10,
+        }),
+      ]),
+      levels: doublingLevels(250000),
+    }),
+    seniorMoment: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_EMPLOYEE_COUNT",
+          employeeType: "senior",
+          target: 10,
+        }),
+      ]),
+      levels: doublingLevels(500000),
+    }),
+    scrumMaster: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_EMPLOYEE_COUNT",
+          employeeType: "projectManager",
+          target: 10,
+        }),
+      ]),
+      levels: doublingLevels(1000000),
+    }),
+    commitmentIssues: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_EMPLOYEE_COUNT",
+          employeeType: "commitSpecialist",
+          target: 10,
+        }),
+      ]),
+      levels: doublingLevels(1000000),
+    }),
+    shipHappens: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "SPECIFIC_EMPLOYEE_COUNT",
+          employeeType: "releaseManager",
+          target: 10,
+        }),
+      ]),
+      levels: doublingLevels(2000000),
+    }),
   }),
 });
 
@@ -489,7 +578,63 @@ export const OPEN_SOURCE_IDS = Object.freeze([
   "blocker",
   "constellation",
   "starBroker",
+  "coffeeScript",
+  "juniorAchievement",
+  "seniorMoment",
+  "scrumMaster",
+  "commitmentIssues",
+  "shipHappens",
 ]);
+
+/** The six doubling-upgrade projects (issue #118). */
+export const DOUBLING_PROJECT_IDS = Object.freeze([
+  "coffeeScript",
+  "juniorAchievement",
+  "seniorMoment",
+  "scrumMaster",
+  "commitmentIssues",
+  "shipHappens",
+]);
+
+/** Which employee type each doubling project doubles. */
+export const DOUBLING_PROJECT_EMPLOYEE = Object.freeze({
+  coffeeScript: "intern",
+  juniorAchievement: "junior",
+  seniorMoment: "senior",
+  scrumMaster: "projectManager",
+  commitmentIssues: "commitSpecialist",
+  shipHappens: "releaseManager",
+});
+
+/** Whether a project id is one of the six doubling upgrades. */
+export function isDoublingProject(projectId) {
+  return DOUBLING_PROJECT_IDS.includes(projectId);
+}
+
+/**
+ * The output multiplier for an employee type from its doubling
+ * project (issue #118): 2^(that project's level), 1 when the project
+ * is unowned or at level 0. A missing level defaults to 0, so saves
+ * from before the doubling upgrades shipped read as 1x, never NaN.
+ */
+export function doublingMultiplier(employeeType, openSourceLevels = {}) {
+  const projectId = Object.keys(DOUBLING_PROJECT_EMPLOYEE).find(
+    (id) => DOUBLING_PROJECT_EMPLOYEE[id] === employeeType
+  );
+  if (!projectId) return 1;
+  const level = openSourceLevels?.[projectId] ?? 0;
+  return Math.pow(2, level);
+}
+
+/**
+ * Ships per assigned Release Manager per ship interval: 1 at Ship
+ * Happens level 0, doubling each level (2 at L1, 4 at L2, 1024 at
+ * L10). The tick's LOC check still gates each ship, so a manager
+ * that cannot afford the next ship waits for the next interval.
+ */
+export function releaseManagerShipsPerInterval(openSourceLevels = {}) {
+  return doublingMultiplier("releaseManager", openSourceLevels);
+}
 
 /**
  * Release Manager (auto-ships freelance projects). One ship per
@@ -1216,16 +1361,31 @@ export function locPerClick(
 ) {
   return Math.floor(
     (BALANCE.mechanics.baseLocPerClick +
-      commitSpecialistClickBonus(employeeCounts, csSprintMultiplier)) *
+      commitSpecialistClickBonus(
+        employeeCounts,
+        csSprintMultiplier,
+        openSourceLevels
+      )) *
       (1 + clickBonus(openSourceLevels))
   );
 }
 
-/** Base passive LOC/sec from employees, before the passive bonus. */
-export function baseLocPerSecond(employeeCounts) {
+/**
+ * Base passive LOC/sec from employees, before the passive bonus.
+ * Each type's rate is doubled per level of its doubling project
+ * (issue #118): CoffeeScript doubles Interns, Junior Achievement
+ * doubles Juniors, Senior Moment doubles Seniors. Project Managers,
+ * Commit Specialists and Release Managers contribute 0 LOC/s here,
+ * so their doubling is a no-op in this sum (their value lives in
+ * the boost, the click, and the auto-ship instead).
+ */
+export function baseLocPerSecond(employeeCounts, openSourceLevels = {}) {
   return EMPLOYEE_TYPES.reduce(
     (sum, type) =>
-      sum + BALANCE.employees[type].locPerSecond * (employeeCounts[type] ?? 0),
+      sum +
+      BALANCE.employees[type].locPerSecond *
+        (employeeCounts[type] ?? 0) *
+        doublingMultiplier(type, openSourceLevels),
     0
   );
 }
@@ -1235,15 +1395,19 @@ export function baseLocPerSecond(employeeCounts) {
  * employee passive LOC. `pmSprintMultiplier` is a live Sprint on Project
  * Managers (default 1, i.e. no Sprint); a 5x Sprint makes each manager
  * give +5% while it is live, a Meeting halves it to +0.5% per manager.
+ * Scrum Master (issue #118) doubles the per-manager boost each level:
+ * +2% at L1, +4% at L2, +1024% at L10.
  */
 export function projectManagerBoostFraction(
   employeeCounts,
-  pmSprintMultiplier = 1
+  pmSprintMultiplier = 1,
+  openSourceLevels = {}
 ) {
   return (
     BALANCE.employees.projectManager.passiveBoostPerEmployee *
     (employeeCounts?.projectManager ?? 0) *
-    pmSprintMultiplier
+    pmSprintMultiplier *
+    doublingMultiplier("projectManager", openSourceLevels)
   );
 }
 
@@ -1251,8 +1415,8 @@ export function projectManagerBoostFraction(
  * the boost fraction times the passive rate it scales. */
 export function projectManagerBoostRate(employeeCounts, openSourceLevels) {
   return (
-    projectManagerBoostFraction(employeeCounts) *
-    baseLocPerSecond(employeeCounts) *
+    projectManagerBoostFraction(employeeCounts, 1, openSourceLevels) *
+    baseLocPerSecond(employeeCounts, openSourceLevels) *
     (1 + passiveBonus(openSourceLevels))
   );
 }
@@ -1266,15 +1430,19 @@ export function projectManagerBoostRate(employeeCounts, openSourceLevels) {
  * once the total is floored. `csSprintMultiplier` is a live Sprint on
  * Commit Specialists (default 1); a 5x Sprint makes each specialist
  * give +1.0 per click, so floor(1.0 x N) once the total is floored.
+ * Commitment Issues (issue #118) doubles the per-specialist bonus
+ * each level: +0.4 at L1, +0.8 at L2, +204.8 at L10.
  */
 export function commitSpecialistClickBonus(
   employeeCounts,
-  csSprintMultiplier = 1
+  csSprintMultiplier = 1,
+  openSourceLevels = {}
 ) {
   return (
     BALANCE.employees.commitSpecialist.clickBonusPerEmployee *
     (employeeCounts?.commitSpecialist ?? 0) *
-    csSprintMultiplier
+    csSprintMultiplier *
+    doublingMultiplier("commitSpecialist", openSourceLevels)
   );
 }
 
@@ -1298,8 +1466,9 @@ export function employeeBuffTypeRate(employeeType, employeeCounts, openSourceLev
   return (
     BALANCE.employees[employeeType].locPerSecond *
     (employeeCounts?.[employeeType] ?? 0) *
+    doublingMultiplier(employeeType, openSourceLevels) *
     (1 + passiveBonus(openSourceLevels)) *
-    (1 + projectManagerBoostFraction(employeeCounts))
+    (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels))
   );
 }
 
@@ -1320,9 +1489,9 @@ export function employeeBuffTypeRate(employeeType, employeeCounts, openSourceLev
  */
 export function locPerSecond(employeeCounts, openSourceLevels) {
   return Math.floor(
-    baseLocPerSecond(employeeCounts) *
+    baseLocPerSecond(employeeCounts, openSourceLevels) *
       (1 + passiveBonus(openSourceLevels)) *
-      (1 + projectManagerBoostFraction(employeeCounts))
+      (1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels))
   );
 }
 
@@ -1644,6 +1813,25 @@ export function normalizeSaveState(state) {
     };
   }
   if (
+    next.openSourceProjects &&
+    typeof next.openSourceProjects === "object" &&
+    !Array.isArray(next.openSourceProjects)
+  ) {
+    // The doubling upgrades (issue #118) shipped after StarBroker: a
+    // save from before them has none of the six keys. Default each
+    // missing one to 0, same as constellation and starBroker — without
+    // this, the exact-keys shape check rejects the old save.
+    let changed = false;
+    const filled = { ...next.openSourceProjects };
+    for (const projectId of DOUBLING_PROJECT_IDS) {
+      if (filled[projectId] === undefined) {
+        filled[projectId] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.openSourceProjects = filled;
+  }
+  if (
     next.unlockedOpenSourceProjects &&
     typeof next.unlockedOpenSourceProjects === "object" &&
     !Array.isArray(next.unlockedOpenSourceProjects)
@@ -1670,6 +1858,21 @@ export function normalizeSaveState(state) {
       constellation: openSourceUnlockConditionsMet("constellation", next),
       starBroker: openSourceUnlockConditionsMet("starBroker", next),
     };
+    // The doubling upgrades (issue #118): a save that predates them
+    // has no latch for them — derive each MISSING latch from the
+    // save's own employee counts (own 10 of that type) instead of
+    // defaulting to locked behind a goal it already cleared. Existing
+    // latches are trusted, not re-derived: these projects ship with
+    // their conditions, so no stale latch can exist (unlike
+    // Constellation, which gained its condition after shipping
+    // unlocked), and only filling missing ones keeps normalize
+    // idempotent for current saves.
+    for (const projectId of DOUBLING_PROJECT_IDS) {
+      if (next.unlockedOpenSourceProjects[projectId] === undefined) {
+        next.unlockedOpenSourceProjects[projectId] =
+          openSourceUnlockConditionsMet(projectId, next);
+      }
+    }
   }
   if (!Array.isArray(next.activeStarEffects)) {
     next.activeStarEffects = [];
@@ -1953,6 +2156,25 @@ export function normalizeActions(actions) {
     };
   }
   if (
+    next.openSourceLevelsBought &&
+    typeof next.openSourceLevelsBought === "object" &&
+    !Array.isArray(next.openSourceLevelsBought)
+  ) {
+    // Same migration for the doubling upgrades (issue #118): a client
+    // from before they shipped has none of the six keys in its level
+    // deltas. Default each missing one to 0, or the exact-keys shape
+    // check rejects the save.
+    let changed = false;
+    const filled = { ...next.openSourceLevelsBought };
+    for (const projectId of DOUBLING_PROJECT_IDS) {
+      if (filled[projectId] === undefined) {
+        filled[projectId] = 0;
+        changed = true;
+      }
+    }
+    if (changed) next.openSourceLevelsBought = filled;
+  }
+  if (
     next.employeesBought &&
     typeof next.employeesBought === "object" &&
     !Array.isArray(next.employeesBought)
@@ -2058,6 +2280,12 @@ export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
   blocker: "Blocker Containerization Platform",
   constellation: "GitNub Constellation",
   starBroker: "StarBroker",
+  coffeeScript: "CoffeeScript",
+  juniorAchievement: "Junior Achievement",
+  seniorMoment: "Senior Moment",
+  scrumMaster: "Scrum Master",
+  commitmentIssues: "Commitment Issues",
+  shipHappens: "Ship Happens",
 });
 
 export const FREELANCE_PROJECT_DISPLAY_NAMES = Object.freeze({
@@ -2150,7 +2378,8 @@ export function effectiveEmployeeMultiplier(
   activeStarEffects,
   employeeType,
   nowMs = Date.now(),
-  employeeCounts = null
+  employeeCounts = null,
+  openSourceLevels = {}
 ) {
   let multiplier = 1;
   for (const buff of activeStarEffects ?? []) {
@@ -2165,8 +2394,12 @@ export function effectiveEmployeeMultiplier(
     }
   }
   if (employeeCounts) {
-    multiplier *= 1 + projectManagerBoostFraction(employeeCounts);
+    multiplier *=
+      1 + projectManagerBoostFraction(employeeCounts, 1, openSourceLevels);
   }
+  // The type's doubling project (issue #118) doubles its output per
+  // level, on top of the star buffs and the Project Manager boost.
+  multiplier *= doublingMultiplier(employeeType, openSourceLevels);
   return multiplier;
 }
 
