@@ -1961,12 +1961,16 @@ export function advanceSubtracterall(sub, healthyPerSec, elapsedSeconds) {
         // Minimum duration already elapsed: the withdrawal ends at
         // the exact debt-clear point. Healthy production needed to
         // clear the debt is liability / 0.75 (the withheld fraction).
+        // Slice 4: when the debt clears mid-interval, the leftover
+        // time belongs to the Ready phase. Flip the phase and let
+        // the loop's Ready branch credit it at 1x and accrue
+        // tolerance recovery for it, instead of consuming it here:
+        // consuming it here credited the right LOC but silently
+        // dropped the recovery time for the tail of the interval.
         const liability = Math.max(0, s.liability ?? 0);
         if (liability <= 0) {
           s.phase = "ready";
           s.phaseRemainingSeconds = 0;
-          credited += rate * remaining;
-          remaining = 0;
           continue;
         }
         const healthyToClear =
@@ -1974,12 +1978,13 @@ export function advanceSubtracterall(sub, healthyPerSec, elapsedSeconds) {
         const healthyAvailable = rate * remaining;
         if (healthyAvailable >= healthyToClear) {
           credited +=
-            SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthyToClear +
-            (healthyAvailable - healthyToClear);
+            SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthyToClear;
           s.liability = 0;
           s.phase = "ready";
           s.phaseRemainingSeconds = 0;
-          remaining = 0;
+          // Time to clear the debt at this rate; the rest of the
+          // interval runs in the Ready branch on the next iteration.
+          remaining -= rate > 0 ? healthyToClear / rate : 0;
         } else {
           credited +=
             SUBTRACTERALL_CONFIG.withdrawalMultiplier * healthyAvailable;
