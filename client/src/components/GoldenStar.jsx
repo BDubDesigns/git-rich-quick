@@ -28,6 +28,7 @@ import { formatNumber } from "../../../shared/formatNumber.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
 import { FloatingText } from "./FloatingText.jsx";
 import { newStarClaimId } from "../email/email.js";
+import { serverNowMs } from "../save/serverClock.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 import "./GoldenStar.css";
 
@@ -197,14 +198,14 @@ export function GoldenStar() {
   // this total — it is set from the same remaining value as
   // secondsLeft, so the fill and the text can never disagree.
   const [countdownTotalSeconds, setCountdownTotalSeconds] = useState(null);
-  // Client wall-clock time (Date.now()) when the current countdown was
-  // armed. The countdown is derived from this + the total (see the tick
-  // effect), NOT from counting setInterval ticks — counting ticks drifts
+  // Server-anchored time (serverNowMs(), issue #148) when the current
+  // countdown was armed. The countdown is derived from this + the total
+  // (see the tick effect), NOT from counting setInterval ticks: counting ticks drifts
   // behind real time (render time per tick, and background throttling
   // on mobile freezes timers), so a star shown from a drifted countdown
   // can already be past its 30s claim window (the PR #64 regression).
-  // The wall clock is the authority; the interval only triggers
-  // re-renders. Elapsed time is a difference of two client readings.
+  // The server-anchored clock is the authority; the interval only
+  // triggers re-renders. Elapsed time is a difference of two readings.
   const [countdownStartedAtMs, setCountdownStartedAtMs] = useState(null);
   // The header slot the countdown bar portals into (see Header.jsx):
   // the bar sits directly beneath the stats bar instead of floating
@@ -229,7 +230,9 @@ export function GoldenStar() {
   // The arm effect (below) picks up the new state.nextStarAtMs and
   // arms the countdown from it. Returns the new time (null at level 0).
   const rollNextStar = useCallback(() => {
-    const nextAt = rollNextStarAtMs(constellationLevel, Date.now());
+    // Server time (issue #148): nextStarAtMs is server-time ms, so a
+    // device clock set forward cannot make the next star due early.
+    const nextAt = rollNextStarAtMs(constellationLevel, serverNowMs());
     dispatch({ type: "SET_NEXT_STAR_AT", payload: { nextStarAtMs: nextAt } });
     return nextAt;
   }, [constellationLevel, dispatch]);
@@ -238,7 +241,8 @@ export function GoldenStar() {
   // (state.nextStarAtMs). If there is no schedule (null) and
   // Constellation is unlocked, roll a fresh one; the effect re-runs
   // when the persisted value lands and arms from it. The countdown is
-  // derived from the wall clock (the absolute nextStarAtMs minus now),
+  // derived from the server-anchored clock (the absolute nextStarAtMs
+  // minus serverNowMs(), issue #148),
   // so it survives a reload. If the scheduled time is more than a star
   // lifetime in the past, the star's 30s claim window has fully passed
   // (the tab was closed or backgrounded past it) — roll a fresh
@@ -256,20 +260,19 @@ export function GoldenStar() {
       rollNextStar();
       return;
     }
-    if (
-      Date.now() - state.nextStarAtMs >
-      STAR_CONFIG.starLifetimeSeconds * 1000
-    ) {
+    // Compare in server time (issue #148), never the device clock.
+    const now = serverNowMs();
+    if (now - state.nextStarAtMs > STAR_CONFIG.starLifetimeSeconds * 1000) {
       rollNextStar();
       return;
     }
     const remaining = Math.max(
       0,
-      Math.ceil((state.nextStarAtMs - Date.now()) / 1000)
+      Math.ceil((state.nextStarAtMs - now) / 1000)
     );
     setSecondsLeft(remaining);
     setCountdownTotalSeconds(remaining);
-    setCountdownStartedAtMs(Date.now());
+    setCountdownStartedAtMs(now);
   }, [constellationLevel, state.nextStarAtMs, rollNextStar]);
 
   // Toggle the star bar area collapsed/expanded, persisting the
@@ -308,7 +311,7 @@ export function GoldenStar() {
       return undefined;
     }
     const id = setInterval(() => {
-      const now = Date.now();
+      const now = serverNowMs();
       const windowEndMs =
         countdownStartedAtMs +
         (countdownTotalSeconds + STAR_CONFIG.starLifetimeSeconds) * 1000;
@@ -337,6 +340,11 @@ export function GoldenStar() {
   // expiry check here keeps a buff from showing in the gap between
   // its expiry and the next tick.
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // Server-anchored now (issue #148) for the StarBroker cooldown:
+  // lastStarBuyAtMs is server-time ms, so the cooldown compares in
+  // server time. Ticked by the same interval as nowMs. (nowMs stays
+  // the device clock: buff expiries are device-clock ms.)
+  const [serverNow, setServerNow] = useState(() => serverNowMs());
   const liveEffects = (state.activeStarEffects ?? []).filter(
     (buff) => buff.expiresAtMs > nowMs
   );
@@ -355,7 +363,8 @@ export function GoldenStar() {
       : Math.max(
           0,
           Math.ceil(
-            buyCooldownTotalSeconds - (nowMs - state.lastStarBuyAtMs) / 1000
+            buyCooldownTotalSeconds -
+              (serverNow - state.lastStarBuyAtMs) / 1000
           )
         );
   const buyCooldownActive =
@@ -373,7 +382,10 @@ export function GoldenStar() {
       boughtStar === null
     )
       return undefined;
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    const id = setInterval(() => {
+      setNowMs(Date.now());
+      setServerNow(serverNowMs());
+    }, 1000);
     return () => clearInterval(id);
   }, [liveEffects.length, buyCooldownActive, boughtStar]);
 
@@ -402,7 +414,7 @@ export function GoldenStar() {
     const windowEndMs =
       countdownStartedAtMs +
       (countdownTotalSeconds + STAR_CONFIG.starLifetimeSeconds) * 1000;
-    if (Date.now() > windowEndMs) {
+    if (serverNowMs() > windowEndMs) {
       setSecondsLeft(null);
       setCountdownTotalSeconds(null);
       setCountdownStartedAtMs(null);
@@ -726,7 +738,14 @@ export function GoldenStar() {
     if (buyCooldownActive) return;
     if (buyCost === null) return;
     if (state.linesOfCode < buyCost) return;
-    dispatch({ type: "BUY_STAR", payload: { cost: buyCost } });
+    // The buy time is server-time ms (issue #148), so the cooldown
+    // cannot be skipped by setting the device clock forward.
+    const boughtAtServerMs = serverNowMs();
+    setServerNow(boughtAtServerMs);
+    dispatch({
+      type: "BUY_STAR",
+      payload: { cost: buyCost, atMs: boughtAtServerMs },
+    });
     setBoughtStar(randomStarPosition());
     setBoughtFading(false);
     setBoughtStarAtMs(Date.now());

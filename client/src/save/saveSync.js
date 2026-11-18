@@ -62,6 +62,7 @@ import {
   OPEN_SOURCE_IDS,
   initialSaveState,
 } from "../../../shared/game-balance.js";
+import { setOffsetFromSavedAt } from "./serverClock.js";
 
 /** Heartbeat interval (spec rule 9: "heartbeat is 60 seconds"). */
 export const SAVE_HEARTBEAT_MS = 60_000;
@@ -176,6 +177,12 @@ export class SaveSync {
    *   timer cannot fire mid-test on a loaded runner (issue #50).
    * @param {(id: any) => void} [clearTimeoutFn] - timer used to cancel
    *   the rate-limit retry (defaults to the global clearTimeout).
+   * @param {(savedAt: string) => void} [onServerTime] - called with the
+   *   `savedAt` of every response the server stamped "now" (an accepted
+   *   save, a mint, a fresh reset / sale / store buy / intermission),
+   *   never a load's (that is when the save was stored, not the current
+   *   time) and never a failed save's. Defaults to the star clock's
+   *   setOffsetFromSavedAt (issue #148).
    */
   constructor({
     apiBaseUrl = SAVE_API_URL,
@@ -188,6 +195,7 @@ export class SaveSync {
     storage,
     setTimeoutFn = setTimeout,
     clearTimeoutFn = clearTimeout,
+    onServerTime = setOffsetFromSavedAt,
   } = {}) {
     this.apiBaseUrl = apiBaseUrl;
     this.getState = getState;
@@ -196,6 +204,7 @@ export class SaveSync {
     this.onPlayerId = onPlayerId || (() => {});
     this.onSavedAt = onSavedAt || (() => {});
     this.onRetry = onRetry || (() => {});
+    this.onServerTime = onServerTime || (() => {});
     this.storage = storage || defaultStorage();
     // Wrap the timers rather than storing them as-is: calling a stored
     // function as this._setTimeout(...) binds `this` to the SaveSync
@@ -256,6 +265,17 @@ export class SaveSync {
   setStatus(status) {
     this._saveStatus = status;
     this.onStatus(status);
+  }
+
+  // Star clock (issue #148): pass a server-stamped "now" to the clock
+  // offset. Only called with a FRESH savedAt; a missing value is
+  // ignored by the clock (it keeps the old offset).
+  _reportServerTime(savedAt) {
+    try {
+      this.onServerTime(savedAt);
+    } catch (err) {
+      console.warn("[save] could not update the server clock offset:", err);
+    }
   }
 
   // Record when a save was accepted (or an existing save was loaded)
@@ -443,6 +463,7 @@ export class SaveSync {
     // No stored id (or it was unknown): mint a new anonymous player.
     try {
       const minted = await mintPlayer(this.apiBaseUrl);
+      this._reportServerTime(minted.savedAt);
       this.playerId = minted.playerId;
       this.baseline = minted.state;
       this.storage.setItem(PLAYER_ID_KEY, minted.playerId);
@@ -587,6 +608,7 @@ export class SaveSync {
       this._lastSeenBig = bigActionFields(initial);
       this.needsLoad = false;
       this.restore(initial);
+      this._reportServerTime(result.data?.savedAt);
       this._reportSavedAt(Date.now());
       this.setStatus("saved");
       this._recordSaveAttempt({
@@ -702,6 +724,15 @@ export class SaveSync {
       this._lastSeenBig = bigActionFields(postState);
       this.needsLoad = false;
       this.restore(postState);
+      // A replayed request (already applied / owned / completed)
+      // echoes the OLD savedAt, so only a fresh write sets the clock.
+      if (
+        !result.data?.alreadyApplied &&
+        !result.data?.alreadyOwned &&
+        !result.data?.alreadyCompleted
+      ) {
+        this._reportServerTime(result.data?.savedAt);
+      }
       this._reportSavedAt(Date.now());
       this.setStatus("saved");
       this._recordSaveAttempt({
@@ -839,6 +870,15 @@ export class SaveSync {
       this._lastSeenBig = bigActionFields(postState);
       this.needsLoad = false;
       this.restore(postState);
+      // A replayed request (already applied / owned / completed)
+      // echoes the OLD savedAt, so only a fresh write sets the clock.
+      if (
+        !result.data?.alreadyApplied &&
+        !result.data?.alreadyOwned &&
+        !result.data?.alreadyCompleted
+      ) {
+        this._reportServerTime(result.data?.savedAt);
+      }
       this._reportSavedAt(Date.now());
       this.setStatus("saved");
       this._recordSaveAttempt({
@@ -939,6 +979,15 @@ export class SaveSync {
       this._lastSeenBig = bigActionFields(postState);
       this.needsLoad = false;
       this.restore(postState);
+      // A replayed request (already applied / owned / completed)
+      // echoes the OLD savedAt, so only a fresh write sets the clock.
+      if (
+        !result.data?.alreadyApplied &&
+        !result.data?.alreadyOwned &&
+        !result.data?.alreadyCompleted
+      ) {
+        this._reportServerTime(result.data?.savedAt);
+      }
       this._reportSavedAt(Date.now());
       this.setStatus("saved");
       this._recordSaveAttempt({
@@ -1164,6 +1213,7 @@ export class SaveSync {
         this.clicks = Math.max(0, this.clicks - sentClicks);
         this._clearRetryTimer();
         this.onRetry(null);
+        this._reportServerTime(result.data?.savedAt);
         this._reportSavedAt(Date.now());
         note("saved", 200, null);
         this.setStatus("saved");
@@ -1268,6 +1318,7 @@ export class SaveSync {
 
   async _mintFresh() {
     const minted = await mintPlayer(this.apiBaseUrl);
+    this._reportServerTime(minted.savedAt);
     this.playerId = minted.playerId;
     this.baseline = minted.state;
     this.storage.setItem(PLAYER_ID_KEY, minted.playerId);
