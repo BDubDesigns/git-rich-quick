@@ -372,6 +372,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
   },
   // Doubling upgrades (issue #118): one leveled project per employee
   // type, 10 levels each. Every level doubles that type's output.
+  // Commitment Issues has 20 levels (issue #151); the rest have 10.
   coffeeScript: {
     // Levels (and unlock conditions) come from shared.
     ...shared.BALANCE.openSource.coffeeScript,

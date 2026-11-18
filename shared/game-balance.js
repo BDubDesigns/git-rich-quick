@@ -102,24 +102,53 @@ export function starBrokerLevelUpFloatText(newLevel) {
 }
 
 /**
- * Ten doubling levels for one employee type (issue #118): level i+1
- * costs base x 2^i and doubles that type's output. The bonus is
- * { type: "DOUBLE", value: 2 } at every level — a multiplier, not an
- * additive bonus, so totalBonusByType never sums it (the doubling
- * multiplier is read by doublingMultiplier below, not by the
- * CLICK_BOOST / PASSIVE_BOOST sums). Costs are exact integers:
- * base x 2^9 at most, far below the float-precision limit.
+ * Doubling levels for one employee type (issue #118): every level
+ * doubles that type's output. The bonus is { type: "DOUBLE", value: 2 }
+ * at every level: a multiplier, not an additive bonus, so
+ * totalBonusByType never sums it (the doubling multiplier is read by
+ * doublingMultiplier below, not by the CLICK_BOOST / PASSIVE_BOOST
+ * sums).
+ *
+ * The default is the passive tracks' curve: 10 levels, level i+1
+ * costs base x 2^i. The click track (issue #151) passes more levels
+ * and a slower cost step: the power still doubles every level, but
+ * the cost grows by less than 2x, so a click upgrade comes around
+ * more often. A cost that is not already whole is rounded to the
+ * nearest `costRounding` LOC so the shop shows clean prices. Costs
+ * stay far below the float-precision limit.
  */
-function doublingLevels(baseCost) {
+function doublingLevels(
+  baseCost,
+  { count = 10, costGrowth = 2, costRounding = 1 } = {}
+) {
   return Object.freeze(
-    Array.from({ length: 10 }, (_, i) =>
+    Array.from({ length: count }, (_, i) =>
       Object.freeze({
-        locCost: baseCost * Math.pow(2, i),
+        locCost:
+          Math.round((baseCost * Math.pow(costGrowth, i)) / costRounding) *
+          costRounding,
         bonus: Object.freeze({ type: "DOUBLE", value: 2 }),
       })
     )
   );
 }
+
+/**
+ * Click track tuning (issue #151). Commitment Issues gets 20 levels,
+ * each still doubling the Commit Specialist bonus, with the cost
+ * stepping by sqrt(2) (about 1.41x) per level instead of 2x. That puts
+ * one new level exactly between each pair of the old ten: the odd
+ * levels are the old costs (1M, 2M, 4M, ... 512M) and each even level
+ * sits at their geometric midpoint (1.41M, 2.83M, ... 724.08M). The
+ * top multiplier is 2^20 (about 1.05M x) instead of 2^10, on purpose:
+ * clicking must keep up with passive LOC/s late in a company.
+ */
+export const COMMITMENT_ISSUES_LEVELS = Object.freeze({
+  baseCost: 1000000,
+  count: 20,
+  costGrowth: Math.SQRT2,
+  costRounding: 10000,
+});
 
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
@@ -194,10 +223,13 @@ export const BALANCE = Object.freeze({
     // the bonus gets the same OverReact click boost as the base manual
     // click (see locPerClick); the FINAL click total is floored to a
     // whole number.
+    // Issue #151: $4,000 base at 1.1x per hire (was $5,000 at 1.2x),
+    // so a click build is affordable: the 10th hire is about $9,400
+    // (was $25,799) and the first 25 total about $393k (was $2.36M).
     commitSpecialist: Object.freeze({
-      baseCost: 500000,
+      baseCost: 400000,
       locPerSecond: 0,
-      costMultiplier: 1.2,
+      costMultiplier: 1.1,
       clickBonusPerEmployee: 0.2,
       unlockConditions: Object.freeze([
         Object.freeze({ type: "TOTAL_LOC", target: 25000 }),
@@ -345,6 +377,14 @@ export const BALANCE = Object.freeze({
   }),
 
   openSource: Object.freeze({
+    // OverReact, the base click doubler (issue #151): 9 levels. The
+    // old five costs (100 / 500 / 3,000 / 15,000 / 75,000) are kept and
+    // a new level sits between each pair, so a base-click upgrade comes
+    // around about twice as often. Each level raises the click
+    // multiplier (1 + CLICK_BOOST sum) by 1.5x to 2x:
+    // 2, 3, 5, 8, 12, 20, 32, 64, 128. At every old cost the multiplier
+    // is at least the old one (5 vs 4 at 500, 12 vs 8 at 3,000, 32 vs
+    // 16 at 15,000, 128 vs 32 at 75,000); the top sum is 127, not 31.
     overReactFramework: Object.freeze({
       unlockConditions: Object.freeze([]),
       levels: Object.freeze([
@@ -353,22 +393,36 @@ export const BALANCE = Object.freeze({
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 1 }),
         }),
         Object.freeze({
+          locCost: 250,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 1 }),
+        }),
+        Object.freeze({
           locCost: 500,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 2 }),
+        }),
+        Object.freeze({
+          locCost: 1200,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 3 }),
         }),
         Object.freeze({
           locCost: 3000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 4 }),
         }),
-        // Extra levels (issue #33 slice): same per-level click boost
-        // as the existing levels (doubles each level).
         Object.freeze({
-          locCost: 15000,
+          locCost: 7000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 8 }),
         }),
         Object.freeze({
+          locCost: 15000,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 12 }),
+        }),
+        Object.freeze({
+          locCost: 35000,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 32 }),
+        }),
+        Object.freeze({
           locCost: 75000,
-          bonus: Object.freeze({ type: "CLICK_BOOST", value: 16 }),
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 64 }),
         }),
       ]),
     }),
@@ -541,7 +595,12 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      levels: doublingLevels(1000000),
+      // Issue #151: 20 levels at a sqrt(2) cost step (see
+      // COMMITMENT_ISSUES_LEVELS); the other five tracks stay 10 at 2x.
+      levels: doublingLevels(
+        COMMITMENT_ISSUES_LEVELS.baseCost,
+        COMMITMENT_ISSUES_LEVELS
+      ),
     }),
     shipHappens: Object.freeze({
       unlockConditions: Object.freeze([

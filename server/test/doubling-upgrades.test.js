@@ -108,7 +108,7 @@ function body(state, actions) {
   return { playerId: PLAYER_ID, state, actionsSinceLastSave: actions };
 }
 
-test("config: six doubling projects, 10 levels each, 2x costs, unlock at 10 of that type", () => {
+test("config: six doubling projects, 2x power per level, unlock at 10 of that type", () => {
   assert.deepEqual(DOUBLING_PROJECT_IDS, [
     "coffeeScript",
     "juniorAchievement",
@@ -127,7 +127,13 @@ test("config: six doubling projects, 10 levels each, 2x costs, unlock at 10 of t
   });
   for (const id of DOUBLING_PROJECT_IDS) {
     assert.ok(OPEN_SOURCE_IDS.includes(id), id);
-    assert.equal(BALANCE.openSource[id].levels.length, 10, id);
+    // Commitment Issues has 20 levels (issue #151); the five passive
+    // tracks keep 10.
+    assert.equal(
+      BALANCE.openSource[id].levels.length,
+      id === "commitmentIssues" ? 20 : 10,
+      id
+    );
     assert.deepEqual(
       BALANCE.openSource[id].unlockConditions,
       [
@@ -139,7 +145,7 @@ test("config: six doubling projects, 10 levels each, 2x costs, unlock at 10 of t
       ],
       id
     );
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < BALANCE.openSource[id].levels.length; i += 1) {
       assert.deepEqual(
         BALANCE.openSource[id].levels[i].bonus,
         { type: "DOUBLE", value: 2 },
@@ -163,10 +169,36 @@ test("config: six doubling projects, 10 levels each, 2x costs, unlock at 10 of t
     1000000
   );
   assert.equal(BALANCE.openSource.shipHappens.levels[0].locCost, 2000000);
-  // Total to max one track is base x (2^10 - 1) = base x 1023.
+  // Total to max a passive track is base x (2^10 - 1) = base x 1023.
   assert.equal(openSourceLevelCosts("coffeeScript", 0, 10), 102300000);
-  assert.equal(openSourceLevelCosts("commitmentIssues", 0, 10), 1023000000);
+  assert.equal(openSourceLevelCosts("scrumMaster", 0, 10), 1023000000);
   assert.equal(openSourceLevelCosts("coffeeScript", 0, 3), 700000);
+  // The five passive tracks are untouched by issue #151: 2x cost steps.
+  for (const id of DOUBLING_PROJECT_IDS.filter((x) => x !== "commitmentIssues")) {
+    const levels = BALANCE.openSource[id].levels;
+    for (let i = 1; i < levels.length; i += 1) {
+      assert.equal(levels[i].locCost, levels[i - 1].locCost * 2, `${id} L${i + 1}`);
+    }
+  }
+});
+
+test("Commitment Issues (issue #151): 20 levels, old ten costs kept, a sqrt(2) step between", () => {
+  const costs = BALANCE.openSource.commitmentIssues.levels.map((l) => l.locCost);
+  assert.deepEqual(costs, [
+    1000000, 1410000, 2000000, 2830000, 4000000, 5660000, 8000000,
+    11310000, 16000000, 22630000, 32000000, 45250000, 64000000, 90510000,
+    128000000, 181020000, 256000000, 362040000, 512000000, 724080000,
+  ]);
+  // Every old cost (1M x 2^k, k = 0..9) is still a level: the new
+  // levels sit in between, they do not replace the old ones.
+  for (let k = 0; k < 10; k += 1) assert.equal(costs[2 * k], 1000000 * 2 ** k);
+  // Cost grows slower than the 2x power: about 1.41x per level.
+  for (let i = 1; i < costs.length; i += 1) {
+    const step = costs[i] / costs[i - 1];
+    assert.ok(step > 1.4 && step < 1.42, `L${i + 1} step ${step}`);
+  }
+  assert.equal(openSourceLevelCosts("commitmentIssues", 0, 20), 2469740000);
+  assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 20 }), 2 ** 20);
 });
 
 test("doublingMultiplier: 2^level per type, 1 at level 0 or missing", () => {
@@ -202,24 +234,30 @@ test("doublingMultiplier: 2^level per type, 1 at level 0 or missing", () => {
 });
 
 test("clicks: Commitment Issues doubles the per-specialist bonus each level", () => {
-  const overReactL5 = zeroLevels({ overReactFramework: 5 });
+  const overReactMax = zeroLevels({ overReactFramework: 9 });
   const nineCS = counts({ commitSpecialist: 9 });
-  // No Commitment Issues: floor((1 + 0.2 x 9) x 32) = floor(89.6) = 89.
-  assert.equal(locPerClick(overReactL5, nineCS), 89);
-  // L3: 0.2 x 9 x 8 = 14.4, floor((1 + 14.4) x 32) = floor(492.8) = 492.
+  // OverReact L9 is a 128x click (issue #151).
+  // No Commitment Issues: floor((1 + 0.2 x 9) x 128) = floor(358.4) = 358.
+  assert.equal(locPerClick(overReactMax, nineCS), 358);
+  // L3: 0.2 x 9 x 8 = 14.4, floor((1 + 14.4) x 128) = floor(1971.2) = 1971.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 5, commitmentIssues: 3 }), nineCS),
-    492
+    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 3 }), nineCS),
+    1971
   );
-  // L5: 0.2 x 9 x 32 = 57.6, floor((1 + 57.6) x 32) = floor(1875.2) = 1875.
+  // L5: 0.2 x 9 x 32 = 57.6, floor((1 + 57.6) x 128) = floor(7500.8) = 7500.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 5, commitmentIssues: 5 }), nineCS),
-    1875
+    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 5 }), nineCS),
+    7500
   );
-  // L10: 0.2 x 9 x 1024 = 1843.2, floor((1 + 1843.2) x 32) = 59014.
+  // L10: 0.2 x 9 x 1024 = 1843.2, floor((1 + 1843.2) x 128) = 236057.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 5, commitmentIssues: 10 }), nineCS),
-    59014
+    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 10 }), nineCS),
+    236057
+  );
+  // L20: 0.2 x 9 x 2^20 = 1887436.8, floor((1 + 1887436.8) x 128).
+  assert.equal(
+    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 20 }), nineCS),
+    241592038
   );
   // Without OverReact the doubling still applies to the raw bonus.
   assert.equal(locPerClick(zeroLevels({ commitmentIssues: 1 }), nineCS), 4);
