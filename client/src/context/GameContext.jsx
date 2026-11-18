@@ -9,6 +9,7 @@ import {
 // Server-authoritative saves (Slice 2, guest-only). The engine is
 // framework-free; the provider owns it because it owns the reducer state
 // the engine reads and restores.
+import { serverNowMs } from "../save/serverClock.js";
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
 // Tap-latency diagnostics (PR #101): the instrument that records slow
@@ -927,22 +928,28 @@ function gameReducer(state, action) {
     // (GoldenStar), which owns the pending star's lifetime; this
     // action only moves the LOC and arms the cooldown. No unlock or
     // email triggers: spending LOC cannot unlock anything (unlocks read
-    // totalLinesOfCode and counts, which do not move).
+    // totalLinesOfCode and counts, which do not move). Star clock
+    // (issue #148): the buy time is SERVER-time ms. The star UI passes
+    // the serverNowMs() reading it compares the cooldown against as
+    // `atMs`; without one, the reducer reads the server clock itself.
     case "BUY_STAR": {
-      const { cost } = action.payload ?? {};
+      const { cost, atMs } = action.payload ?? {};
       if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
         return state;
       }
       return {
         ...state,
         linesOfCode: Math.max(0, state.linesOfCode - cost),
-        lastStarBuyAtMs: Date.now(),
+        lastStarBuyAtMs:
+          typeof atMs === "number" && Number.isFinite(atMs) && atMs >= 0
+            ? atMs
+            : serverNowMs(),
       };
     }
 
     // Set the next natural star's due time (client-rolled now).
-    // Payload: { nextStarAtMs } — the wall-clock time (ms since epoch)
-    // the next star is due, or null for no star scheduled (level 0).
+    // Payload: { nextStarAtMs }: the SERVER-time ms (serverNowMs(),
+    // issue #148) the next star is due, or null for no star scheduled (level 0).
     // The star UI rolls it (shared.rollNextStarAtMs) whenever the
     // schedule needs one: on load with no schedule, after a claim, and
     // after a despawn. It is a big-action field, so setting it saves
