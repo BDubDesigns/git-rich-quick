@@ -39,6 +39,9 @@
  *   required; read-only, audit-logged. This one MAY read a real
  *   player's save (that is the point — debugging a specific player's
  *   issue); it never modifies anything. Disabled (501) when unset.
+ * - GET  /api/admin/player/:playerId/metrics: admin read-only
+ *   telemetry (issue #152): the player's sampled click / passive
+ *   snapshots (?from, ?to, ?limit). Bearer token required.
  * - GET  /api/admin/rejected-saves — admin read-only (issue #45): recent
  *   rejected saves (rule, detail, playerId, timestamp) from an
  *   in-memory ring buffer fed by the PR #44 rejection logging.
@@ -101,6 +104,7 @@ import {
   startPruneScheduler,
 } from "./prune.js";
 import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
+import { METRICS_SAMPLING, parseTimeParam } from "./metrics.js";
 import { TEST_ACCOUNT_EMAIL, isAdminAuthorized } from "./admin.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -307,6 +311,73 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       playerId: body.playerId,
       savedAt: iso(result.savedAtMs),
       state: result.state,
+    });
+  }
+
+  /**
+   * Admin read-only telemetry (issue #152): GET
+   * /api/admin/player/:playerId/metrics, one player's progress
+   * snapshots, oldest first. Each entry is the capture time, the
+   * sampling reason ("first", "hourly", "sale"), the healthy passive
+   * LOC/s, the click LOC/s at 10 clicks/s (both without star buffs),
+   * their ratio, and the progress at that moment. Optional `from` /
+   * `to` (ISO date or ms since the epoch, inclusive) and `limit`
+   * (default 1000, max 5000). Same bearer ADMIN_TOKEN as the other
+   * admin endpoints, audit-logged. No PII: game numbers only.
+   */
+  async function handleAdminPlayerMetrics(req, res, url, playerId) {
+    if (!requireAdmin(req, res, "player-metrics")) return;
+    if (!UUID_RE.test(playerId)) {
+      sendJson(res, 400, { error: "invalid-player-id" });
+      return;
+    }
+    const fromMs = parseTimeParam(url.searchParams.get("from"));
+    const untilMs = parseTimeParam(url.searchParams.get("to"));
+    if (Number.isNaN(fromMs) || Number.isNaN(untilMs)) {
+      sendJson(res, 400, { error: "invalid-time-range" });
+      return;
+    }
+    const parsedLimit = Number.parseInt(
+      url.searchParams.get("limit") ?? String(METRICS_SAMPLING.defaultLimit),
+      10
+    );
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(METRICS_SAMPLING.maxLimit, Math.max(1, parsedLimit))
+      : METRICS_SAMPLING.defaultLimit;
+    const snapshot = await store.get(playerId);
+    if (!snapshot) {
+      auditAdmin("player-metrics", { status: "unknown-player", playerId });
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    const rows = await store.listMetricsSnapshots(playerId, {
+      fromMs,
+      untilMs,
+      limit,
+    });
+    const series = rows.map((row) => ({
+      capturedAt: iso(row.capturedAtMs),
+      reason: row.reason,
+      passiveLocPerSec: row.passiveLocPerSec,
+      clickLocPerSecAt10cps: row.clickLocPerSecAt10cps,
+      clickToPassiveRatio:
+        row.passiveLocPerSec > 0
+          ? row.clickLocPerSecAt10cps / row.passiveLocPerSec
+          : null,
+      progress: row.progress,
+    }));
+    auditAdmin("player-metrics", { status: "ok", playerId, count: series.length });
+    sendJson(res, 200, {
+      playerId,
+      from: fromMs === null ? null : iso(fromMs),
+      to: untilMs === null ? null : iso(untilMs),
+      count: series.length,
+      sampling: {
+        minIntervalSeconds: METRICS_SAMPLING.minIntervalMs / 1000,
+        clicksPerSecond: METRICS_SAMPLING.clicksPerSecond,
+        reasons: ["first", "hourly", "sale"],
+      },
+      series,
     });
   }
 
@@ -1012,11 +1083,16 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       } else if (req.method === "GET" && url.pathname.startsWith("/api/admin/player/")) {
         // /api/admin/player/:playerId — one segment after the prefix;
         // anything deeper is not a player route.
-        const playerId = url.pathname.slice("/api/admin/player/".length);
-        if (playerId.includes("/")) {
+        // /api/admin/player/:playerId/metrics is the telemetry series
+        // (issue #152); anything else deeper is not a player route.
+        const rest = url.pathname.slice("/api/admin/player/".length);
+        const parts = rest.split("/");
+        if (parts.length === 2 && parts[1] === "metrics") {
+          await handleAdminPlayerMetrics(req, res, url, parts[0]);
+        } else if (parts.length !== 1) {
           sendJson(res, 404, { error: "not-found" });
         } else {
-          await handleAdminPlayer(req, res, playerId);
+          await handleAdminPlayer(req, res, rest);
         }
       } else if (req.method === "GET" && url.pathname === "/api/admin/rejected-saves") {
         await handleAdminRejectedSaves(req, res, url);
