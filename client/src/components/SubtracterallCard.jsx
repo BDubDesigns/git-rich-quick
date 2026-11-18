@@ -1,24 +1,24 @@
 /**
- * SUBTRACTERALL (prestige, Slice 3).
+ * SUBTRACTERALL (prestige, Slice 3; reworked in issue #150).
  *
- * The burst card, in Settings below Sell the Company. It shows the
- * unlock progress (100,000 lifetime LOC, permanent), the Ready state
- * (dose supply, the next dose's exact durations, tolerance recovery
- * progress), the Burst state (remaining time, 3x multiplier, growing
- * liability), and the Withdrawal state (0.25x multiplier, remaining
- * minimum time, liability, and the estimated completion). The
- * Overtime reskin toggle lives here too: a text/framing layer only,
- * the same mechanics framed as Overtime with recovery at a "wellness
- * clinic" instead of rehab.
+ * The burst card, in Settings below Sell the Company. It explains the
+ * tradeoff before the player uses it: the use count this company, the
+ * next burst (duration at 3x), the next withdrawal (duration and
+ * multiplier), what the use after that looks like, and a plain note
+ * that each use makes the next burst shorter and the next crash
+ * longer and harsher. During a phase it shows what is left and what
+ * comes next. The unlock progress (100,000 lifetime LOC, permanent)
+ * shows until it is unlocked.
  *
- * A dose is taken through the reducer (TAKE_SUBTRACTERALL_DOSE),
- * which enforces the unlock, the Ready phase, the remaining supply,
- * and the positive healthy production requirement. The card disables
- * the button when a dose cannot be taken and says why. Taking a
- * dose asks for confirmation every time: the durations change as
- * tolerance grows, and a dose borrows future production, so the
- * cost is worth one more look. The confirmation text is the design's
- * first-use warning, with the current tier's durations filled in.
+ * The Overtime reskin toggle lives here too: a text/framing layer
+ * only, the same mechanics framed as mandated overtime and burnout.
+ * The Overtime framing never says "dose".
+ *
+ * Activation goes through the reducer (ACTIVATE_SUBTRACTERALL), which
+ * enforces the unlock, the Ready phase, and the positive healthy
+ * production requirement. There is no use cap. The card disables the
+ * button when it cannot be used and says why, and asks for
+ * confirmation every time with that use's exact terms.
  *
  * Copy rules: no em dashes anywhere in player-facing copy, and every
  * content box is the shared Panel component. Body copy is text-sm
@@ -27,10 +27,7 @@
 
 import { useState } from "react";
 import { useGameContext } from "../context/useGameContext.js";
-import {
-  calculateLOCPerSecond,
-  getBaseLocPerSecond,
-} from "../context/gameLogic.js";
+import { getBaseLocPerSecond } from "../context/gameLogic.js";
 import * as shared from "../../../shared/game-balance.js";
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
@@ -41,51 +38,49 @@ import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 const CARD_DESCRIPTION =
   "Management has discovered a way to borrow tomorrow's productivity at tomorrow's interest rate.";
 
+const seconds = shared.formatSubtracterallSeconds;
+const times = shared.formatSubtracterallMultiplier;
+
+/** "3x LOC for 2m 42s, then 0.45x LOC for 3m 36s of withdrawal." */
+function termsSentence(terms, framing) {
+  return `${times(terms.burstMultiplier)} LOC for ${seconds(terms.burstSeconds)}, then ${times(terms.withdrawalMultiplier)} LOC for ${seconds(terms.withdrawalSeconds)} of ${framing.withdrawalLabel.toLowerCase()}.`;
+}
+
 export function SubtracterallCard() {
   const { state, dispatch } = useGameContext();
   // Progress bar toggles (issue #128): the unlock bar here follows the
   // "unlock" toggle, like every other unlock progress bar.
   const showUnlockBar = useProgressBarEnabled("unlock");
-  // "overview" | "confirm": local UI steps, not saved. The confirm
-  // step shows the tier-specific warning before a dose is taken.
+  // Local UI step, not saved: the confirm step shows the exact terms
+  // of this use before it is activated.
   const [confirming, setConfirming] = useState(false);
 
-  const sub = state.subtracterall ?? shared.zeroSubtracterallState();
+  const sub = shared.normalizeSubtracterallState(state.subtracterall);
   const framing = shared.subtracterallFraming(state.overtimeReskin ?? false);
   const lifetimeLoc = state.totalLinesOfCode ?? 0;
   const unlocked = shared.subtracterallUnlocked(lifetimeLoc);
   // The healthy rate (permanent bonuses, no star buffs) is the
-  // "positive healthy production" the dose requirement reads. The
-  // withdrawal estimate reads the LIVE rate (star buffs included):
-  // that is the rate the tick actually repays liability at, so the
-  // estimate and the reality can never disagree during a star.
+  // "positive healthy production" activation requires.
   const healthyRate = getBaseLocPerSecond(state);
-  const liveRate = calculateLOCPerSecond(state);
-  const canDose =
-    unlocked && shared.subtracterallCanDose(sub, healthyRate);
-  const dosesLeft =
-    shared.SUBTRACTERALL_CONFIG.maxDosesPerCompany - (sub.dosesUsed ?? 0);
-  const tier = Math.min(2, Math.max(0, Math.floor(sub.tolerance ?? 0)));
-  const tierDurations = shared.SUBTRACTERALL_CONFIG.tiers[tier];
-  const withdrawalEstimate =
-    shared.subtracterallWithdrawalEstimateSeconds(sub, liveRate);
+  const canActivate =
+    unlocked && shared.subtracterallCanActivate(sub, healthyRate);
+  const uses = sub.uses ?? 0;
+  const next = shared.subtracterallUseTerms(uses + 1);
+  const after = shared.subtracterallUseTerms(uses + 2);
+  const active = shared.subtracterallUseTerms(sub.activeUse || 1);
+  const remaining = seconds(Math.ceil(sub.phaseRemainingSeconds ?? 0));
 
-  // Why a dose cannot be taken right now (the button is disabled and
-  // this line says why). Empty when a dose can be taken.
-  let doseBlockedReason = "";
+  // Why it cannot be used right now (the button is disabled and this
+  // line says why). Empty when it can be used.
+  let blockedReason = "";
   if (sub.phase !== "ready") {
-    doseBlockedReason =
-      "A dose cannot be taken during an active phase. The current phase must end first.";
-  } else if (dosesLeft <= 0) {
-    doseBlockedReason =
-      "No doses left in this company. Sell the company for three fresh doses.";
+    blockedReason = "The current phase must end first.";
   } else if (healthyRate <= 0) {
-    doseBlockedReason =
-      "Taking a dose requires at least one employee with positive production.";
+    blockedReason = "It needs at least one employee with positive production.";
   }
 
-  function handleTakeDose() {
-    dispatch({ type: "TAKE_SUBTRACTERALL_DOSE" });
+  function handleActivate() {
+    dispatch({ type: "ACTIVATE_SUBTRACTERALL" });
     setConfirming(false);
   }
 
@@ -112,7 +107,7 @@ export function SubtracterallCard() {
               )}
               aria-valuemin="0"
               aria-valuemax="100"
-              aria-label="Progress to SUBTRACTERALL unlock"
+              aria-label={`Progress to ${framing.name} unlock`}
             >
               <div
                 className="h-4 bg-green-500 rounded"
@@ -126,49 +121,33 @@ export function SubtracterallCard() {
       ) : sub.phase === "burst" ? (
         <>
           <p className="m-0 text-sm">
-            {framing.burstLabel}: 3x LOC for{" "}
-            {shared.formatEstimateDuration(sub.phaseRemainingSeconds ?? 0)}{" "}
-            more. Liability so far: {formatNumber(sub.liability ?? 0)} LOC.
+            {framing.burstLabel}: {times(active.burstMultiplier)} LOC for{" "}
+            {remaining} more.
           </p>
           <p className="m-0 text-sm">
-            Every extra LOC adds 1.5 LOC of future lost production. The
-            withdrawal that follows lasts at least{" "}
-            {shared.formatEstimateDuration(
-              shared.SUBTRACTERALL_CONFIG.tiers[sub.activeTier ?? 0]
-                .minWithdrawalSeconds
-            )}
-            .
+            Then {framing.withdrawalLabel.toLowerCase()}:{" "}
+            {times(active.withdrawalMultiplier)} LOC for{" "}
+            {seconds(active.withdrawalSeconds)}.
           </p>
         </>
       ) : sub.phase === "withdrawal" ? (
         <>
           <p className="m-0 text-sm">{framing.withdrawalDescription}</p>
           <p className="m-0 text-sm">
-            {framing.withdrawalLabel}: 0.25x LOC. Minimum time remaining:{" "}
-            {shared.formatEstimateDuration(sub.phaseRemainingSeconds ?? 0)}
-            . Liability: {formatNumber(sub.liability ?? 0)} LOC.
-          </p>
-          <p className="m-0 text-sm">
-            {withdrawalEstimate === null
-              ? "Completion depends on future production."
-              : `Estimated completion in ${shared.formatEstimateDuration(Math.ceil(withdrawalEstimate))} at current employee production, excluding future clicks and star changes.`}
-          </p>
-          <p className="m-0 text-sm">
-            The company changes hands. The founder&apos;s obligations do
-            not. Selling does not end this phase.
+            {framing.withdrawalLabel}: {times(active.withdrawalMultiplier)}{" "}
+            LOC for {remaining} more. Selling the company does not end it.
           </p>
         </>
       ) : confirming ? (
         <>
+          <p className="m-0 text-sm">{termsSentence(next, framing)}</p>
           <p className="m-0 text-sm">
-            3x LOC for {tierDurations.burstSeconds} seconds. Then 0.25x
-            LOC for at least {tierDurations.minWithdrawalSeconds / 60}{" "}
-            minutes. Every extra LOC adds 1.5 LOC of future lost
-            production. Withdrawal survives selling.
+            The {framing.withdrawalLabel.toLowerCase()} survives selling the
+            company.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={handleTakeDose}>
-              {framing.doseAction}
+            <Button type="button" onClick={handleActivate}>
+              {framing.action}
             </Button>
             <Button type="button" onClick={() => setConfirming(false)}>
               Cancel
@@ -178,39 +157,27 @@ export function SubtracterallCard() {
       ) : (
         <>
           <p className="m-0 text-sm">
-            Doses left in this company: {dosesLeft} of{" "}
-            {shared.SUBTRACTERALL_CONFIG.maxDosesPerCompany}. Next dose:
-            3x LOC for{" "}
-            {shared.formatEstimateDuration(tierDurations.burstSeconds)},
-            then 0.25x LOC for at least{" "}
-            {shared.formatEstimateDuration(
-              tierDurations.minWithdrawalSeconds
-            )}
-            .
+            {framing.usesLabel}: {formatNumber(uses)}.
           </p>
-          {(sub.tolerance ?? 0) > 0 && (
-            <p className="m-0 text-sm">
-              {framing.recoveryLabel}:{" "}
-              {shared.formatEstimateDuration(sub.recoverySeconds ?? 0)} of{" "}
-              {shared.formatEstimateDuration(
-                shared.SUBTRACTERALL_CONFIG.recoverySecondsPerTolerance
-              )}{" "}
-              healthy production to drop one tolerance tier (currently
-              tier {sub.tolerance}).
-            </p>
-          )}
+          <p className="m-0 text-sm">
+            {framing.nextLabel}: {termsSentence(next, framing)}
+          </p>
+          <p className="m-0 text-sm">
+            The one after that: {termsSentence(after, framing)}
+          </p>
+          <p className="m-0 text-sm">
+            {framing.scalingNote} {framing.resetNote}
+          </p>
           <div>
             <Button
               type="button"
-              disabled={!canDose}
+              disabled={!canActivate}
               onClick={() => setConfirming(true)}
             >
-              {framing.doseAction}
+              {framing.action}
             </Button>
           </div>
-          {doseBlockedReason && (
-            <p className="m-0 text-sm">{doseBlockedReason}</p>
-          )}
+          {blockedReason && <p className="m-0 text-sm">{blockedReason}</p>}
         </>
       )}
 
@@ -225,9 +192,9 @@ export function SubtracterallCard() {
             })
           }
         />
-        Overtime reskin: frame this as overtime and a wellness clinic
-        visit instead of {shared.SUBTRACTERALL_FRAMING.subtracterall.name}.
-        Same mechanics.
+        Overtime reskin: frame this as mandated overtime and burnout
+        instead of {shared.SUBTRACTERALL_FRAMING.subtracterall.name}. Same
+        mechanics.
       </label>
     </Panel>
   );

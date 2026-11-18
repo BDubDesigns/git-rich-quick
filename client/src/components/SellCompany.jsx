@@ -131,8 +131,12 @@ export function SellCompany() {
       `${shared.PRESTIGE_STORE_CONFIG[storeId].displayName} rank ${(state.permanentStoreRanks ?? {})[storeId]}`
   );
 
+  // SUBTRACTERALL framing (issue #150): the reskin's words, never
+  // "dose" in the Overtime framing.
+  const subFraming = shared.subtracterallFraming(state.overtimeReskin ?? false);
+
   function openConfirm() {
-    const sub = state.subtracterall ?? shared.zeroSubtracterallState();
+    const sub = shared.normalizeSubtracterallState(state.subtracterall);
     setPreview({
       gainedEquity: claimable,
       unspentAfter: spendable + claimable,
@@ -154,8 +158,7 @@ export function SellCompany() {
       // SUBTRACTERALL (Slice 3): the phase at confirm time, so the
       // closing screen reads the snapshot, not the reset live state.
       subPhase: sub.phase,
-      subPhaseRemainingSeconds: sub.phaseRemainingSeconds ?? 0,
-      subLiability: sub.liability ?? 0,
+      subPhaseRemainingSeconds: Math.ceil(sub.phaseRemainingSeconds ?? 0),
     });
     setSaleError(null);
     setStep("confirm");
@@ -322,8 +325,8 @@ export function SellCompany() {
             The company changes hands. The founder&apos;s obligations do
             not.{" "}
             {preview.subPhase === "ready"
-              ? `${shared.subtracterallFraming(state.overtimeReskin ?? false).name}: no active phase. The new company starts with three doses.`
-              : `${shared.subtracterallFraming(state.overtimeReskin ?? false).name} ${preview.subPhase} survives the sale: ${shared.formatEstimateDuration(preview.subPhaseRemainingSeconds)} remaining, ${formatNumber(preview.subLiability)} LOC liability. The new company starts with three doses, but you cannot take one until the phase ends.`}{" "}
+              ? `${subFraming.name}: no active phase. The new company starts the count again at zero.`
+              : `${subFraming.name} ${(preview.subPhase === "burst" ? subFraming.burstLabel : subFraming.withdrawalLabel).toLowerCase()} survives the sale: ${shared.formatSubtracterallSeconds(preview.subPhaseRemainingSeconds)} remaining. The new company starts the count again at zero, but it cannot be used until the phase ends.`}{" "}
             After the sale, the permanent store opens: spend Equity on
             permanent upgrades before starting the next company.
           </p>
