@@ -26,6 +26,7 @@ import {
   effectiveEmployeeMultiplier,
   employeeBuffTypeRate,
   employeeCost,
+  employeePurchaseCosts,
   employeeUnlockConditionsMet,
   initialSaveState,
   locPerClick,
@@ -130,16 +131,32 @@ function constellationState(level, overrides = {}) {
   return state;
 }
 
-test("both new types cost 500000c base at x1.2 (same cost, different names)", () => {
+test("Project Manager costs 500000c at x1.2; Commit Specialist 400000c at x1.1 (issue #151)", () => {
   assert.equal(BALANCE.employees.projectManager.baseCost, 500000);
-  assert.equal(BALANCE.employees.commitSpecialist.baseCost, 500000);
+  assert.equal(BALANCE.employees.commitSpecialist.baseCost, 400000);
   assert.equal(BALANCE.employees.projectManager.costMultiplier, 1.2);
-  assert.equal(BALANCE.employees.commitSpecialist.costMultiplier, 1.2);
+  assert.equal(BALANCE.employees.commitSpecialist.costMultiplier, 1.1);
   assert.equal(employeeCost("projectManager", 0), 500000);
-  assert.equal(employeeCost("commitSpecialist", 0), 500000);
-  // Second hire: round(500000 * 1.2) = 600000.
+  assert.equal(employeeCost("commitSpecialist", 0), 400000);
+  // Second hire: round(500000 * 1.2) = 600000; round(400000 * 1.1) = 440000.
   assert.equal(employeeCost("projectManager", 1), 600000);
-  assert.equal(employeeCost("commitSpecialist", 1), 600000);
+  assert.equal(employeeCost("commitSpecialist", 1), 440000);
+  // The issue's verified numbers: the 10th hire is about $9,400, and
+  // the first 25 total about $393k (were $25,799 and $2.36M at 1.2x).
+  assert.equal(employeeCost("commitSpecialist", 9), 943179);
+  assert.equal(
+    employeePurchaseCosts("commitSpecialist", 0, 25).reduce((a, b) => a + b, 0),
+    39338823
+  );
+  // The click bonus and the unlock are unchanged.
+  assert.equal(BALANCE.employees.commitSpecialist.clickBonusPerEmployee, 0.2);
+  assert.deepEqual(
+    BALANCE.employees.commitSpecialist.unlockConditions.map((c) => ({ ...c })),
+    [
+      { type: "TOTAL_LOC", target: 25000 },
+      { type: "TOTAL_EMPLOYEE_COUNT", target: 20 },
+    ]
+  );
 });
 
 test("Project Manager: each adds +1% to ALL employee passive LOC (floored final rate)", () => {
@@ -465,7 +482,7 @@ test("hire validation: a Commit Specialist hire at exactly 500000c passes", () =
   assert.deepEqual(r, { ok: true });
 });
 
-test("Brandon's live case: 9 Commit Specialists with OverReact L5 is not eaten by the floor", () => {
+test("Brandon's live case: 9 Commit Specialists with an OverReact boost is not eaten by the floor", () => {
   // Brandon, Nov 10 (playerId 0c3781c2-d611-441e-b5df-e04330c8223e):
   // 9 Commit Specialists, OverReact L5 (cumulative click bonus +31),
   // click showed +32. The old math floored (1 x 32 + 0.9) = 32.9 to
@@ -474,11 +491,12 @@ test("Brandon's live case: 9 Commit Specialists with OverReact L5 is not eaten b
   // scaling, the bonus is part of the click: floor((1 + 1.8) x 32)
   // = floor(89.6) = 89. (Unscaled, 0.2 alone would give
   // floor(32 + 1.8) = 33; the scaling is what makes the bonus
-  // match the manual click's GitNub boost.)
-  const overReact5 = { ...OPEN_SOURCE_ZERO, overReactFramework: 5 };
-  assert.equal(clickBonus(overReact5), 31);
+  // match the manual click's GitNub boost.) Issue #151 added
+  // levels in between, so a +31 boost is now OverReact L7 (+31).
+  const overReact7 = { ...OPEN_SOURCE_ZERO, overReactFramework: 7 };
+  assert.equal(clickBonus(overReact7), 31);
   assert.equal(
-    locPerClick(overReact5, counts({ commitSpecialist: 9 })),
+    locPerClick(overReact7, counts({ commitSpecialist: 9 })),
     89
   );
   // Sanity: the old 0.1 rate really was invisible here.
