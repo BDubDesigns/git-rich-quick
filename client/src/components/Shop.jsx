@@ -20,6 +20,7 @@ import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
 import { ReleaseManagerAssignments } from "./ReleaseManagerAssignments.jsx";
+import { NightShiftCard } from "./NightShiftCard.jsx";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -163,6 +164,8 @@ export function Shop() {
           </div>
         );
       })}
+      {/* Night Shift (issue #149): the offline-production upgrade. */}
+      <NightShiftCard />
     </SectionLayout>
   );
 }

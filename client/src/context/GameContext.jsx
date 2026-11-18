@@ -90,6 +90,9 @@ const initialState = {
   // separate mechanic) that persists across sales.
   subtracterall: shared.zeroSubtracterallState(),
   overtimeReskin: false,
+  // Night Shift (issue #149): the purchased offline-production level
+  // (0..5). Company-local; settled by the server on load.
+  nightShiftLevel: 0,
   // Achievements (issue #132): tier state and the lifetime counters
   // the achievements read (hires per type, clicks, peak LOC/s, llamas
   // bought and sold). Saved with the game state; a save without it
@@ -993,6 +996,62 @@ function gameReducer(state, action) {
       return { ...state, subtracterall: next };
     }
 
+    // Buy the next Night Shift level (issue #149). No payload. The price
+    // is TIME at current LOC/s: the level's minutes of production value
+    // (B) at the buffed healthy rate, the same P the barn and llamas
+    // price from. Bought only when the previous level is owned, the
+    // gate holds (live P and a live employee count), and the cash
+    // covers the price; otherwise the state is unchanged (the card
+    // disables the button and says why, this is the second line of
+    // defence). A big action, so it saves promptly.
+    case "BUY_NIGHT_SHIFT_LEVEL": {
+      const next = shared.nightShiftNextPurchase({
+        level: state.nightShiftLevel,
+        money: state.money,
+        buffedLocPerSec: getBaseLocPerSecond(state),
+        employeeCounts: flatEmployeeCounts(state),
+      });
+      if (!next || !next.canBuy) return state;
+      return {
+        ...state,
+        money: Math.max(0, (state.money ?? 0) - next.priceCents),
+        nightShiftLevel: next.level,
+      };
+    }
+
+    // The server settled Night Shift on load (issue #149). Payload: the
+    // load response's `nightShift` report. The server already filed the
+    // report mail in the settled state (stored with the credit, so no
+    // restore can lose it); this action points the new-mail
+    // notification at it. If the mail is somehow missing it is filed
+    // here, deduped by its trigger key, so it is never filed twice.
+    case "NIGHT_SHIFT_REPORT": {
+      const report = action.payload ?? null;
+      if (!report || !(Number(report.creditedLoc) > 0)) return state;
+      const triggerKey = report.triggerKey ?? `night-shift:${report.settledAt}`;
+      let emails = state.emails ?? [];
+      let mail = emails.find((entry) => entry.triggerKey === triggerKey);
+      if (!mail) {
+        const result = addEmail(
+          emails,
+          shared.buildNightShiftEmail(report),
+          triggerKey,
+          Date.now()
+        );
+        emails = result.emails;
+        mail = result.added;
+      }
+      if (!mail) return state;
+      return {
+        ...state,
+        emails,
+        emailNotification:
+          state.activeTab === "email"
+            ? state.emailNotification
+            : { emailId: mail.id },
+      };
+    }
+
     // Toggle the Overtime reskin setting (Slice 3). Payload:
     // { enabled } — a boolean. The reskin is a text/framing layer
     // only: the same mechanics are framed as Overtime instead of
@@ -1579,6 +1638,19 @@ export function GameProvider({ children }) {
       onStatus: (status) => setSaveStatus(status),
       onPlayerId: (id) => setSavePlayerId(id),
       onSavedAt: (timestampMs) => setLastSavedAt(timestampMs),
+      // Night Shift (issue #149): the load's settlement report, after
+      // the settled state is restored. The mail files it; the floating
+      // number shows the credited LOC once.
+      onNightShift: (report) => {
+        dispatch({ type: "NIGHT_SHIFT_REPORT", payload: report });
+        if (typeof window !== "undefined" && report?.creditedLoc > 0) {
+          window.dispatchEvent(
+            new CustomEvent("gameTickAnimation", {
+              detail: { amount: report.creditedLoc },
+            })
+          );
+        }
+      },
       onRetry: (seconds) =>
         setRetryEndsAtMs(
           seconds == null ? null : Date.now() + seconds * 1000

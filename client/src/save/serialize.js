@@ -29,6 +29,7 @@ import {
   achievementsStateError,
   sanitizeAchievementsState,
   normalizeSubtracterallState,
+  nightShiftLevelOf,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
 
@@ -149,6 +150,9 @@ export function stateToSaveState(clientState) {
     // sales.
     subtracterall: normalizeSubtracterallState(clientState.subtracterall),
     overtimeReskin: clientState.overtimeReskin ?? false,
+    // Night Shift (issue #149): the purchased level, guarded to 0..5
+    // (missing or NaN reads 0).
+    nightShiftLevel: nightShiftLevelOf(clientState.nightShiftLevel),
     // Achievements (issue #132): sanitized on the way out, so a NaN
     // or missing counter is written as 0, never as null (JSON turns
     // NaN into null and the server's shape check would reject it).
@@ -350,6 +354,8 @@ export function saveStateToGameFields(saveState) {
     // withdrawal.
     subtracterall: normalizeSubtracterallState(saveState.subtracterall),
     overtimeReskin: saveState.overtimeReskin ?? false,
+    // Night Shift (issue #149): a save from before it shipped reads 0.
+    nightShiftLevel: nightShiftLevelOf(saveState.nightShiftLevel),
     // Achievements (issue #132): a save without a record restores a
     // fresh one (every tier locked, every counter 0).
     achievements: sanitizeAchievementsState(saveState.achievements),
@@ -496,6 +502,9 @@ export function bigActionFields(saveState) {
     // the LOC balance.
     subtracterallPhase: saveState.subtracterall?.phase ?? "ready",
     subtracterallUses: saveState.subtracterall?.uses ?? 0,
+    // Night Shift (issue #149): buying a level spends cash, so it saves
+    // promptly.
+    nightShiftLevel: nightShiftLevelOf(saveState.nightShiftLevel),
     overtimeReskin: saveState.overtimeReskin ?? false,
     // Achievements (issue #132): a newly earned tier is a big action,
     // so a permanent buff is never lost to a tab close. The per-action
@@ -584,6 +593,8 @@ export function isInitialSaveState(saveState) {
   if ((saveState.subtracterall?.phase ?? "ready") !== "ready") return false;
   if ((saveState.subtracterall?.uses ?? 0) !== 0) return false;
   if ((saveState.overtimeReskin ?? false) !== false) return false;
+  // Night Shift (issue #149): any purchased level is progress.
+  if (nightShiftLevelOf(saveState.nightShiftLevel) !== 0) return false;
   // Achievements (issue #132): any earned tier or counter is progress.
   const achievements = sanitizeAchievementsState(saveState.achievements);
   if (achievementTiersEarned(achievements) !== 0) return false;
@@ -688,6 +699,7 @@ export function bigActionIncreased(prev, next) {
     (next.subtracterallUses ?? 0) !== (prev.subtracterallUses ?? 0)
   )
     return true;
+  if ((next.nightShiftLevel ?? 0) !== (prev.nightShiftLevel ?? 0)) return true;
   if ((next.overtimeReskin ?? false) !== (prev.overtimeReskin ?? false))
     return true;
   if ((next.achievementTiers ?? 0) > (prev.achievementTiers ?? 0)) return true;

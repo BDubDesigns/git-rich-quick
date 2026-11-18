@@ -1735,13 +1735,15 @@ export function starEffectName(effect, good) {
  */
 
 /** Equity curve constants. The full permanent store costs exactly
- * 85 Equity in total (Slice 2); the curve check for Slice 1 is that
- * 85 total Equity requires 85^2 x 1M = 7.225B lifetime LOC. */
+ * 87 Equity in total: the Slice 2 store's 85 plus the 2-Equity Night
+ * Shift Contract (issue #149). The curve check for Slice 1 was that
+ * 85 total Equity requires 85^2 x 1M = 7.225B lifetime LOC; 87 needs
+ * 7.569B. */
 export const PRESTIGE_CONFIG = Object.freeze({
   /** LOC per unit of the Equity curve (first Equity at 1M lifetime LOC). */
   equityLocUnit: 1_000_000,
   /** Total Equity the full permanent store costs (Slice 2). */
-  totalStoreEquityCost: 85,
+  totalStoreEquityCost: 87,
 });
 
 /** Whole Equity a lifetime LOC total entitles the player to. */
@@ -1871,13 +1873,14 @@ export function formatBoostPercent(percent) {
 
 /** ===== Prestige — permanent store (Slice 2) =====
  *
- * Five upgrade tracks, per the v2 prestige design section 3. Ranks
+ * Six upgrade tracks: the five of the v2 prestige design section 3,
+ * plus the Night Shift Contract (issue #149). Ranks
  * are purchased in order; prices are PER RANK, not cumulative; no
  * prerequisites between tracks. Purchases are available ONLY in the
  * post-sale intermission (after selling, before starting the next
- * company). The full store costs exactly 85 Equity in total.
+ * company). The full store costs exactly 87 Equity in total.
  *
- * Equity prices are FIXED (1/3/8, 2/5/10, 3/8/20, 2/6/15, 2). Do
+ * Equity prices are FIXED (1/3/8, 2/5/10, 3/8/20, 2/6/15, 2, 2). Do
  * NOT multiply them by LOC/s: that would penalize hiring, create
  * expensive quotes at high rates and cheap quotes after a reset, and
  * duplicate the progression already priced by the lifetime curve.
@@ -1898,6 +1901,7 @@ export const PRESTIGE_STORE_IDS = Object.freeze([
   "engineeringHandbook",
   "clientNetwork",
   "companyTemplate",
+  "nightShiftContract",
 ]);
 
 /**
@@ -1945,6 +1949,20 @@ export const PRESTIGE_STORE_CONFIG = Object.freeze({
       "A clean slate, prefilled with your previous mistakes. Keeps your favorited projects when you sell.",
     rankCosts: Object.freeze([2]),
   }),
+  // Night Shift Contract (issue #149, Brandon's decision): Night Shift
+  // resets on sale like every upgrade, and this one rank keeps one
+  // earned level through it: every new company starts at Night Shift
+  // level 1 (applied when the post-sale intermission completes). 2
+  // Equity: the convenience tier (Company Template, Keyboard 1, Client
+  // Network 1), below the always-on Handbook 1 (3). Level 1 is 10% of
+  // P for 4h: about 0.4h of production per night early in a company,
+  // plus skipping its 20-minute price and the 10 Juniors gate.
+  nightShiftContract: Object.freeze({
+    displayName: "Night Shift Contract",
+    description:
+      "The night crew signs on with your next company too. Every new company starts with Night Shift level 1.",
+    rankCosts: Object.freeze([2]),
+  }),
 });
 
 /** All store ranks at zero (a fresh save, or a save from before the store). */
@@ -1977,7 +1995,8 @@ export function storeNextRankCost(storeId, currentRank) {
   return storeRankCost(storeId, Math.max(0, currentRank ?? 0) + 1);
 }
 
-/** Total Equity for every rank of every track: exactly 85. */
+/** Total Equity for every rank of every track: exactly 87 (85 plus
+ * the Night Shift Contract's 2, issue #149). */
 export function storeTotalEquityCost() {
   let total = 0;
   for (const storeId of PRESTIGE_STORE_IDS) {
@@ -2160,6 +2179,270 @@ export function formatEstimateDuration(seconds) {
   return minuteRemainder === 0
     ? `${hours}h`
     : `${hours}h ${minuteRemainder}m`;
+}
+
+/** ===== Night Shift: offline production (issue #149) =====
+ *
+ * The team keeps coding a little while the game is closed. A leveled,
+ * PURCHASED company upgrade (cash, priced as time at current LOC/s);
+ * level 0 is zero offline LOC. Approved design: issue #149, comment
+ * 6970751928, with Brandon's decision in comment 6982217342.
+ *
+ *   P = buffedLocPerSecond(state): the healthy passive rate with the
+ *       Founder multiplier, the achievement buff, the doubling tracks,
+ *       Blocker, Project Managers and the Engineering Handbook in;
+ *       star buffs and SUBTRACTERALL out. So prestige and achievements
+ *       apply to offline LOC, exactly as they do to passive LOC.
+ *   B = P x R (R = 60 cents per LOC, bestCentsPerLoc), the same
+ *       production value the llama economy prices from.
+ *
+ * Settlement is SERVER-authoritative: the server settles on load,
+ * from its own clock and the state it already accepted (see
+ * settleNightShift and store.loadAndSettle). Offline credit is LOC
+ * only: no clicks, no stars, no Release Manager shipping. SUBTRACTERALL
+ * is ignored (P already excludes it).
+ *
+ * Night Shift is company-local: a sale resets it to 0, like every
+ * other upgrade (the Nov 15 rule). The Night Shift Contract store rank
+ * (PRESTIGE_STORE_CONFIG.nightShiftContract) grants level 1 at the
+ * start of each new company.
+ *
+ * Copy rules: no em dashes in any player-facing string.
+ */
+export const NIGHT_SHIFT_CONFIG = Object.freeze({
+  /** Highest level. */
+  maxLevel: 5,
+  /** An absence shorter than this credits nothing (5 minutes). An
+   *  open tab saves every 60s, so a live session never reaches it:
+   *  online and offline production can never cover the same time. */
+  minAwaySeconds: 5 * 60,
+  /** Per level (index 0 is level 1): the share of P credited while
+   *  away, the hours counted per absence, the price in seconds of
+   *  production value (B), and the gate (live P and a live employee
+   *  count). Each level also needs the one before it. */
+  levels: Object.freeze([
+    Object.freeze({
+      rate: 0.1,
+      capHours: 4,
+      priceSeconds: 20 * 60,
+      gate: Object.freeze({ minLocPerSecond: 100, employeeType: "junior", employeeCount: 10 }),
+    }),
+    Object.freeze({
+      rate: 0.2,
+      capHours: 8,
+      priceSeconds: 30 * 60,
+      gate: Object.freeze({ minLocPerSecond: 1_000, employeeType: "senior", employeeCount: 5 }),
+    }),
+    Object.freeze({
+      rate: 0.3,
+      capHours: 12,
+      priceSeconds: 45 * 60,
+      gate: Object.freeze({ minLocPerSecond: 10_000, employeeType: "projectManager", employeeCount: 10 }),
+    }),
+    Object.freeze({
+      rate: 0.4,
+      capHours: 16,
+      priceSeconds: 60 * 60,
+      gate: Object.freeze({ minLocPerSecond: 100_000, employeeType: "releaseManager", employeeCount: 10 }),
+    }),
+    Object.freeze({
+      rate: 0.5,
+      capHours: 24,
+      priceSeconds: 90 * 60,
+      gate: Object.freeze({ minLocPerSecond: 1_000_000, employeeType: "senior", employeeCount: 25 }),
+    }),
+  ]),
+});
+
+/** A finite, non-negative number, or 0 (NaN, negatives, junk). */
+function nightShiftSafeNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** A guarded Night Shift level: an integer 0..maxLevel, missing or junk reads 0. */
+export function nightShiftLevelOf(level) {
+  const n = Math.floor(Number(level));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(NIGHT_SHIFT_CONFIG.maxLevel, n);
+}
+
+/** The config of level `level` (1..5), or null for 0 and anything out of range. */
+export function nightShiftLevelConfig(level) {
+  const n = Math.floor(Number(level));
+  if (!Number.isFinite(n) || n < 1 || n > NIGHT_SHIFT_CONFIG.maxLevel) {
+    return null;
+  }
+  return NIGHT_SHIFT_CONFIG.levels[n - 1];
+}
+
+/** The share of P credited while away at a level (0 at level 0). */
+export function nightShiftRate(level) {
+  return nightShiftLevelConfig(level)?.rate ?? 0;
+}
+
+/** The seconds counted per absence at a level (0 at level 0). */
+export function nightShiftCapSeconds(level) {
+  return (nightShiftLevelConfig(level)?.capHours ?? 0) * 3600;
+}
+
+/**
+ * Hours of full passive production an absence of `awayHours` returns
+ * at a level: rate x min(away, cap). 8h at level 5 is 4.
+ */
+export function nightShiftHoursOfProduction(level, awayHours) {
+  const config = nightShiftLevelConfig(level);
+  if (!config) return 0;
+  return config.rate * Math.min(nightShiftSafeNumber(awayHours), config.capHours);
+}
+
+/**
+ * The price of buying `level` (1..5), in whole cents, at buffed P:
+ * priceSeconds x B. Quoted at the CURRENT P, like the barn and the
+ * llamas (P floored at minPricingLocPerSecond so it is never free).
+ * 0 for a level that does not exist.
+ */
+export function nightShiftPriceCents(level, buffedLocPerSec) {
+  const config = nightShiftLevelConfig(level);
+  if (!config) return 0;
+  return Math.round(
+    config.priceSeconds * farmProductionValueCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/**
+ * Gate progress for buying `level`: the live P against its minimum and
+ * the live count of one employee type against its target. A missing
+ * count reads 0. `met` is both. Null for a level that does not exist.
+ */
+export function nightShiftGateProgress(level, buffedLocPerSec, employeeCounts) {
+  const config = nightShiftLevelConfig(level);
+  if (!config) return null;
+  const { minLocPerSecond, employeeType, employeeCount } = config.gate;
+  const rate = nightShiftSafeNumber(buffedLocPerSec);
+  const hired = nightShiftSafeNumber(employeeCounts?.[employeeType]);
+  return {
+    locPerSecond: { current: rate, target: minLocPerSecond, met: rate >= minLocPerSecond },
+    employees: {
+      employeeType,
+      current: hired,
+      target: employeeCount,
+      met: hired >= employeeCount,
+    },
+    met: rate >= minLocPerSecond && hired >= employeeCount,
+  };
+}
+
+/**
+ * The next level a player could buy, or null at max: its level, price
+ * (cents at current P), gate progress, whether it is affordable, and
+ * whether it can be bought right now (gate met and affordable).
+ */
+export function nightShiftNextPurchase({ level, money, buffedLocPerSec, employeeCounts }) {
+  const next = nightShiftLevelOf(level) + 1;
+  if (next > NIGHT_SHIFT_CONFIG.maxLevel) return null;
+  const priceCents = nightShiftPriceCents(next, buffedLocPerSec);
+  const gate = nightShiftGateProgress(next, buffedLocPerSec, employeeCounts);
+  const affordable = nightShiftSafeNumber(money) >= priceCents;
+  return { level: next, priceCents, gate, affordable, canBuy: gate.met && affordable };
+}
+
+/**
+ * The offline credit for an absence (pure; the server calls it with
+ * ITS clock). Credits nothing at level 0, under minAwaySeconds, or at
+ * zero production. Returns null for no credit, else the report:
+ * { awaySeconds, countedSeconds, rate, creditedLoc, hoursOfProduction }.
+ * creditedLoc = floor(rate x P x min(away, cap)), a whole LOC.
+ */
+export function nightShiftCredit(level, buffedLocPerSec, awaySeconds) {
+  const config = nightShiftLevelConfig(level);
+  const away = nightShiftSafeNumber(awaySeconds);
+  const rate = nightShiftSafeNumber(buffedLocPerSec);
+  if (!config || away < NIGHT_SHIFT_CONFIG.minAwaySeconds || rate <= 0) {
+    return null;
+  }
+  const countedSeconds = Math.min(away, config.capHours * 3600);
+  const creditedLoc = Math.floor(config.rate * rate * countedSeconds + 1e-9);
+  if (creditedLoc <= 0) return null;
+  return {
+    awaySeconds: Math.floor(away),
+    countedSeconds: Math.floor(countedSeconds),
+    rate: config.rate,
+    creditedLoc,
+    hoursOfProduction: creditedLoc / rate / 3600,
+  };
+}
+
+/**
+ * Settle Night Shift on a save-shaped state for an absence of
+ * `awaySeconds` (server clock). Returns `{ state, report }` with the
+ * credit added to linesOfCode and totalLinesOfCode (so it counts toward
+ * lifetime LOC and Equity like any LOC), or null when nothing is
+ * credited. P comes from the state itself (the state the server
+ * already accepted), never from the client. Nothing settles during
+ * the post-sale intermission (no company is running).
+ *
+ * With an `emailId` (a UUID the caller mints; this stays pure), the
+ * report mail is filed in the same state, keyed `night-shift:<nowMs>`:
+ * the mail is stored atomically with the credit, so no later client
+ * restore can lose it. The inbox keeps its cap (oldest dropped).
+ */
+export function settleNightShift(state, awaySeconds, { nowMs = 0, emailId = null } = {}) {
+  if (!state || typeof state !== "object") return null;
+  if (state.prestigeIntermission) return null;
+  const report = nightShiftCredit(
+    nightShiftLevelOf(state.nightShiftLevel),
+    buffedLocPerSecond(state),
+    awaySeconds
+  );
+  if (!report) return null;
+  const next = {
+    ...state,
+    linesOfCode: nightShiftSafeNumber(state.linesOfCode) + report.creditedLoc,
+    totalLinesOfCode:
+      nightShiftSafeNumber(state.totalLinesOfCode) + report.creditedLoc,
+  };
+  const createdAtMs = Math.max(0, Math.floor(nightShiftSafeNumber(nowMs)));
+  const triggerKey = `night-shift:${createdAtMs}`;
+  const inbox = Array.isArray(state.emails) ? state.emails : [];
+  if (emailId && !inbox.some((entry) => entry?.triggerKey === triggerKey)) {
+    const mail = buildNightShiftEmail(report);
+    let emails = [
+      ...inbox,
+      { id: emailId, triggerKey, ...mail, createdAtMs, read: false },
+    ];
+    while (emails.length > EMAIL_CONFIG.maxInboxEmails) emails = emails.slice(1);
+    next.emails = emails;
+    return { state: next, report: { ...report, emailId, triggerKey } };
+  }
+  return { state: next, report };
+}
+
+/** The Night Shift level a new company starts at: 1 with the Night
+ *  Shift Contract store rank, else 0. */
+export function nightShiftStartLevel(storeRanks) {
+  return Math.max(0, Math.floor(Number(storeRanks?.nightShiftContract) || 0)) >= 1
+    ? 1
+    : 0;
+}
+
+/** The inbox mail for a settled absence (shown once, on return). */
+export function buildNightShiftEmail(report) {
+  const loc = formatNumber(nightShiftSafeNumber(report?.creditedLoc));
+  const away = formatEstimateDuration(nightShiftSafeNumber(report?.awaySeconds));
+  const hours = Math.round(nightShiftSafeNumber(report?.hoursOfProduction) * 10) / 10;
+  const counted = nightShiftSafeNumber(report?.countedSeconds);
+  const capped = counted < nightShiftSafeNumber(report?.awaySeconds);
+  return {
+    sender: "Night Shift Lead",
+    subject: `Night Shift report: +${loc} LOC`,
+    body:
+      `While you were away for ${away}, the night shift wrote ${loc} LOC ` +
+      `(${hours} hours of production at ${Math.round(nightShiftSafeNumber(report?.rate) * 100)}% speed).` +
+      (capped
+        ? ` We clocked out after ${formatEstimateDuration(counted)}. Upgrade Night Shift for longer shifts.`
+        : " Nobody touched the coffee machine. Probably."),
+  };
 }
 
 /** ===== Prestige: SUBTRACTERALL (Slice 3, reworked in issue #150) =====
@@ -2612,6 +2895,11 @@ export function applyPrestigeSale(preSaleState, saleId) {
       uses: 0,
     },
     favoriteOpenSourceProjects: favorites,
+    // Night Shift (issue #149): an upgrade like any other, so it
+    // RESETS on sale (the Nov 15 rule). The Night Shift Contract
+    // rank grants level 1 when the new company starts (see
+    // completePrestigeIntermission), not here.
+    nightShiftLevel: 0,
     lifetimeEquityEarned: earnedBefore + gainedEquity,
     saleCount: Math.max(0, preSaleState.saleCount ?? 0) + 1,
     lifetimeLocAtLastSale: lifetimeLoc,
@@ -2674,6 +2962,13 @@ export function completePrestigeIntermission(state) {
       intermission.frozenHealthyPassiveLocPerSec,
       intermission.frozenBestPayoutPerLocCents,
       rank
+    ),
+    // Night Shift Contract (issue #149): the new company starts at
+    // Night Shift level 1 when the rank is owned (bought before or
+    // during the intermission). max() keeps it idempotent.
+    nightShiftLevel: Math.max(
+      nightShiftLevelOf(state.nightShiftLevel),
+      nightShiftStartLevel(state.permanentStoreRanks)
     ),
     prestigeIntermission: null,
   };
@@ -4154,6 +4449,10 @@ export function initialSaveState() {
     // text/framing layer over SUBTRACTERALL, never a separate
     // mechanic. It persists across sales.
     subtracterall: zeroSubtracterallState(),
+    // Night Shift (issue #149): the purchased offline-production level,
+    // 0..5. Company-local: a sale resets it (the Night Shift Contract
+    // store rank grants level 1 at the next company start).
+    nightShiftLevel: 0,
     overtimeReskin: false,
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
@@ -4593,6 +4892,10 @@ export function normalizeSaveState(state) {
   // over. A value already in the new shape is left alone, so the
   // shape check still rejects a present-but-wrong value.
   next.subtracterall = normalizeSubtracterallState(next.subtracterall);
+  // Night Shift (issue #149): a save from before it shipped has no
+  // level. A fresh default of 0, no backfill; a present-but-wrong
+  // value is left alone so the shape check rejects it.
+  if (next.nightShiftLevel === undefined) next.nightShiftLevel = 0;
   if (next.overtimeReskin === undefined) next.overtimeReskin = false;
   // Achievements (issue #132): a save from before achievements has no
   // record at all. Default it to a fresh one (no backfill: every tier

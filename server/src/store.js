@@ -24,6 +24,7 @@ import {
   founderMultiplier,
   initialSaveState,
   normalizeSaveState,
+  settleNightShift,
 } from "../../shared/game-balance.js";
 import {
   METRICS_SAMPLING,
@@ -290,6 +291,73 @@ export function createStore(pool) {
       );
       if (res.rowCount === 0) return null;
       return rowToSnapshot(res.rows[0]);
+    },
+
+    /**
+     * Load a save and settle Night Shift (issue #149), atomically. The
+     * row is locked (`SELECT ... FOR UPDATE`) and the absence is
+     * measured with the SERVER clock only: away = nowMs - saved_at (the
+     * last accepted save). When settleNightShift credits anything (a
+     * level of 1+, away >= 5 minutes, positive production), the credit
+     * is added to the stored state and saved_at moves to nowMs in the
+     * same transaction, so a second load right after finds nothing to
+     * settle (idempotent), and the credit can never be counted twice.
+     * P comes from the stored (already accepted) state, never the
+     * client. The report mail is filed in the same stored state, so it
+     * persists with the credit. Returns null for an unknown player,
+     * else the snapshot plus `nightShift` (the report, or null when
+     * nothing settled).
+     */
+    async loadAndSettle(playerId, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(
+          `SELECT player_id, state, saved_at, created_at
+           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+          [playerId]
+        );
+        if (res.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+        const snapshot = rowToSnapshot(res.rows[0]);
+        const awaySeconds = (nowMs - snapshot.savedAtMs) / 1000;
+        const settled = Number.isFinite(awaySeconds)
+          ? settleNightShift(snapshot.state, awaySeconds, {
+              nowMs,
+              emailId: randomUUID(),
+            })
+          : null;
+        if (!settled) {
+          await client.query("COMMIT");
+          return { ...snapshot, nightShift: null };
+        }
+        await client.query(
+          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          [
+            JSON.stringify(settled.state),
+            new Date(nowMs).toISOString(),
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        return {
+          ...snapshot,
+          state: settled.state,
+          savedAtMs: nowMs,
+          nightShift: { ...settled.report, settledAt: new Date(nowMs).toISOString() },
+        };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
     },
 
     /**
