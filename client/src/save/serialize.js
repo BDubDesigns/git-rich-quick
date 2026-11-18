@@ -28,7 +28,7 @@ import {
   achievementTiersEarned,
   achievementsStateError,
   sanitizeAchievementsState,
-  zeroSubtracterallState,
+  normalizeSubtracterallState,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
 
@@ -142,14 +142,12 @@ export function stateToSaveState(clientState) {
     // survive a reload; a missing value defaults to null.
     nextStarAtMs: clientState.nextStarAtMs ?? null,
     lastStarBuyAtMs: clientState.lastStarBuyAtMs ?? null,
-    // SUBTRACTERALL (Slice 3). Phase, remaining credited seconds,
-    // liability, tolerance, active tier, per-company dose supply,
-    // and recovery progress. Copied per field so the save never
-    // shares a reference with the live state. The Overtime reskin
-    // setting persists across sales.
-    subtracterall: {
-      ...(clientState.subtracterall ?? zeroSubtracterallState()),
-    },
+    // SUBTRACTERALL (issue #150). Phase, remaining credited seconds,
+    // the per-company use count, and the active use. Normalized (a
+    // copy, never a shared reference; any pre-rework shape becomes the
+    // fresh Ready state). The Overtime reskin setting persists across
+    // sales.
+    subtracterall: normalizeSubtracterallState(clientState.subtracterall),
     overtimeReskin: clientState.overtimeReskin ?? false,
     // Achievements (issue #132): sanitized on the way out, so a NaN
     // or missing counter is written as 0, never as null (JSON turns
@@ -344,15 +342,13 @@ export function saveStateToGameFields(saveState) {
     // schedule on load when Constellation is unlocked.
     nextStarAtMs: saveState.nextStarAtMs ?? null,
     lastStarBuyAtMs: saveState.lastStarBuyAtMs ?? null,
-    // SUBTRACTERALL (Slice 3). A save from before it shipped has no
-    // subtracterall field — default it to the fresh Ready state here,
-    // the same way the server's normalizeSaveState does on save. Only
-    // MISSING keys are filled; a present phase, liability, or
-    // tolerance is never reset here, because selling must not cure
-    // withdrawal or reset tolerance, and neither may a load.
-    subtracterall: {
-      ...(saveState.subtracterall ?? zeroSubtracterallState()),
-    },
+    // SUBTRACTERALL (issue #150). A save from before it shipped, or
+    // from before the rework (old tier / liability / tolerance
+    // fields), loads as the fresh Ready state, the same way the
+    // server's normalizeSaveState does on save. No migration. A
+    // current-shape phase is kept as is: a load never cures a
+    // withdrawal.
+    subtracterall: normalizeSubtracterallState(saveState.subtracterall),
     overtimeReskin: saveState.overtimeReskin ?? false,
     // Achievements (issue #132): a save without a record restores a
     // fresh one (every tier locked, every counter 0).
@@ -488,18 +484,18 @@ export function bigActionFields(saveState) {
     favoriteOpenSourceProjects: JSON.stringify(
       saveState.favoriteOpenSourceProjects ?? []
     ),
-    // SUBTRACTERALL (Slice 3): taking a dose (phase ready -> burst,
-    // dosesUsed up) and toggling the Overtime reskin are deliberate
+    // SUBTRACTERALL (issue #150): activating (phase ready -> burst,
+    // uses up) and toggling the Overtime reskin are deliberate
     // player choices, so they save promptly. The phase is here too,
     // so a phase flip (burst -> withdrawal, withdrawal -> ready)
-    // persists promptly. The per-tick drift — remaining seconds,
-    // liability, recovery progress — is deliberately NOT here: it
+    // persists promptly. The per-tick drift (remaining seconds) is
+    // deliberately NOT here: it
     // moves every second during a phase, and saving on every tick
     // would spam the 1s rate limit. It persists via the 60s
     // heartbeat and the keepalive on tab hide/unload, the same as
     // the LOC balance.
     subtracterallPhase: saveState.subtracterall?.phase ?? "ready",
-    subtracterallDosesUsed: saveState.subtracterall?.dosesUsed ?? 0,
+    subtracterallUses: saveState.subtracterall?.uses ?? 0,
     overtimeReskin: saveState.overtimeReskin ?? false,
     // Achievements (issue #132): a newly earned tier is a big action,
     // so a permanent buff is never lost to a tab close. The per-action
@@ -583,14 +579,10 @@ export function isInitialSaveState(saveState) {
   if ((saveState.prestigeIntermission ?? null) !== null) return false;
   if ((saveState.favoriteOpenSourceProjects ?? []).length !== 0)
     return false;
-  // SUBTRACTERALL (Slice 3): a fresh save has never dosed — Ready
-  // phase, no liability, tolerance 0, three doses available, no
-  // recovery progress, and the reskin off.
+  // SUBTRACTERALL (issue #150): a fresh save has never used it:
+  // Ready phase, no uses, and the reskin off.
   if ((saveState.subtracterall?.phase ?? "ready") !== "ready") return false;
-  if ((saveState.subtracterall?.liability ?? 0) !== 0) return false;
-  if ((saveState.subtracterall?.tolerance ?? 0) !== 0) return false;
-  if ((saveState.subtracterall?.dosesUsed ?? 0) !== 0) return false;
-  if ((saveState.subtracterall?.recoverySeconds ?? 0) !== 0) return false;
+  if ((saveState.subtracterall?.uses ?? 0) !== 0) return false;
   if ((saveState.overtimeReskin ?? false) !== false) return false;
   // Achievements (issue #132): any earned tier or counter is progress.
   const achievements = sanitizeAchievementsState(saveState.achievements);
@@ -683,9 +675,9 @@ export function bigActionIncreased(prev, next) {
     (prev.favoriteOpenSourceProjects ?? "")
   )
     return true;
-  // SUBTRACTERALL (Slice 3): a dose taken (phase or doses used
+  // SUBTRACTERALL (issue #150): an activation (phase or use count
   // changed), a phase flipped, or the reskin toggled. The per-tick
-  // drift (remaining seconds, liability, recovery) is not a big
+  // drift (remaining seconds) is not a big
   // action — see bigActionFields.
   if (
     (next.subtracterallPhase ?? "ready") !==
@@ -693,7 +685,7 @@ export function bigActionIncreased(prev, next) {
   )
     return true;
   if (
-    (next.subtracterallDosesUsed ?? 0) !== (prev.subtracterallDosesUsed ?? 0)
+    (next.subtracterallUses ?? 0) !== (prev.subtracterallUses ?? 0)
   )
     return true;
   if ((next.overtimeReskin ?? false) !== (prev.overtimeReskin ?? false))

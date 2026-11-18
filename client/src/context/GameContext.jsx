@@ -81,10 +81,10 @@ const initialState = {
   permanentStoreRanks: shared.zeroStoreRanks(),
   prestigeIntermission: null,
   favoriteOpenSourceProjects: [],
-  // SUBTRACTERALL (Slice 3). Phase, remaining credited seconds,
-  // liability, tolerance, active tier, per-company dose supply, and
-  // recovery progress. Saved with the game state; a save from before
-  // it shipped backfills to a fresh Ready state on load. The
+  // SUBTRACTERALL (issue #150). Phase, remaining credited seconds,
+  // the per-company use count, and the use number of the active
+  // phase. Saved with the game state; a save from before the rework
+  // loads as a fresh Ready state (no migration). The
   // Overtime reskin is a setting (a text/framing layer, never a
   // separate mechanic) that persists across sales.
   subtracterall: shared.zeroSubtracterallState(),
@@ -261,13 +261,11 @@ function gameReducer(state, action) {
     }
     // Player clicks the "Write Code" button
     case "WRITE_CODE": {
-      // SUBTRACTERALL (Slice 3): the click's healthy LOC (the floored
-      // click total, all other modifiers included) is run through
-      // the current phase. Burst credits 3x and adds 3x to liability;
-      // withdrawal credits floor(0.25x) and repays liability with
-      // the withheld remainder; ready credits the healthy click.
-      // The phase state is part of the new state, so the liability
-      // and any phase flip it causes persist with the click.
+      // SUBTRACTERALL (issue #150): the click's healthy LOC (the
+      // floored click total, all other modifiers included) is run
+      // through the current phase. Burst credits 3x; withdrawal
+      // credits floor(the use's withdrawal multiplier x the click);
+      // ready credits the healthy click. A click never ends a phase.
       const healthyClick = calculateLOCPerClick(state);
       const clickResult = shared.subtracterallApplyClick(
         state.subtracterall ?? shared.zeroSubtracterallState(),
@@ -713,13 +711,12 @@ function gameReducer(state, action) {
 
     // Game tick: called every second to generate LOC from employees
     case "GAME_TICK": {
-      // SUBTRACTERALL (Slice 3): the tick's healthy passive LOC
+      // SUBTRACTERALL (issue #150): the tick's healthy passive LOC
       // (the floored passive rate, star buffs included) is run
       // through the current phase over one credited second. Burst
-      // credits 3x and adds 3x to liability; withdrawal credits
-      // 0.25x and repays liability with the withheld remainder; ready
-      // credits the healthy rate and accrues tolerance recovery when
-      // there is positive employee production. The credited total is
+      // credits 3x; withdrawal credits the use's withdrawal
+      // multiplier (0.5 x 0.9^(n-1)); ready credits the healthy
+      // rate. A phase ending mid-second splits it. The credited total is
       // floored to a whole LOC (a tick must never commit a fractional
       // amount) with the +1e-9 epsilon guard against float error —
       // the same function gameLogic.calculateTickCredit uses for the
@@ -727,7 +724,7 @@ function gameReducer(state, action) {
       // never disagree. The phase timers advance in credited
       // seconds, never wall-clock: a player who closes the game
       // mid-phase comes back to the same phase with the same
-      // remaining time and the same liability.
+      // remaining time.
       const healthyPassiveLOC = calculateLOCPerSecond(state);
       const subResult = shared.advanceSubtracterall(
         state.subtracterall ?? shared.zeroSubtracterallState(),
@@ -834,9 +831,8 @@ function gameReducer(state, action) {
         farmBreedTicks: nextBreedTicks,
         farmBreedDue,
         releaseManagerShipTicks: nextShipTicks,
-        // SUBTRACTERALL (Slice 3): the advanced phase state (new
-        // liability, remaining time, any phase flip, tolerance
-        // recovery progress).
+        // SUBTRACTERALL (issue #150): the advanced phase state (the
+        // remaining time and any phase flip).
         subtracterall: subResult.state,
       };
 
@@ -966,27 +962,26 @@ function gameReducer(state, action) {
       };
     }
 
-    // Take a SUBTRACTERALL dose (Slice 3). No payload. The dose is
-    // taken only when every requirement holds: permanently unlocked
-    // (100,000 lifetime LOC), the phase is Ready, the company supply
-    // remains, and there is at least one employee with positive
-    // healthy production (the healthy passive rate, permanent
-    // bonuses included, temporary star multipliers excluded). A
-    // failed dose returns the state unchanged — the card disables
-    // the button when it cannot be taken, and this is the second
-    // line of defence. Taking a dose is a big action (the phase
-    // flips ready -> burst and dosesUsed rises), so it saves
-    // promptly. Tolerance rises by one on activation (capped at 2)
-    // and partial recovery progress resets to zero.
-    case "TAKE_SUBTRACTERALL_DOSE": {
-      const sub = state.subtracterall ?? shared.zeroSubtracterallState();
+    // Activate SUBTRACTERALL (issue #150; "Take Dose", or "Mandate
+    // Overtime" in the reskin). No payload. Activation happens only
+    // when it is permanently unlocked (100,000 lifetime LOC), the
+    // phase is Ready, and there is at least one employee with
+    // positive healthy production (the healthy passive rate,
+    // permanent bonuses included, temporary star multipliers
+    // excluded). There is no use cap. A failed activation returns the
+    // state unchanged: the card disables the button when it cannot
+    // be used, and this is the second line of defence. Activating is
+    // a big action (the phase flips ready -> burst and the use count
+    // rises), so it saves promptly.
+    case "ACTIVATE_SUBTRACTERALL": {
+      const sub = shared.normalizeSubtracterallState(state.subtracterall);
       if (!shared.subtracterallUnlocked(state.totalLinesOfCode ?? 0)) {
         return state;
       }
-      if (!shared.subtracterallCanDose(sub, getBaseLocPerSecond(state))) {
+      if (!shared.subtracterallCanActivate(sub, getBaseLocPerSecond(state))) {
         return state;
       }
-      const next = shared.subtracterallTakeDose(sub);
+      const next = shared.subtracterallActivate(sub);
       if (!next) return state;
       return { ...state, subtracterall: next };
     }
