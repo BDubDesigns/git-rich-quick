@@ -26,6 +26,11 @@ import {
   normalizeSaveState,
 } from "../../shared/game-balance.js";
 import {
+  METRICS_SAMPLING,
+  deriveMetricsSnapshot,
+  routineSnapshotReason,
+} from "./metrics.js";
+import {
   validateCompleteIntermission,
   validatePrestigeSale,
   validateSave,
@@ -39,6 +44,24 @@ const CREATE_TABLE_SQL = `
     state JSONB NOT NULL,
     saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )
+`;
+
+/**
+ * Progress telemetry (issue #152): derived click / passive snapshots,
+ * sampled at most hourly per player (plus one per sale). Derived from
+ * the save, never part of it. Rows go when their save row goes (the
+ * guest prune deletes both). No PII: game numbers only.
+ */
+const CREATE_METRICS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS git_save_metrics (
+    player_id UUID NOT NULL REFERENCES git_saves(player_id) ON DELETE CASCADE,
+    captured_at TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    passive_loc_per_sec DOUBLE PRECISION NOT NULL,
+    click_loc_per_sec_at_10cps DOUBLE PRECISION NOT NULL,
+    progress JSONB NOT NULL,
+    PRIMARY KEY (player_id, captured_at)
   )
 `;
 
@@ -113,6 +136,52 @@ function rowToSnapshot(row) {
   };
 }
 
+/**
+ * Progress telemetry (issue #152): record a derived snapshot (see
+ * store.recordMetricsSnapshot). A plain function so the save and sale
+ * paths call it without relying on `this`.
+ */
+async function recordMetricsSnapshot(pool, playerId, state, nowMs, { sale = false } = {}) {
+  try {
+    let reason = "sale";
+    if (!sale) {
+      const last = await pool.query(
+        `SELECT captured_at FROM git_save_metrics
+         WHERE player_id = $1 ORDER BY captured_at DESC LIMIT 1`,
+        [playerId]
+      );
+      reason = routineSnapshotReason(
+        last.rowCount === 0 ? null : toMs(last.rows[0].captured_at),
+        nowMs
+      );
+      if (!reason) return null;
+    }
+    const snapshot = deriveMetricsSnapshot(state);
+    await pool.query(
+      `INSERT INTO git_save_metrics
+         (player_id, captured_at, reason, passive_loc_per_sec,
+          click_loc_per_sec_at_10cps, progress)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (player_id, captured_at) DO NOTHING`,
+      [
+        playerId,
+        new Date(nowMs).toISOString(),
+        reason,
+        snapshot.passiveLocPerSec,
+        snapshot.clickLocPerSecAt10cps,
+        JSON.stringify(snapshot.progress),
+      ]
+    );
+    return reason;
+  } catch (err) {
+    console.warn(
+      `[metrics] snapshot failed for ${playerId}:`,
+      err?.message ?? err
+    );
+    return null;
+  }
+}
+
 export function createStore(pool) {
   return {
     async ensureSchema() {
@@ -129,6 +198,59 @@ export function createStore(pool) {
         CREATE UNIQUE INDEX IF NOT EXISTS git_saves_user_id_unique
           ON git_saves (user_id) WHERE user_id IS NOT NULL
       `);
+      await pool.query(CREATE_METRICS_TABLE_SQL);
+    },
+
+    /**
+     * Progress telemetry (issue #152): record a derived snapshot of
+     * `state` for a player, best effort. `sale: true` always records
+     * (the pre-sale state); otherwise a routine snapshot is recorded
+     * only when the player has none yet ("first") or the last is at
+     * least an hour old ("hourly"). Never throws: telemetry must not
+     * break a save (a failure is logged and swallowed). Returns the
+     * reason recorded, or null.
+     */
+    async recordMetricsSnapshot(playerId, state, nowMs, options) {
+      return recordMetricsSnapshot(pool, playerId, state, nowMs, options);
+    },
+
+    /**
+     * Progress telemetry (issue #152): one player's snapshots, oldest
+     * first, optionally bounded by `fromMs` / `untilMs` (inclusive, ms
+     * since the epoch), capped at `limit` rows.
+     */
+    async listMetricsSnapshots(
+      playerId,
+      { fromMs = null, untilMs = null, limit = METRICS_SAMPLING.defaultLimit } = {}
+    ) {
+      const params = [playerId];
+      const clauses = ["player_id = $1"];
+      if (fromMs !== null) {
+        params.push(new Date(fromMs).toISOString());
+        clauses.push("captured_at >= $" + params.length);
+      }
+      if (untilMs !== null) {
+        params.push(new Date(untilMs).toISOString());
+        clauses.push("captured_at <= $" + params.length);
+      }
+      params.push(limit);
+      const res = await pool.query(
+        "SELECT captured_at, reason, passive_loc_per_sec, " +
+          "click_loc_per_sec_at_10cps, progress FROM git_save_metrics " +
+          "WHERE " + clauses.join(" AND ") +
+          " ORDER BY captured_at ASC LIMIT $" + params.length,
+        params
+      );
+      return res.rows.map((row) => ({
+        capturedAtMs: toMs(row.captured_at),
+        reason: row.reason,
+        passiveLocPerSec: Number(row.passive_loc_per_sec),
+        clickLocPerSecAt10cps: Number(row.click_loc_per_sec_at_10cps),
+        progress:
+          typeof row.progress === "string"
+            ? JSON.parse(row.progress)
+            : row.progress,
+      }));
     },
 
     async close() {
@@ -375,6 +497,9 @@ export function createStore(pool) {
           ]
         );
         await client.query("COMMIT");
+        // Telemetry (issue #152): after the commit, best effort. The
+        // save is already stored; a snapshot failure cannot undo it.
+        await recordMetricsSnapshot(pool, playerId, body.state, nowMs);
         return { status: "ok", state: body.state, savedAtMs: nowMs };
       } catch (err) {
         try {
@@ -505,6 +630,12 @@ export function createStore(pool) {
           ]
         );
         await client.query("COMMIT");
+        // Telemetry (issue #152): every sale records the PRE-sale
+        // state (the end of a company's curve), after the commit and
+        // best effort.
+        await recordMetricsSnapshot(pool, playerId, sentState, nowMs, {
+          sale: true,
+        });
         return {
           status: "ok",
           state: postState,

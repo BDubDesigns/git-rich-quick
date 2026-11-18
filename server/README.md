@@ -86,6 +86,26 @@ balance number (imported by both the client and this server).
   (debugging a specific player's issue, by explicit playerId). There is
   no bulk/list-all-players endpoint. `400` for a malformed id, `404`
   for an unknown player, `501` when `ADMIN_TOKEN` is unset.
+- `GET /api/admin/player/:playerId/metrics` (issue #152): admin
+  read-only progress telemetry for one player, oldest first:
+  `{ playerId, from, to, count, sampling, series }`, where each series
+  entry is `{ capturedAt, reason, passiveLocPerSec,
+  clickLocPerSecAt10cps, clickToPassiveRatio, progress }`. Both rates
+  are healthy (no star or SUBTRACTERALL buffs): passive is
+  `buffedLocPerSecond`, click is 10 x the healthy `locPerClick`.
+  `progress` holds the LOC totals, employee counts, doubling ranks and
+  all open-source levels, sale count, lifetime Equity, achievement
+  tiers, store ranks, and the farm (owned, llama counts). Snapshots are
+  derived from the save on the server (never stored in it) into the
+  `git_save_metrics` table: one on the first accepted save, then at
+  most one per hour per player on an accepted save (`reason: "hourly"`),
+  plus one of the pre-sale state at every company sale
+  (`reason: "sale"`). Optional `?from=` / `?to=` (ISO date or ms,
+  inclusive) and `?limit=` (default 1000, max 5000). Requires
+  `Authorization: Bearer <ADMIN_TOKEN>`; audit-logged. No PII (game
+  numbers only); rows are deleted with their save (FK cascade). `400`
+  for a malformed id or time, `404` for an unknown player, `501` when
+  `ADMIN_TOKEN` is unset.
 - `GET /api/admin/rejected-saves` — admin read-only (issue #45): recent
   rejected saves, most recent first, each `{ playerId, rule, detail,
   rejectedAt }`. Requires `Authorization: Bearer <ADMIN_TOKEN>`.
