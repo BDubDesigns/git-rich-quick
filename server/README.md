@@ -97,10 +97,11 @@ balance number (imported by both the client and this server).
   all open-source levels, sale count, lifetime Equity, achievement
   tiers, store ranks, and the farm (owned, llama counts). Snapshots are
   derived from the save on the server (never stored in it) into the
-  `git_save_metrics` table: one on the first accepted save, then at
-  most one per hour per player on an accepted save (`reason: "hourly"`),
-  plus one of the pre-sale state at every company sale
-  (`reason: "sale"`). Optional `?from=` / `?to=` (ISO date or ms,
+  `git_save_metrics` table: one on **every accepted save** (the 60s
+  heartbeat and big-action saves, `reason: "save"`, issue #159), about
+  one row per minute of active play, plus one of the pre-sale state at
+  every company sale (`reason: "sale"`). Rows from before #159 keep
+  their hourly-era reasons (`"first"`, `"hourly"`). Optional `?from=` / `?to=` (ISO date or ms,
   inclusive) and `?limit=` (default 1000, max 5000). Requires
   `Authorization: Bearer <ADMIN_TOKEN>`; audit-logged. No PII (game
   numbers only); rows are deleted with their save (FK cascade). `400`

@@ -26,11 +26,7 @@ import {
   normalizeSaveState,
   settleNightShift,
 } from "../../shared/game-balance.js";
-import {
-  METRICS_SAMPLING,
-  deriveMetricsSnapshot,
-  routineSnapshotReason,
-} from "./metrics.js";
+import { METRICS_SAMPLING, deriveMetricsSnapshot } from "./metrics.js";
 import {
   validateCompleteIntermission,
   validatePrestigeSale,
@@ -50,7 +46,7 @@ const CREATE_TABLE_SQL = `
 
 /**
  * Progress telemetry (issue #152): derived click / passive snapshots,
- * sampled at most hourly per player (plus one per sale). Derived from
+ * one per accepted save (issue #159) plus one per sale. Derived from
  * the save, never part of it. Rows go when their save row goes (the
  * guest prune deletes both). No PII: game numbers only.
  */
@@ -144,19 +140,9 @@ function rowToSnapshot(row) {
  */
 async function recordMetricsSnapshot(pool, playerId, state, nowMs, { sale = false } = {}) {
   try {
-    let reason = "sale";
-    if (!sale) {
-      const last = await pool.query(
-        `SELECT captured_at FROM git_save_metrics
-         WHERE player_id = $1 ORDER BY captured_at DESC LIMIT 1`,
-        [playerId]
-      );
-      reason = routineSnapshotReason(
-        last.rowCount === 0 ? null : toMs(last.rows[0].captured_at),
-        nowMs
-      );
-      if (!reason) return null;
-    }
+    // Issue #159: every accepted save records ("save"); a sale records
+    // its pre-sale state ("sale"). No hourly gate any more.
+    const reason = sale ? "sale" : "save";
     const snapshot = deriveMetricsSnapshot(state);
     await pool.query(
       `INSERT INTO git_save_metrics
@@ -204,12 +190,10 @@ export function createStore(pool) {
 
     /**
      * Progress telemetry (issue #152): record a derived snapshot of
-     * `state` for a player, best effort. `sale: true` always records
-     * (the pre-sale state); otherwise a routine snapshot is recorded
-     * only when the player has none yet ("first") or the last is at
-     * least an hour old ("hourly"). Never throws: telemetry must not
-     * break a save (a failure is logged and swallowed). Returns the
-     * reason recorded, or null.
+     * `state` for a player, best effort: "save" for an accepted save
+     * (every one, issue #159), "sale" with `sale: true` (the pre-sale
+     * state). Never throws: telemetry must not break a save (a failure
+     * is logged and swallowed). Returns the reason recorded, or null.
      */
     async recordMetricsSnapshot(playerId, state, nowMs, options) {
       return recordMetricsSnapshot(pool, playerId, state, nowMs, options);
@@ -847,6 +831,9 @@ export function createStore(pool) {
           ]
         );
         await client.query("COMMIT");
+        // Telemetry (issue #159): an accepted save, so a snapshot,
+        // after the commit and best effort.
+        await recordMetricsSnapshot(pool, playerId, nextState, nowMs);
         return {
           status: "ok",
           state: nextState,
@@ -960,6 +947,9 @@ export function createStore(pool) {
           ]
         );
         await client.query("COMMIT");
+        // Telemetry (issue #159): an accepted save, so a snapshot,
+        // after the commit and best effort.
+        await recordMetricsSnapshot(pool, playerId, nextState, nowMs);
         return {
           status: "ok",
           state: nextState,
