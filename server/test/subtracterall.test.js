@@ -618,6 +618,7 @@ test("the store never offers anything that softens SUBTRACTERALL", () => {
     "engineeringHandbook",
     "clientNetwork",
     "companyTemplate",
+    "nightShiftContract",
   ]);
   for (const storeId of PRESTIGE_STORE_IDS) {
     const text = JSON.stringify(PRESTIGE_STORE_CONFIG[storeId]).toLowerCase();

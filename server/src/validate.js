@@ -97,6 +97,7 @@ import {
   claimableEquity,
   farmLlamaCountsByType,
   findCosmetic,
+  NIGHT_SHIFT_CONFIG,
   normalizeSaveState,
   normalizeActions,
   releaseManagerAssignedCount,
@@ -186,6 +187,7 @@ function checkStateShape(state) {
       "subtracterall",
       "overtimeReskin",
       "achievements",
+      "nightShiftLevel",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -381,6 +383,17 @@ function checkStateShape(state) {
   }
   if (typeof state.overtimeReskin !== "boolean") {
     return "overtimeReskin must be a boolean";
+  }
+  // Night Shift (issue #149): the purchased level, an integer 0..5.
+  // Shape only: the client buys levels like any other upgrade (the
+  // server does not police purchases). The offline credit itself is
+  // server-computed on load, never taken from the client.
+  if (
+    !Number.isInteger(state.nightShiftLevel) ||
+    state.nightShiftLevel < 0 ||
+    state.nightShiftLevel > NIGHT_SHIFT_CONFIG.maxLevel
+  ) {
+    return `nightShiftLevel must be an integer from 0 to ${NIGHT_SHIFT_CONFIG.maxLevel}`;
   }
   // Achievements (issue #132): tier state and the lifetime counters
   // the achievements read. The rule is shared with the client's
@@ -807,6 +820,11 @@ export function validateSave(prev, body, nowMs, options = {}) {
         `open-source unlock latch flipped back: ${projectId}`
       );
     }
+  }
+  // Night Shift (issue #149): the level only rises within a company.
+  // A sale resets it on the server (applyPrestigeSale), never here.
+  if ((newState.nightShiftLevel ?? 0) < (prevState.nightShiftLevel ?? 0)) {
+    return fail("MONOTONIC", "nightShiftLevel decreased");
   }
   for (const key of FREELANCE_PROJECT_KEYS) {
     if (

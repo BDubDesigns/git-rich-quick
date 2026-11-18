@@ -39,6 +39,9 @@
  *   required; read-only, audit-logged. This one MAY read a real
  *   player's save (that is the point — debugging a specific player's
  *   issue); it never modifies anything. Disabled (501) when unset.
+ * - GET  /api/load settles Night Shift (issue #149): offline LOC from
+ *   the server clock and the stored state, once per absence, reported
+ *   in the response's `nightShift` field.
  * - GET  /api/admin/player/:playerId/metrics: admin read-only
  *   telemetry (issue #152): the player's sampled click / passive
  *   snapshots (?from, ?to, ?limit). Bearer token required.
@@ -1033,12 +1036,19 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       sendJson(res, 400, { error: "invalid-player-id" });
       return;
     }
-    const snapshot = await store.get(playerId);
+    // Night Shift (issue #149): the load settles offline production
+    // with the server clock, in a row-locked transaction (see
+    // store.loadAndSettle). `nightShift` is the one-time report, or
+    // null when nothing was credited.
+    const snapshot = await store.loadAndSettle(playerId, clock());
     if (!snapshot) {
       sendJson(res, 404, { error: "unknown-player" });
       return;
     }
-    sendJson(res, 200, snapshotBody(snapshot));
+    sendJson(res, 200, {
+      ...snapshotBody(snapshot),
+      nightShift: snapshot.nightShift ?? null,
+    });
   }
 
   const server = http.createServer(async (req, res) => {

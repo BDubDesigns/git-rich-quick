@@ -4,9 +4,9 @@
  * Rendered by SellCompany whenever the post-sale intermission is
  * open (state.prestigeIntermission is non-null). Purchases are
  * available ONLY here, after selling and before starting the next
- * company: five upgrade tracks, ranks bought in order, prices are
+ * company: six upgrade tracks, ranks bought in order, prices are
  * per rank (not cumulative), no prerequisites between tracks. The
- * total cost of every rank is 85 Equity, and Equity prices are
+ * total cost of every rank is 87 Equity, and Equity prices are
  * fixed — they are never multiplied by LOC/s.
  *
  * The Starting Capital grant is priced from the FROZEN quote stored
@@ -54,6 +54,8 @@ function effectLine(storeId, rank, intermission, money) {
       return `+${Math.round((shared.clientNetworkPayoutMultiplier({ clientNetwork: rank }) - 1) * 100)}% freelance cash payouts.`;
     case "companyTemplate":
       return "Favorited projects survive the next sale.";
+    case "nightShiftContract":
+      return "Every new company starts with Night Shift level 1.";
     default:
       return "";
   }
@@ -79,6 +81,8 @@ function nextRankLine(storeId, nextRank, intermission, money) {
       return `Rank ${nextRank}: +${Math.round((shared.clientNetworkPayoutMultiplier({ clientNetwork: nextRank }) - 1) * 100)}% freelance cash payouts.`;
     case "companyTemplate":
       return "Rank 1: favorited projects survive the next sale.";
+    case "nightShiftContract":
+      return "Rank 1: every new company starts with Night Shift level 1.";
     default:
       return "";
   }

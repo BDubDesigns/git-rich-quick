@@ -107,6 +107,7 @@ export function deriveMetricsSnapshot(rawState) {
         OPEN_SOURCE_IDS.map((id) => [id, BALANCE.openSource[id].levels.length])
       ),
       saleCount: num(state.saleCount),
+      nightShiftLevel: num(state.nightShiftLevel),
       lifetimeEquityEarned: num(state.lifetimeEquityEarned),
       founderMultiplier: num(founderMultiplier(state.lifetimeEquityEarned ?? 0)),
       achievementLocMultiplier: num(achievementLocMultiplier(state.achievements)),

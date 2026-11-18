@@ -240,13 +240,14 @@ async function sellRichCompany(srv, playerId) {
 
 // --- Pure store math (criteria 18, 19) ---
 
-test("the store totals exactly 85 Equity for all ranks (criterion 18)", () => {
+test("the store totals exactly 87 Equity for all ranks (criterion 18 + issue #149)", () => {
   assert.deepEqual(PRESTIGE_STORE_IDS, [
     "startingCapital",
     "keyboard",
     "engineeringHandbook",
     "clientNetwork",
     "companyTemplate",
+    "nightShiftContract",
   ]);
   assert.deepEqual(PRESTIGE_STORE_CONFIG.startingCapital.rankCosts, [1, 3, 8]);
   assert.deepEqual(PRESTIGE_STORE_CONFIG.keyboard.rankCosts, [2, 5, 10]);
@@ -255,8 +256,10 @@ test("the store totals exactly 85 Equity for all ranks (criterion 18)", () => {
   ]);
   assert.deepEqual(PRESTIGE_STORE_CONFIG.clientNetwork.rankCosts, [2, 6, 15]);
   assert.deepEqual(PRESTIGE_STORE_CONFIG.companyTemplate.rankCosts, [2]);
-  assert.equal(storeTotalEquityCost(), 85);
-  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 85);
+  assert.deepEqual(PRESTIGE_STORE_CONFIG.nightShiftContract.rankCosts, [2]);
+  // 85 for the Slice 2 store plus 2 for the Night Shift Contract.
+  assert.equal(storeTotalEquityCost(), 87);
+  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 87);
   // Prices are per rank, not cumulative: rank 2 of Starting Capital
   // costs 3, not 1 + 3.
   assert.equal(storeRankCost("startingCapital", 1), 1);
@@ -463,6 +466,7 @@ test("old saves backfill the store fields and keep validating (criterion 18)", (
     engineeringHandbook: 0,
     clientNetwork: 0,
     companyTemplate: 0,
+    nightShiftContract: 0,
   });
   assert.equal(normalized.prestigeIntermission, null);
   assert.deepEqual(normalized.favoriteOpenSourceProjects, []);
@@ -807,6 +811,7 @@ test("a pre-store save backfills the store fields on save (criterion 18)", async
     engineeringHandbook: 0,
     clientNetwork: 0,
     companyTemplate: 0,
+    nightShiftContract: 0,
   });
   assert.equal(backfilled.prestigeIntermission, null);
   assert.deepEqual(backfilled.favoriteOpenSourceProjects, []);

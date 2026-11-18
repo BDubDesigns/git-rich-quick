@@ -183,6 +183,9 @@ export class SaveSync {
    *   never a load's (that is when the save was stored, not the current
    *   time) and never a failed save's. Defaults to the star clock's
    *   setOffsetFromSavedAt (issue #148).
+   * @param {(report: object) => void} [onNightShift] - called once with the
+   *   load response's Night Shift report (issue #149) when the server
+   *   settled offline production, after the settled state is restored.
    */
   constructor({
     apiBaseUrl = SAVE_API_URL,
@@ -196,6 +199,7 @@ export class SaveSync {
     setTimeoutFn = setTimeout,
     clearTimeoutFn = clearTimeout,
     onServerTime = setOffsetFromSavedAt,
+    onNightShift,
   } = {}) {
     this.apiBaseUrl = apiBaseUrl;
     this.getState = getState;
@@ -205,6 +209,7 @@ export class SaveSync {
     this.onSavedAt = onSavedAt || (() => {});
     this.onRetry = onRetry || (() => {});
     this.onServerTime = onServerTime || (() => {});
+    this.onNightShift = onNightShift || (() => {});
     this.storage = storage || defaultStorage();
     // Wrap the timers rather than storing them as-is: calling a stored
     // function as this._setTimeout(...) binds `this` to the SaveSync
@@ -265,6 +270,18 @@ export class SaveSync {
   setStatus(status) {
     this._saveStatus = status;
     this.onStatus(status);
+  }
+
+  // Night Shift (issue #149): hand a load's settlement report to the
+  // game once the settled state is restored. A missing report (nothing
+  // settled) is skipped; a throwing callback never breaks the load.
+  _reportNightShift(report) {
+    if (!report || typeof report !== "object") return;
+    try {
+      this.onNightShift(report);
+    } catch (err) {
+      console.warn("[save] could not show the Night Shift report:", err);
+    }
   }
 
   // Star clock (issue #148): pass a server-stamped "now" to the clock
@@ -436,6 +453,7 @@ export class SaveSync {
           this.onPlayerId(stored);
           this.restore(data.state);
           this._lastSeenBig = bigActionFields(data.state);
+          this._reportNightShift(data.nightShift);
           this.initialized = true;
           // The load tells us when the server last accepted a save;
           // report it so the footer shows the real relative time
@@ -1111,6 +1129,7 @@ export class SaveSync {
               this.baseline = data.state;
               this.restore(data.state);
               this._lastSeenBig = bigActionFields(data.state);
+              this._reportNightShift(data.nightShift);
               this.clicks = 0;
               this.needsLoad = false;
               // Same as init's load: report when the server last saved.

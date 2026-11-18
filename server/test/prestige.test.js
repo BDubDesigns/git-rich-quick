@@ -185,7 +185,9 @@ test("Equity thresholds are 1M x n^2; 85 Equity needs 7.225B lifetime LOC (crite
   assert.equal(equityThresholdLoc(2), 4_000_000);
   assert.equal(equityThresholdLoc(4), 16_000_000);
   assert.equal(equityThresholdLoc(85), 7_225_000_000);
-  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 85);
+  // The store grew to 87 with the Night Shift Contract (issue #149).
+  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 87);
+  assert.equal(equityThresholdLoc(87), 7_569_000_000);
 });
 
 test("Founder multiplier: 1 + 0.10P to P=50, then log growth", () => {
