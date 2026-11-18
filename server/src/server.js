@@ -107,7 +107,12 @@ import {
   startPruneScheduler,
 } from "./prune.js";
 import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
-import { METRICS_SAMPLING, parseTimeParam } from "./metrics.js";
+import {
+  LEGACY_METRICS_REASONS,
+  METRICS_REASONS,
+  METRICS_SAMPLING,
+  parseTimeParam,
+} from "./metrics.js";
 import { TEST_ACCOUNT_EMAIL, isAdminAuthorized } from "./admin.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -321,7 +326,8 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
    * Admin read-only telemetry (issue #152): GET
    * /api/admin/player/:playerId/metrics, one player's progress
    * snapshots, oldest first. Each entry is the capture time, the
-   * sampling reason ("first", "hourly", "sale"), the healthy passive
+   * sampling reason ("save" or "sale"; "first" / "hourly" on rows from
+   * before issue #159), the healthy passive
    * LOC/s, the click LOC/s at 10 clicks/s (both without star buffs),
    * their ratio, and the progress at that moment. Optional `from` /
    * `to` (ISO date or ms since the epoch, inclusive) and `limit`
@@ -376,9 +382,10 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       to: untilMs === null ? null : iso(untilMs),
       count: series.length,
       sampling: {
-        minIntervalSeconds: METRICS_SAMPLING.minIntervalMs / 1000,
+        rule: METRICS_SAMPLING.rule,
         clicksPerSecond: METRICS_SAMPLING.clicksPerSecond,
-        reasons: ["first", "hourly", "sale"],
+        reasons: [...METRICS_REASONS],
+        legacyReasons: [...LEGACY_METRICS_REASONS],
       },
       series,
     });

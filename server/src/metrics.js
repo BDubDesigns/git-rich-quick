@@ -19,10 +19,13 @@
  * No PII: the snapshot holds game numbers only (the player id is the
  * random save UUID; no account id, email, or name).
  *
- * Sampling (see METRICS_SAMPLING): at most one routine snapshot per
- * player per hour, taken on an accepted save, plus one at every
- * company sale (the pre-sale state, the most interesting point on the
- * curve). The first accepted save always gets one.
+ * Sampling (issue #159, was at most hourly in #152): one snapshot on
+ * EVERY accepted save (the 60s heartbeat and every big-action save,
+ * reason "save"), plus one of the pre-sale state at every company sale
+ * (reason "sale"). Brandon reads a scale in about ten minutes; hourly
+ * caught nothing in that window. Expect about one row per minute of
+ * active play per player. Rows written before #159 keep their old
+ * reasons ("first", "hourly").
  */
 
 import {
@@ -40,8 +43,8 @@ import {
 } from "../../shared/game-balance.js";
 
 export const METRICS_SAMPLING = Object.freeze({
-  /** Minimum gap between routine snapshots for one player (1 hour). */
-  minIntervalMs: 60 * 60 * 1000,
+  /** When a snapshot is taken (issue #159): every accepted save. */
+  rule: "every accepted save, plus the pre-sale state at every sale",
   /** Clicks per second the click rate is quoted at. */
   clicksPerSecond: 10,
   /** Default and maximum rows the admin endpoint returns. */
@@ -49,8 +52,10 @@ export const METRICS_SAMPLING = Object.freeze({
   maxLimit: 5000,
 });
 
-/** Snapshot reasons stored with each row. */
-export const METRICS_REASONS = Object.freeze(["first", "hourly", "sale"]);
+/** Snapshot reasons written from issue #159 on. */
+export const METRICS_REASONS = Object.freeze(["save", "sale"]);
+/** Reasons on rows written under the hourly rule (#152). Kept as they are. */
+export const LEGACY_METRICS_REASONS = Object.freeze(["first", "hourly"]);
 
 /** A finite, non-negative number, or 0 (NaN and junk never reach a row). */
 function num(value) {
@@ -123,18 +128,6 @@ export function deriveMetricsSnapshot(rawState) {
       },
     },
   };
-}
-
-/**
- * Whether a routine snapshot is due: none yet, or the last one is at
- * least an hour old. A sale snapshot is always taken (not routed here).
- */
-export function routineSnapshotReason(lastCapturedAtMs, nowMs) {
-  if (lastCapturedAtMs === null || lastCapturedAtMs === undefined) return "first";
-  if (!Number.isFinite(lastCapturedAtMs)) return "first";
-  return nowMs - lastCapturedAtMs >= METRICS_SAMPLING.minIntervalMs
-    ? "hourly"
-    : null;
 }
 
 /**

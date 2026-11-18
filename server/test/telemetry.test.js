@@ -1,12 +1,13 @@
 /**
  * Tests for progress telemetry (issue #152): server-side snapshots of
  * passive LOC/s and click LOC/s at 10 clicks/s (both without star
- * buffs) plus progress, sampled at most hourly per player (plus one per
+ * buffs) plus progress, sampled on every accepted save (issue #159; it
+ * was at most hourly in #152) plus one per
  * sale), stored in git_save_metrics, read via
  * GET /api/admin/player/:playerId/metrics.
  *
  * Runs against a real store on pg-mem (the same SQL as production)
- * with an injected clock, so the hourly sampling is deterministic.
+ * with an injected clock, so the sampling is deterministic.
  */
 
 import test from "node:test";
@@ -19,7 +20,8 @@ import {
   METRICS_SAMPLING,
   deriveMetricsSnapshot,
   parseTimeParam,
-  routineSnapshotReason,
+  LEGACY_METRICS_REASONS,
+  METRICS_REASONS,
 } from "../src/metrics.js";
 import {
   EMPLOYEE_TYPES,
@@ -196,11 +198,11 @@ test("derive: no PII and no NaN, even from a broken state", () => {
   ]);
 });
 
-test("sampling rule: first, then at most hourly", () => {
-  assert.equal(routineSnapshotReason(null, T0), "first");
-  assert.equal(routineSnapshotReason(T0, T0 + HOUR - 1), null);
-  assert.equal(routineSnapshotReason(T0, T0 + HOUR), "hourly");
-  assert.equal(METRICS_SAMPLING.minIntervalMs, HOUR);
+test("sampling rule (issue #159): every accepted save, plus every sale; no hourly gate", () => {
+  assert.deepEqual([...METRICS_REASONS], ["save", "sale"]);
+  assert.deepEqual([...LEGACY_METRICS_REASONS], ["first", "hourly"]);
+  assert.equal(METRICS_SAMPLING.minIntervalMs, undefined);
+  assert.match(METRICS_SAMPLING.rule, /every accepted save/);
   assert.equal(parseTimeParam(null), null);
   assert.equal(parseTimeParam("1700000000000"), 1_700_000_000_000);
   assert.equal(parseTimeParam("2023-11-14T22:13:20.000Z"), 1_700_000_000_000);
@@ -209,12 +211,13 @@ test("sampling rule: first, then at most hourly", () => {
 
 // --- Server: sampling on save and sale ---
 
-test("saves sample at most hourly; the save itself never carries the metrics", async () => {
+test("every accepted save records a snapshot, starting with the first; the save itself never carries the metrics", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
     await setState(srv, playerId, progressState());
 
+    // The first accepted save records (no special "first" case now).
     srv.advance(5000);
     const first = await save(srv, playerId, progressState());
     assert.equal(first.status, 200);
@@ -223,23 +226,29 @@ test("saves sample at most hourly; the save itself never carries the metrics", a
       assert.doesNotMatch(key, /metric|passiveLocPerSec|clickLocPerSec/i);
     }
 
-    // 30 minutes later: no new snapshot.
-    srv.advance(30 * 60 * 1000);
-    assert.equal((await save(srv, playerId, progressState({ linesOfCode: 500_000, totalLinesOfCode: 1_100_000 }))).status, 200);
-    let rows = await srv.store.listMetricsSnapshots(playerId);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].reason, "first");
-    assert.equal(rows[0].capturedAtMs, T0 + 5000);
+    // Ten heartbeat saves a minute apart: ten more rows, one per save,
+    // well inside the hour the old rule would have waited.
+    const times = [srv.now()];
+    for (let i = 1; i <= 10; i += 1) {
+      srv.advance(60 * 1000);
+      const s = progressState({ linesOfCode: 400_000 + i * 1000, totalLinesOfCode: 1_000_000 + i * 1000 });
+      s.employees.intern = 20 + i;
+      assert.equal((await save(srv, playerId, s)).status, 200);
+      times.push(srv.now());
+    }
+    // A big-action save a few seconds after a heartbeat records too.
+    srv.advance(3000);
+    const big = progressState({ linesOfCode: 420_000, totalLinesOfCode: 1_020_000 });
+    big.employees.intern = 31;
+    assert.equal((await save(srv, playerId, big)).status, 200);
+    times.push(srv.now());
 
-    // Just past the hour since the first: an hourly snapshot.
-    srv.advance(31 * 60 * 1000);
-    const later = progressState({ linesOfCode: 600_000, totalLinesOfCode: 1_200_000 });
-    later.employees.intern = 30;
-    assert.equal((await save(srv, playerId, later)).status, 200);
-    rows = await srv.store.listMetricsSnapshots(playerId);
-    assert.deepEqual(rows.map((r) => r.reason), ["first", "hourly"]);
-    assert.equal(rows[1].progress.employees.intern, 30);
-    assert.ok(rows[1].passiveLocPerSec > rows[0].passiveLocPerSec);
+    const rows = await srv.store.listMetricsSnapshots(playerId);
+    assert.equal(rows.length, 12);
+    assert.deepEqual(rows.map((r) => r.reason), Array(12).fill("save"));
+    assert.deepEqual(rows.map((r) => r.capturedAtMs), times);
+    assert.deepEqual(rows.map((r) => r.progress.employees.intern), [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]);
+    assert.ok(rows.at(-1).passiveLocPerSec > rows[0].passiveLocPerSec);
   } finally {
     await srv.stop();
   }
@@ -258,7 +267,7 @@ test("a rejected save records nothing", async () => {
   }
 });
 
-test("every sale records the pre-sale state, even inside the hour", async () => {
+test("every sale records the pre-sale state alongside the save snapshots", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
@@ -275,7 +284,7 @@ test("every sale records the pre-sale state, even inside the hour", async () => 
     });
     assert.equal(res.status, 200);
     const rows = await srv.store.listMetricsSnapshots(playerId);
-    assert.deepEqual(rows.map((r) => r.reason), ["first", "sale"]);
+    assert.deepEqual(rows.map((r) => r.reason), ["save", "sale"]);
     // The pre-sale state: the employees are still there.
     assert.equal(rows[1].progress.employees.intern, 20);
     assert.equal(rows[1].progress.saleCount, 0);
@@ -325,7 +334,7 @@ test("GET /api/admin/player/:id/metrics returns the time series with from/to and
     await setState(srv, playerId, progressState());
     const times = [];
     for (let i = 0; i < 4; i += 1) {
-      srv.advance(i === 0 ? 5000 : HOUR);
+      srv.advance(i === 0 ? 5000 : 60 * 1000);
       const s = progressState({ totalLinesOfCode: 1_000_000 + i * 100_000 });
       s.employees.intern = 20 + i;
       assert.equal((await save(srv, playerId, s)).status, 200);
@@ -336,7 +345,7 @@ test("GET /api/admin/player/:id/metrics returns the time series with from/to and
     const body = await res.json();
     assert.equal(body.playerId, playerId);
     assert.equal(body.count, 4);
-    assert.deepEqual(body.series.map((e) => e.reason), ["first", "hourly", "hourly", "hourly"]);
+    assert.deepEqual(body.series.map((e) => e.reason), ["save", "save", "save", "save"]);
     assert.deepEqual(body.series.map((e) => Date.parse(e.capturedAt)), times);
     const entry = body.series[0];
     assert.deepEqual(Object.keys(entry), [
@@ -348,7 +357,9 @@ test("GET /api/admin/player/:id/metrics returns the time series with from/to and
       "progress",
     ]);
     assert.equal(entry.clickToPassiveRatio, entry.clickLocPerSecAt10cps / entry.passiveLocPerSec);
-    assert.equal(body.sampling.minIntervalSeconds, 3600);
+    assert.match(body.sampling.rule, /every accepted save/);
+    assert.deepEqual(body.sampling.reasons, ["save", "sale"]);
+    assert.deepEqual(body.sampling.legacyReasons, ["first", "hourly"]);
     assert.equal(body.sampling.clicksPerSecond, 10);
 
     // from / to (inclusive), as ms or ISO.
@@ -383,6 +394,31 @@ test("the metrics endpoint is admin-only and validates its input", async () => {
       headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
     });
     assert.equal(deeper.status, 404);
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("store buys and intermission completions are accepted saves too, so they snapshot", async () => {
+  const srv = await startTestServer();
+  try {
+    const playerId = await mintPlayer(srv.base);
+    const pre = progressState({ totalLinesOfCode: 16_533_977 });
+    await setState(srv, playerId, pre);
+    srv.advance(5000);
+    let res = await post(srv.base, "/api/save/sell", { playerId, saleId: randomUUID(), state: pre, actionsSinceLastSave: zeroActions() });
+    assert.equal(res.status, 200);
+    let body = await res.json();
+    srv.advance(5000);
+    res = await post(srv.base, "/api/save/store/buy", { playerId, storeId: "startingCapital", rank: 1, state: body.state, actionsSinceLastSave: zeroActions() });
+    assert.equal(res.status, 200);
+    body = await res.json();
+    srv.advance(5000);
+    res = await post(srv.base, "/api/save/intermission/complete", { playerId, state: body.state, actionsSinceLastSave: zeroActions() });
+    assert.equal(res.status, 200);
+    const rows = await srv.store.listMetricsSnapshots(playerId);
+    assert.deepEqual(rows.map((r) => r.reason), ["sale", "save", "save"]);
+    assert.equal(rows[1].progress.permanentStoreRanks.startingCapital, 1);
   } finally {
     await srv.stop();
   }
