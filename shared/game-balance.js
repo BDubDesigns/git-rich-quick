@@ -134,21 +134,54 @@ function doublingLevels(
 }
 
 /**
- * Click track tuning (issue #151). Commitment Issues gets 20 levels,
- * each still doubling the Commit Specialist bonus, with the cost
- * stepping by sqrt(2) (about 1.41x) per level instead of 2x. That puts
- * one new level exactly between each pair of the old ten: the odd
- * levels are the old costs (1M, 2M, 4M, ... 512M) and each even level
- * sits at their geometric midpoint (1.41M, 2.83M, ... 724.08M). The
- * top multiplier is 2^20 (about 1.05M x) instead of 2^10, on purpose:
- * clicking must keep up with passive LOC/s late in a company.
+ * Click track (issue #160, re-derived from #151). The invariant: a
+ * player who buys every click upgrade affordable in about 3 minutes of
+ * passive has click output at 10 clicks/s roughly equal to passive
+ * LOC/s, so total LOC/s is about double passive, at every stage.
+ *
+ * Each level's cost is 3 minutes of the passive rate it is meant to
+ * match (T x P_k, rounded to 2 significant figures), where P_k solves
+ * 10 x click(P_k) = 1.48 x P_k. The 1.48 is sqrt(2.2): click jumps on a
+ * purchase and then falls behind as passive grows, so aiming each
+ * level slightly above parity centres the sawtooth on 1:1. The Commit
+ * Specialist count at a stage is calibrated to Brandon's Nov 18 live
+ * save (5 Specialists at 533 LOC/s), which the model reproduces
+ * exactly (4.80x click before this change).
+ *
+ * Commitment Issues: 20 levels, every one still doubles the Commit
+ * Specialist bonus (2x power), but each costs 2.05x to 2.83x the last
+ * (was sqrt(2), about 1.41x). Power stepping 2x on cost stepping
+ * 1.41x is what ran away (click 4,300x passive within 30 minutes in
+ * the balanced-player simulation): once click income passes passive,
+ * each level got cheaper in time than the last. With every cost step
+ * at or above the 2x power step, clicking alone can never buy the next
+ * level faster than the last; passive has to grow to keep up. The steps
+ * are larger early because the Commit Specialist count also grows
+ * fastest early. The power per level is unchanged, so an existing
+ * player keeps exactly what each owned level gives.
  */
 export const COMMITMENT_ISSUES_LEVELS = Object.freeze({
-  baseCost: 1000000,
   count: 20,
-  costGrowth: Math.SQRT2,
-  costRounding: 10000,
+  costs: Object.freeze([
+    460_000, 1_300_000, 3_300_000, 8_000_000, 19_000_000, 43_000_000,
+    96_000_000, 210_000_000, 470_000_000, 1_000_000_000, 2_200_000_000,
+    4_700_000_000, 10_000_000_000, 21_000_000_000, 45_000_000_000,
+    95_000_000_000, 200_000_000_000, 420_000_000_000, 880_000_000_000,
+    1_800_000_000_000,
+  ]),
 });
+
+/** Doubling levels at explicit costs (each level is still 2x power). */
+function doublingLevelsAtCosts(costs) {
+  return Object.freeze(
+    costs.map((locCost) =>
+      Object.freeze({
+        locCost,
+        bonus: Object.freeze({ type: "DOUBLE", value: 2 }),
+      })
+    )
+  );
+}
 
 export const BALANCE = Object.freeze({
   mechanics: Object.freeze({
@@ -377,14 +410,17 @@ export const BALANCE = Object.freeze({
   }),
 
   openSource: Object.freeze({
-    // OverReact, the base click doubler (issue #151): 9 levels. The
-    // old five costs (100 / 500 / 3,000 / 15,000 / 75,000) are kept and
-    // a new level sits between each pair, so a base-click upgrade comes
-    // around about twice as often. Each level raises the click
-    // multiplier (1 + CLICK_BOOST sum) by 1.5x to 2x:
-    // 2, 3, 5, 8, 12, 20, 32, 64, 128. At every old cost the multiplier
-    // is at least the old one (5 vs 4 at 500, 12 vs 8 at 3,000, 32 vs
-    // 16 at 15,000, 128 vs 32 at 75,000); the top sum is 127, not 31.
+    // OverReact, the base click multiplier (issue #160, re-derived from
+    // #151): 10 levels, a smooth climb in the click multiplier
+    // (1 + CLICK_BOOST sum): 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, about
+    // 1.4x per level (whole multipliers, so a base click of 1 always
+    // gains). From L3 on, each level costs 3 minutes of the passive rate
+    // it matches (see COMMITMENT_ISSUES_LEVELS), so the costs climb
+    // about 1.4x too, in step with the power: clicking alone cannot buy
+    // the next level faster than the last. L1 and L2 stay 100 and 500
+    // LOC: at the very start there is no passive to match, and the
+    // first upgrades must come from clicking. The old top of 128x at
+    // 75,000 LOC put Brandon's click at 4.8x passive (Nov 18).
     overReactFramework: Object.freeze({
       unlockConditions: Object.freeze([]),
       levels: Object.freeze([
@@ -393,36 +429,40 @@ export const BALANCE = Object.freeze({
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 1 }),
         }),
         Object.freeze({
-          locCost: 250,
+          locCost: 500,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 1 }),
         }),
         Object.freeze({
-          locCost: 500,
+          locCost: 4_900,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 1 }),
+        }),
+        Object.freeze({
+          locCost: 6_100,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 1 }),
+        }),
+        Object.freeze({
+          locCost: 8_500,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 2 }),
         }),
         Object.freeze({
-          locCost: 1200,
+          locCost: 12_000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 3 }),
         }),
         Object.freeze({
-          locCost: 3000,
+          locCost: 17_000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 4 }),
         }),
         Object.freeze({
-          locCost: 7000,
+          locCost: 24_000,
+          bonus: Object.freeze({ type: "CLICK_BOOST", value: 6 }),
+        }),
+        Object.freeze({
+          locCost: 34_000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 8 }),
         }),
         Object.freeze({
-          locCost: 15000,
+          locCost: 49_000,
           bonus: Object.freeze({ type: "CLICK_BOOST", value: 12 }),
-        }),
-        Object.freeze({
-          locCost: 35000,
-          bonus: Object.freeze({ type: "CLICK_BOOST", value: 32 }),
-        }),
-        Object.freeze({
-          locCost: 75000,
-          bonus: Object.freeze({ type: "CLICK_BOOST", value: 64 }),
         }),
       ]),
     }),
@@ -595,12 +635,9 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      // Issue #151: 20 levels at a sqrt(2) cost step (see
+      // Issue #160: 20 levels at the derived costs (see
       // COMMITMENT_ISSUES_LEVELS); the other five tracks stay 10 at 2x.
-      levels: doublingLevels(
-        COMMITMENT_ISSUES_LEVELS.baseCost,
-        COMMITMENT_ISSUES_LEVELS
-      ),
+      levels: doublingLevelsAtCosts(COMMITMENT_ISSUES_LEVELS.costs),
     }),
     shipHappens: Object.freeze({
       unlockConditions: Object.freeze([
@@ -3166,9 +3203,12 @@ export function commitSpecialistClickBonus(
   csSprintMultiplier = 1,
   openSourceLevels = {}
 ) {
+  // A missing, negative, or NaN count reads 0 (issue #160), so a bad
+  // count can never turn the whole click into NaN.
+  const count = Number(employeeCounts?.commitSpecialist);
   return (
     BALANCE.employees.commitSpecialist.clickBonusPerEmployee *
-    (employeeCounts?.commitSpecialist ?? 0) *
+    (Number.isFinite(count) && count > 0 ? count : 0) *
     csSprintMultiplier *
     doublingMultiplier("commitSpecialist", openSourceLevels)
   );

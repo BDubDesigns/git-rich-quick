@@ -119,13 +119,14 @@ test("derive: passive is buffedLocPerSecond, click is 10 x the healthy locPerCli
   const state = progressState({ lifetimeEquityEarned: 2 });
   const snap = deriveMetricsSnapshot(state);
   assert.equal(snap.passiveLocPerSec, buffedLocPerSecond(state));
-  // Founder at 2 Equity is 1.2x: floor((1 + 0.2 x 9) x 128 x 1.2) = 430.
-  assert.equal(snap.progress.locPerClick, 430);
+  // Founder at 2 Equity is 1.2x; OverReact L9 is 28x (issue #160):
+  // floor((1 + 0.2 x 9) x 28 x 1.2) = floor(94.08) = 94.
+  assert.equal(snap.progress.locPerClick, 94);
   assert.equal(
     snap.progress.locPerClick,
     locPerClick(state.openSourceProjects, state.employees, 1, 1.2, {})
   );
-  assert.equal(snap.clickLocPerSecAt10cps, 4300);
+  assert.equal(snap.clickLocPerSecAt10cps, 940);
   assert.equal(METRICS_SAMPLING.clicksPerSecond, 10);
 });
 

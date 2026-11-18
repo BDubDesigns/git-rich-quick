@@ -25,9 +25,9 @@ function stateWithLevels(levels) {
 }
 
 test("maxed projects sink to the bottom, stable within each group", () => {
-  // OverReact has 9 levels (issue #151), Blocker 5, Constellation 5
+  // OverReact has 10 levels (issue #160), Blocker 5, Constellation 5
   // (from BALANCE).
-  assert.equal(BALANCE.openSource.overReactFramework.levels.length, 9);
+  assert.equal(BALANCE.openSource.overReactFramework.levels.length, 10);
   assert.equal(BALANCE.openSource.blocker.levels.length, 5);
   assert.equal(BALANCE.openSource.constellation.levels.length, 5);
 
@@ -35,7 +35,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 9, blocker: 4, constellation: 5 - 1 })
+      stateWithLevels({ overReactFramework: 10, blocker: 4, constellation: 5 - 1 })
     ),
     ["blocker", "constellation", "overReactFramework"]
   );
@@ -45,7 +45,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 9, blocker: 4, constellation: 5 })
+      stateWithLevels({ overReactFramework: 10, blocker: 4, constellation: 5 })
     ),
     ["blocker", "overReactFramework", "constellation"]
   );
@@ -54,7 +54,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 9 - 1, blocker: 4, constellation: 5 })
+      stateWithLevels({ overReactFramework: 10 - 1, blocker: 4, constellation: 5 })
     ),
     ["overReactFramework", "blocker", "constellation"]
   );
@@ -72,7 +72,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 9, blocker: 5, constellation: 5 })
+      stateWithLevels({ overReactFramework: 10, blocker: 5, constellation: 5 })
     ),
     ["overReactFramework", "blocker", "constellation"]
   );
@@ -81,7 +81,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 9, blocker: 0, constellation: 4 })
+      stateWithLevels({ overReactFramework: 10, blocker: 0, constellation: 4 })
     ),
     ["blocker", "constellation", "overReactFramework"]
   );
