@@ -491,13 +491,15 @@ test("Brandon's live case: 9 Commit Specialists with an OverReact boost is not e
   // scaling, the bonus is part of the click: floor((1 + 1.8) x 32)
   // = floor(89.6) = 89. (Unscaled, 0.2 alone would give
   // floor(32 + 1.8) = 33; the scaling is what makes the bonus
-  // match the manual click's GitNub boost.) Issue #151 added
-  // levels in between, so a +31 boost is now OverReact L7 (+31).
-  const overReact7 = { ...OPEN_SOURCE_ZERO, overReactFramework: 7 };
-  assert.equal(clickBonus(overReact7), 31);
+  // match the manual click's GitNub boost.) The click track was
+  // re-derived in #160, so no level is +31 any more; the same check
+  // at OverReact L8 (+19, a 20x click): floor((1 + 1.8) x 20) = 56,
+  // where the specialists' +1.8 is still worth 36 LOC, not floored away.
+  const overReact8 = { ...OPEN_SOURCE_ZERO, overReactFramework: 8 };
+  assert.equal(clickBonus(overReact8), 19);
   assert.equal(
-    locPerClick(overReact7, counts({ commitSpecialist: 9 })),
-    89
+    locPerClick(overReact8, counts({ commitSpecialist: 9 })),
+    56
   );
   // Sanity: the old 0.1 rate really was invisible here.
   assert.equal(

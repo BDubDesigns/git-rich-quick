@@ -166,7 +166,7 @@ test("config: six doubling projects, 2x power per level, unlock at 10 of that ty
   assert.equal(BALANCE.openSource.scrumMaster.levels[0].locCost, 1000000);
   assert.equal(
     BALANCE.openSource.commitmentIssues.levels[0].locCost,
-    1000000
+    460000 // issue #160
   );
   assert.equal(BALANCE.openSource.shipHappens.levels[0].locCost, 2000000);
   // Total to max a passive track is base x (2^10 - 1) = base x 1023.
@@ -182,22 +182,21 @@ test("config: six doubling projects, 2x power per level, unlock at 10 of that ty
   }
 });
 
-test("Commitment Issues (issue #151): 20 levels, old ten costs kept, a sqrt(2) step between", () => {
+test("Commitment Issues (issue #160): 20 levels at the derived costs, every step at least 2x", () => {
   const costs = BALANCE.openSource.commitmentIssues.levels.map((l) => l.locCost);
   assert.deepEqual(costs, [
-    1000000, 1410000, 2000000, 2830000, 4000000, 5660000, 8000000,
-    11310000, 16000000, 22630000, 32000000, 45250000, 64000000, 90510000,
-    128000000, 181020000, 256000000, 362040000, 512000000, 724080000,
+    460_000, 1_300_000, 3_300_000, 8_000_000, 19_000_000, 43_000_000,
+    96_000_000, 210_000_000, 470_000_000, 1_000_000_000, 2_200_000_000,
+    4_700_000_000, 10_000_000_000, 21_000_000_000, 45_000_000_000,
+    95_000_000_000, 200_000_000_000, 420_000_000_000, 880_000_000_000,
+    1_800_000_000_000,
   ]);
-  // Every old cost (1M x 2^k, k = 0..9) is still a level: the new
-  // levels sit in between, they do not replace the old ones.
-  for (let k = 0; k < 10; k += 1) assert.equal(costs[2 * k], 1000000 * 2 ** k);
-  // Cost grows slower than the 2x power: about 1.41x per level.
+  // The cost never steps slower than the 2x power (the #151 sqrt(2)
+  // step is what let clicking run away).
   for (let i = 1; i < costs.length; i += 1) {
     const step = costs[i] / costs[i - 1];
-    assert.ok(step > 1.4 && step < 1.42, `L${i + 1} step ${step}`);
+    assert.ok(step >= 2 && step < 3, `L${i + 1} step ${step}`);
   }
-  assert.equal(openSourceLevelCosts("commitmentIssues", 0, 20), 2469740000);
   assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 20 }), 2 ** 20);
 });
 
@@ -234,30 +233,30 @@ test("doublingMultiplier: 2^level per type, 1 at level 0 or missing", () => {
 });
 
 test("clicks: Commitment Issues doubles the per-specialist bonus each level", () => {
-  const overReactMax = zeroLevels({ overReactFramework: 9 });
+  const overReactMax = zeroLevels({ overReactFramework: 10 });
   const nineCS = counts({ commitSpecialist: 9 });
-  // OverReact L9 is a 128x click (issue #151).
-  // No Commitment Issues: floor((1 + 0.2 x 9) x 128) = floor(358.4) = 358.
-  assert.equal(locPerClick(overReactMax, nineCS), 358);
-  // L3: 0.2 x 9 x 8 = 14.4, floor((1 + 14.4) x 128) = floor(1971.2) = 1971.
+  // OverReact L10 is a 40x click (issue #160).
+  // No Commitment Issues: floor((1 + 0.2 x 9) x 40) = 112.
+  assert.equal(locPerClick(overReactMax, nineCS), 112);
+  // L3: 0.2 x 9 x 8 = 14.4, floor((1 + 14.4) x 40) = 616.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 3 }), nineCS),
-    1971
+    locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 3 }), nineCS),
+    616
   );
-  // L5: 0.2 x 9 x 32 = 57.6, floor((1 + 57.6) x 128) = floor(7500.8) = 7500.
+  // L5: 0.2 x 9 x 32 = 57.6, floor((1 + 57.6) x 40) = 2344.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 5 }), nineCS),
-    7500
+    locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 5 }), nineCS),
+    2344
   );
-  // L10: 0.2 x 9 x 1024 = 1843.2, floor((1 + 1843.2) x 128) = 236057.
+  // L10: 0.2 x 9 x 1024 = 1843.2, floor((1 + 1843.2) x 40) = 73768.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 10 }), nineCS),
-    236057
+    locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 10 }), nineCS),
+    73768
   );
-  // L20: 0.2 x 9 x 2^20 = 1887436.8, floor((1 + 1887436.8) x 128).
+  // L20: 0.2 x 9 x 2^20 = 1887436.8, floor((1 + 1887436.8) x 40).
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 9, commitmentIssues: 20 }), nineCS),
-    241592038
+    locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 20 }), nineCS),
+    75497512
   );
   // Without OverReact the doubling still applies to the raw bonus.
   assert.equal(locPerClick(zeroLevels({ commitmentIssues: 1 }), nineCS), 4);

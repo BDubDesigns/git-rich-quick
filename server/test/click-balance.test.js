@@ -1,16 +1,22 @@
 /**
- * Tests for the click balance pass (issue #151): cheaper Commit
- * Specialists and more granular click doubling levels.
+ * Tests for the click track (issue #160, re-derived from #151).
  *
- * - Commit Specialist: $4,000 base at 1.1x per hire (was $5,000 at
- *   1.2x); the +0.2 LOC per click and the unlock are unchanged.
- * - Commitment Issues: 20 levels, each still doubling the Commit
- *   Specialist bonus (2x power per level, never less), with the cost
- *   stepping by sqrt(2) so a new level sits between each old pair.
- * - OverReact: 9 levels, the old five costs kept and one new level
- *   between each pair; every level is a real click boost and the top
- *   click multiplier is 128x (was 32x).
- * - Click track only: the five passive doubling tracks do not change.
+ * The invariant (Brandon's, from #151): a player who buys every click
+ * upgrade affordable in a few minutes of passive has click output at
+ * 10 clicks/s roughly equal to passive LOC/s, at every stage. Before
+ * #160 Brandon's live save (533 LOC/s passive, OverReact L9 at 128x, 5
+ * Commit Specialists) clicked at 4.80x passive, and the √2 Commitment
+ * Issues step let click outrun passive by orders of magnitude.
+ *
+ * - OverReact: 10 levels, whole click multipliers 2, 3, 4, 5, 7, 10,
+ *   14, 20, 28, 40 (about 1.4x per level); costs from L3 on climb in
+ *   step with the power.
+ * - Commitment Issues: 20 levels, 2x power each, every cost step at
+ *   or above 2x (no runaway).
+ * - Commit Specialist ($4,000 at 1.1x) and the passive tracks are
+ *   unchanged.
+ * - The invariant is pinned at representative stages by the same
+ *   stage model the numbers were derived from.
  */
 
 import test from "node:test";
@@ -19,23 +25,27 @@ import {
   BALANCE,
   COMMITMENT_ISSUES_LEVELS,
   DOUBLING_PROJECT_IDS,
+  bestCentsPerLoc,
   clickBonus,
   doublingMultiplier,
+  employeeCost,
   locPerClick,
   openSourceLevelCosts,
 } from "../../shared/game-balance.js";
 
 const overReactLevels = BALANCE.openSource.overReactFramework.levels;
-const multiplierAt = (level) =>
-  1 + clickBonus({ overReactFramework: level });
+const ciLevels = BALANCE.openSource.commitmentIssues.levels;
+const multiplierAt = (level) => 1 + clickBonus({ overReactFramework: level });
 
-test("OverReact: 9 levels, the old five costs kept, a new level between each pair", () => {
-  assert.deepEqual(
-    overReactLevels.map((l) => l.locCost),
-    [100, 250, 500, 1200, 3000, 7000, 15000, 35000, 75000]
-  );
-  for (const old of [100, 500, 3000, 15000, 75000]) {
-    assert.ok(overReactLevels.some((l) => l.locCost === old), `${old} kept`);
+test("OverReact: 10 levels, a smooth climb to 40x, whole multipliers", () => {
+  assert.equal(overReactLevels.length, 10);
+  const multipliers = Array.from({ length: 10 }, (_, i) => multiplierAt(i + 1));
+  assert.deepEqual(multipliers, [2, 3, 4, 5, 7, 10, 14, 20, 28, 40]);
+  let previous = 1;
+  for (const m of multipliers) {
+    assert.ok(Number.isInteger(m), `${m} is whole`);
+    assert.ok(m / previous >= 1.25 && m / previous <= 2, `${previous} -> ${m}`);
+    previous = m;
   }
   for (const level of overReactLevels) {
     assert.equal(level.bonus.type, "CLICK_BOOST");
@@ -43,32 +53,28 @@ test("OverReact: 9 levels, the old five costs kept, a new level between each pai
   }
 });
 
-test("OverReact: every level is a real boost (1.5x to 2x) and the top is 128x", () => {
-  const multipliers = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(multiplierAt);
-  assert.deepEqual(multipliers, [2, 3, 5, 8, 12, 20, 32, 64, 128]);
-  let previous = 1;
-  for (const m of multipliers) {
-    assert.ok(m / previous >= 1.5 && m / previous <= 2, `${previous} -> ${m}`);
-    previous = m;
-  }
-  // The top CLICK_BOOST sum is above the old 31, on purpose.
-  assert.equal(clickBonus({ overReactFramework: 9 }), 127);
-});
-
-test("OverReact: at every old cost the click is at least as strong as before", () => {
-  // Old: 100 -> 2x, 500 -> 4x, 3,000 -> 8x, 15,000 -> 16x, 75,000 -> 32x.
-  const old = { 100: 2, 500: 4, 3000: 8, 15000: 16, 75000: 32 };
-  for (const [cost, oldMultiplier] of Object.entries(old)) {
-    const level = overReactLevels.findIndex((l) => l.locCost === Number(cost)) + 1;
-    assert.ok(multiplierAt(level) >= oldMultiplier, `at ${cost} LOC`);
+test("OverReact: costs, with L1 and L2 kept as the cheap bootstrap and the rest in step with the power", () => {
+  const costs = overReactLevels.map((l) => l.locCost);
+  assert.deepEqual(costs, [100, 500, 4900, 6100, 8500, 12000, 17000, 24000, 34000, 49000]);
+  assert.equal(openSourceLevelCosts("overReactFramework", 0, 10), 156_100);
+  // From L3 on, each cost step is within 15% of the power step: clicking
+  // alone buys each next level in about the same time as the last,
+  // never faster and faster.
+  for (let i = 3; i < costs.length; i += 1) {
+    const costStep = costs[i] / costs[i - 1];
+    const powerStep = multiplierAt(i + 1) / multiplierAt(i);
+    assert.ok(Math.abs(costStep / powerStep - 1) <= 0.15, `L${i + 1}: cost ${costStep.toFixed(2)} vs power ${powerStep.toFixed(2)}`);
   }
 });
 
-test("Commitment Issues: 2x power at every one of its 20 levels", () => {
-  const levels = BALANCE.openSource.commitmentIssues.levels;
-  assert.equal(levels.length, COMMITMENT_ISSUES_LEVELS.count);
-  assert.equal(levels.length, 20);
-  for (const level of levels) {
+test("Commitment Issues: 20 levels, 2x power each, every cost step at least 2x", () => {
+  assert.equal(ciLevels.length, 20);
+  assert.equal(COMMITMENT_ISSUES_LEVELS.count, 20);
+  const costs = ciLevels.map((l) => l.locCost);
+  assert.deepEqual(costs, [...COMMITMENT_ISSUES_LEVELS.costs]);
+  assert.equal(costs[0], 460_000);
+  assert.equal(costs.at(-1), 1_800_000_000_000);
+  for (const level of ciLevels) {
     assert.deepEqual({ ...level.bonus }, { type: "DOUBLE", value: 2 });
   }
   for (let l = 1; l <= 20; l += 1) {
@@ -78,23 +84,25 @@ test("Commitment Issues: 2x power at every one of its 20 levels", () => {
       2
     );
   }
-  // The top multiplier is above the old 1024x, on purpose.
-  assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 20 }), 1048576);
+  // The no-runaway rule: cost never steps slower than the 2x power.
+  for (let i = 1; i < costs.length; i += 1) {
+    assert.ok(costs[i] / costs[i - 1] >= 2, `L${i + 1} step ${(costs[i] / costs[i - 1]).toFixed(2)}`);
+    assert.ok(Number.isSafeInteger(costs[i]));
+  }
 });
 
-test("Commitment Issues: cost grows slower than the power (about 1.41x vs 2x)", () => {
-  const costs = BALANCE.openSource.commitmentIssues.levels.map((l) => l.locCost);
-  assert.equal(costs[0], 1000000);
-  assert.equal(costs.at(-1), 724080000);
-  for (let i = 1; i < costs.length; i += 1) {
-    assert.ok(costs[i] / costs[i - 1] < 2, `L${i + 1}`);
-    assert.ok(Number.isInteger(costs[i]) && costs[i] % 10000 === 0, `L${i + 1} clean`);
-  }
-  // So each level is cheaper per doubling than the old track: the old
-  // L10 (512M) is now L19, and L20 (724.08M) is the first new cost
-  // above the old top.
-  assert.equal(costs[18], 512000000);
-  assert.equal(openSourceLevelCosts("commitmentIssues", 0, 20), 2469740000);
+test("Commit Specialist stays $4,000 at 1.1x, +0.2 LOC per click, same unlock", () => {
+  const cs = BALANCE.employees.commitSpecialist;
+  assert.equal(cs.baseCost, 400000);
+  assert.equal(cs.costMultiplier, 1.1);
+  assert.equal(cs.clickBonusPerEmployee, 0.2);
+  assert.deepEqual(
+    cs.unlockConditions.map((c) => ({ ...c })),
+    [
+      { type: "TOTAL_LOC", target: 25000 },
+      { type: "TOTAL_EMPLOYEE_COUNT", target: 20 },
+    ]
+  );
 });
 
 test("click track only: the five passive doubling tracks keep 10 levels at 2x cost", () => {
@@ -113,23 +121,82 @@ test("click track only: the five passive doubling tracks keep 10 levels at 2x co
       assert.deepEqual({ ...level.bonus }, { type: "DOUBLE", value: 2 });
     });
   }
-  // Blocker (the passive boost) is untouched too.
   assert.deepEqual(
     BALANCE.openSource.blocker.levels.map((l) => l.bonus.value),
     [0.5, 1, 1.5, 2, 2.5]
   );
 });
 
-test("a full click build: 25 Commit Specialists, OverReact 9, Commitment Issues 20", () => {
-  // floor((1 + 0.2 x 25 x 2^20) x 128)
-  assert.equal(
-    locPerClick(
-      { overReactFramework: 9, commitmentIssues: 20 },
-      { commitSpecialist: 25 }
-    ),
-    Math.floor((1 + 0.2 * 25 * 2 ** 20) * 128 + 1e-9)
+// --- The invariant, pinned ---
+
+/** "A few minutes of passive": 3 minutes. */
+const T_SECONDS = 180;
+/** Cash per Commit Specialist hire, in seconds of production value (B =
+ *  P x 60 cents/s), calibrated to Brandon's Nov 18 live save: 5
+ *  Specialists at 533 LOC/s. */
+const TC_SECONDS = 18.5;
+
+/**
+ * The stage model the numbers were derived from: at passive P (healthy
+ * rates; the Founder, achievement, and Handbook multipliers apply to
+ * click and passive alike, so they cancel in the ratio), the player owns
+ * every click level costing at most T x P, and every Commit Specialist
+ * whose hire costs at most TC x B. Commitment Issues needs 10
+ * Specialists. Returns click LOC/s at 10 clicks/s over P.
+ */
+function stage(P) {
+  let specialists = 0;
+  while (employeeCost("commitSpecialist", specialists) <= TC_SECONDS * P * bestCentsPerLoc()) {
+    specialists += 1;
+  }
+  const affordable = (levels) => {
+    let n = 0;
+    while (n < levels.length && levels[n].locCost <= T_SECONDS * P) n += 1;
+    return n;
+  };
+  const overReact = affordable(overReactLevels);
+  const commitment = specialists >= 10 ? affordable(ciLevels) : 0;
+  const click = locPerClick(
+    { overReactFramework: overReact, commitmentIssues: commitment },
+    { commitSpecialist: specialists }
   );
-  // Missing counts and levels read as 0, never NaN.
+  return { specialists, overReact, commitment, ratio: (10 * click) / P };
+}
+
+test("the stage model reproduces Brandon's live save: 5 Specialists at 533 LOC/s", () => {
+  assert.equal(stage(533).specialists, 5);
+  // His save before #160: OverReact L9 at 128x and 5 Specialists clicked
+  // floor((1 + 1) x 128) = 256, 2,560 LOC/s at 10 clicks/s: 4.80x.
+  assert.equal((10 * Math.floor((1 + 0.2 * 5) * 128)) / 533 > 4.79, true);
+});
+
+test("invariant: click at 10 clicks/s roughly matches passive (0.5x to 2x) at every stage", () => {
+  const stages = [20, 50, 100, 200, 533, 1e3, 3e3, 1e4, 3e4, 1e5, 3e5, 1e6, 1e7, 1e8, 1e9, 1e10];
+  for (const P of stages) {
+    const s = stage(P);
+    assert.ok(s.ratio >= 0.5 && s.ratio <= 2, `P ${P}: ratio ${s.ratio.toFixed(2)} (OR L${s.overReact}, CI L${s.commitment}, ${s.specialists} CS)`);
+  }
+  // And on a fine log grid from 20 LOC/s to 10 billion, no stage breaks it.
+  for (let e = Math.log10(20); e <= 10; e += 0.05) {
+    const s = stage(10 ** e);
+    assert.ok(s.ratio >= 0.5 && s.ratio <= 2, `P ${(10 ** e).toPrecision(3)}: ${s.ratio.toFixed(2)}`);
+  }
+});
+
+test("invariant: Brandon's stage now clicks at about 1.5x passive, not 4.8x", () => {
+  const s = stage(533);
+  assert.equal(s.overReact, 10);
+  assert.equal(s.commitment, 0);
+  assert.ok(s.ratio <= 1.6, s.ratio.toFixed(2));
+});
+
+test("a full click build: 25 Commit Specialists, OverReact 10, Commitment Issues 20; no NaN", () => {
+  // floor((1 + 0.2 x 25 x 2^20) x 40)
+  assert.equal(
+    locPerClick({ overReactFramework: 10, commitmentIssues: 20 }, { commitSpecialist: 25 }),
+    Math.floor((1 + 0.2 * 25 * 2 ** 20) * 40 + 1e-9)
+  );
   assert.equal(locPerClick({}, {}), 1);
-  assert.equal(locPerClick({ overReactFramework: 9 }, undefined), 128);
+  assert.equal(locPerClick({ overReactFramework: 10 }, undefined), 40);
+  assert.equal(locPerClick({ overReactFramework: 10 }, { commitSpecialist: Number.NaN }), 40);
 });

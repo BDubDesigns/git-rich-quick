@@ -80,8 +80,8 @@ test("shared math matches the client formulas", () => {
     locPerSecond({ intern: 3, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 }, { overReactFramework: 0, blocker: 1 }),
     12
   );
-  // Level 3 means levels 1 to 3 are all active: bonus 1 + 1 + 2 = 4, so 1 x (1 + 4) = 5.
-  assert.equal(locPerClick({ overReactFramework: 3, blocker: 0 }), 5);
+  // Level 3 means levels 1 to 3 are all active: bonus 1 + 1 + 1 = 3, so 1 x (1 + 3) = 4.
+  assert.equal(locPerClick({ overReactFramework: 3, blocker: 0 }), 4);
   const fresh = initialSaveState();
   assert.deepEqual(fresh.unlockedEmployees, {
     intern: true,
@@ -124,8 +124,8 @@ test("shared math matches the client formulas", () => {
   });
   // OverReact (issue #151): 9 levels, click multiplier 2, 3, 5, 8,
   // 12, 20, 32, 64, 128. Blocker keeps adding 0.5 passive (2, 2.5).
-  assert.equal(locPerClick({ overReactFramework: 5, blocker: 0 }), 12);
-  assert.equal(locPerClick({ overReactFramework: 9, blocker: 0 }), 128);
+  assert.equal(locPerClick({ overReactFramework: 5, blocker: 0 }), 7);
+  assert.equal(locPerClick({ overReactFramework: 10, blocker: 0 }), 40);
   assert.equal(
     locPerSecond(
       { intern: 3, junior: 1, senior: 0, projectManager: 0, commitSpecialist: 0 },
@@ -134,8 +134,8 @@ test("shared math matches the client formulas", () => {
     68
   );
   assert.equal(
-    openSourceLevelCosts("overReactFramework", 0, 9),
-    100 + 250 + 500 + 1200 + 3000 + 7000 + 15000 + 35000 + 75000
+    openSourceLevelCosts("overReactFramework", 0, 10),
+    100 + 500 + 4900 + 6100 + 8500 + 12000 + 17000 + 24000 + 34000 + 49000
   );
   assert.equal(
     openSourceLevelCosts("blocker", 0, 5),
@@ -452,7 +452,7 @@ test("freelance unlock latch flipping back is rejected", () => {
   assert.equal(r.rule, "MONOTONIC");
 });
 
-test("shape violations: NoPilot, level 10, unknown keys, bad types", () => {
+test("shape violations: NoPilot, level 11, unknown keys, bad types", () => {
   const before = stateWith({
     linesOfCode: 60,
     totalLinesOfCode: 110,
@@ -475,7 +475,7 @@ test("shape violations: NoPilot, level 10, unknown keys, bad types", () => {
       money: 500,
       employees: { intern: 1 },
       freelanceProjectsCompleted: { toDoListApp: 1 },
-      openSourceProjects: { overReactFramework: 10 },
+      openSourceProjects: { overReactFramework: 11 },
     }),
     stateWith({
       linesOfCode: 60,
