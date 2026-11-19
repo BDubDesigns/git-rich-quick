@@ -427,6 +427,21 @@ test("wipe: new players are written at the current schema and never wiped", asyn
   assert.equal(loaded.totalLinesOfCode, 12_345);
 });
 
+/**
+ * A wiped row is initialSaveState() plus one thing: the unread
+ * explanation mail in the inbox (issue #172, pinned in
+ * save-wipe-email.test.js). Everything else is the fresh company.
+ */
+function assertFreshWipedState(state, message) {
+  const { emails, ...rest } = state;
+  const { emails: freshEmails, ...fresh } = initialSaveState();
+  assert.deepEqual(freshEmails, [], message);
+  assert.deepEqual(rest, fresh, message);
+  assert.equal(emails.length, 1, message);
+  assert.equal(emails[0].triggerKey, "save-wipe:v2", message);
+  assert.equal(emails[0].read, false, message);
+}
+
 test("wipe: loading a pre-Funding-Rounds row returns a fresh company and bumps the row", async (t) => {
   const srv = await startTestServer();
   t.after(() => srv.stop());
@@ -434,7 +449,7 @@ test("wipe: loading a pre-Funding-Rounds row returns a fresh company and bumps t
   await setState(srv, playerId, oldScaleState());
   await setSchemaVersion(srv, playerId, 1);
   const loaded = await loadState(srv.base, playerId);
-  assert.deepEqual(loaded, initialSaveState());
+  assertFreshWipedState(loaded);
   assert.equal(await schemaVersionOf(srv, playerId), SAVE_SCHEMA_VERSION);
   // A second load does not wipe again.
   const s = { ...initialSaveState(), totalLinesOfCode: 500, linesOfCode: 500 };
@@ -453,8 +468,8 @@ test("wipe: a save against a pre-Funding-Rounds row is a 409 WIPE with the fresh
   assert.equal(res.status, 409);
   const body = await res.json();
   assert.equal(body.rule, "WIPE");
-  assert.deepEqual(body.lastGoodState.state, initialSaveState());
-  assert.deepEqual(await loadState(srv.base, playerId), initialSaveState());
+  assertFreshWipedState(body.lastGoodState.state);
+  assertFreshWipedState(await loadState(srv.base, playerId));
   assert.equal(await schemaVersionOf(srv, playerId), SAVE_SCHEMA_VERSION);
   // The very same old state, re-sent, is now validated against the
   // fresh row like any other save (no second wipe).
@@ -483,8 +498,8 @@ test("wipe: sale, store buy and intermission against a pre-Funding-Rounds row ar
     assert.equal(res.status, 409, path);
     const body = await res.json();
     assert.equal(body.rule, "WIPE", path);
-    assert.deepEqual(body.lastGoodState.state, initialSaveState(), path);
-    assert.deepEqual(await loadState(srv.base, playerId), initialSaveState(), path);
+    assertFreshWipedState(body.lastGoodState.state, path);
+    assertFreshWipedState(await loadState(srv.base, playerId), path);
   }
 });
 

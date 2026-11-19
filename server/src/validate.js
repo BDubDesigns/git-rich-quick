@@ -82,6 +82,8 @@
 import {
   COSMETIC_SLOTS,
   EMAIL_CONFIG,
+  emailTargetError,
+  emailTrophiesError,
   EMPLOYEE_TYPES,
   FARM_CONFIG,
   FARM_LIGHTING_COLORS,
@@ -706,19 +708,32 @@ function emailEntryError(entry) {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
     return "emails entries must be objects";
   }
+  // Issue #173: `target` (a link to a tab and item) and `trophies`
+  // (an achievement mail's earned tiers) are optional; an old email
+  // has neither. The rules are shared (emailTargetError /
+  // emailTrophiesError), the same ones the client's builders and
+  // sanitizers follow.
+  const required = [
+    "id",
+    "triggerKey",
+    "sender",
+    "subject",
+    "body",
+    "createdAtMs",
+    "read",
+  ];
+  const optional = ["target", "trophies"];
+  const keys = Object.keys(entry);
   if (
-    !hasExactKeys(entry, [
-      "id",
-      "triggerKey",
-      "sender",
-      "subject",
-      "body",
-      "createdAtMs",
-      "read",
-    ])
+    !required.every((key) => key in entry) ||
+    !keys.every((key) => required.includes(key) || optional.includes(key))
   ) {
     return "emails entries have unknown or missing keys";
   }
+  const linkError =
+    ("target" in entry ? emailTargetError(entry.target) : null) ??
+    ("trophies" in entry ? emailTrophiesError(entry.trophies) : null);
+  if (linkError) return linkError;
   if (typeof entry.id !== "string" || !UUID_RE.test(entry.id)) {
     return "emails id must be a UUID string";
   }

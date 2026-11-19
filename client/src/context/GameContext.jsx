@@ -54,6 +54,12 @@ import {
   markAllEmailsRead,
   markEmailRead,
 } from "../email/email.js";
+import {
+  NO_HIGHLIGHT,
+  clearHighlight,
+  consumeHighlight,
+  navigateToTarget,
+} from "../navigation/highlight.js";
 import { GameContext } from "./gameContext.js";
 
 // Initial state of the game
@@ -237,6 +243,12 @@ const initialState = {
   selectedEmailId: null,
   // The email the notification bar is showing (transient UI state, not saved).
   emailNotification: null,
+  // Email deep links (issue #173): the card a followed link should
+  // scroll to and flash ({ tab, itemId, key }), consumed once by its
+  // HighlightAnchor; highlightSeq numbers the navigations. Transient
+  // UI state, not saved (see navigation/highlight.js).
+  highlightTarget: NO_HIGHLIGHT,
+  highlightSeq: 0,
 
   uiState: {
     sections: {
@@ -261,7 +273,22 @@ function gameReducer(state, action) {
       if (!validTabs.includes(tab)) {
         console.warn(`Invalid tab: ${tab}. Defaulting to shop.`);
       }
-      return { ...state, activeTab };
+      // A manual tab switch drops any highlight no card picked up, so
+      // it cannot flash by surprise later (issue #173).
+      return { ...clearHighlight(state), activeTab };
+    }
+
+    // Follow an email link (issue #173): switch to the target's tab
+    // and record the highlight its card consumes. Payload: { target }.
+    // A missing or malformed target is a no-op.
+    case "NAVIGATE_TO_TARGET": {
+      return navigateToTarget(state, action.payload?.target);
+    }
+
+    // The linked card scrolled into view and flashed: clear the
+    // target so it never flashes again. Payload: { key }.
+    case "CONSUME_HIGHLIGHT": {
+      return consumeHighlight(state, action.payload?.key);
     }
     // Player clicks the "Write Code" button
     case "WRITE_CODE": {
@@ -1555,6 +1582,8 @@ function withEmailTriggers(prevState, newState, starClaim = null) {
  */
 const ACHIEVEMENT_SKIP_ACTIONS = new Set([
   "SET_ACTIVE_TAB",
+  "NAVIGATE_TO_TARGET",
+  "CONSUME_HIGHLIGHT",
   "TOGGLE_SECTION_DESC_VISIBILITY",
   "OPEN_EMAIL",
   "CLOSE_EMAIL",

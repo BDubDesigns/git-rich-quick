@@ -11,6 +11,7 @@ import { ProgressBar } from "./ProgressBar.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { Panel } from "./Panel.jsx";
+import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import {
   FARM_CONFIG,
   FARM_LIGHTING,
@@ -127,27 +128,30 @@ export function Farm() {
   if (!farm.owned && !isFarmUnlockMet(state)) {
     return (
       <SectionLayout sectionId="farm">
-        <Panel className="flex flex-col gap-2 p-3">
-          <p className="m-0 text-sm">
-            Every Senior Developer has the same exit plan: quit and
-            raise alpacas. Get enough of them on payroll and they stop
-            talking about it and start building. You still pay for the
-            barn.
-          </p>
-          <p className="m-0 text-xs font-semibold">Unlock requirement:</p>
-          {getUnlockProgressForFarm(state).map((entry, index) => (
-            <ProgressBar
-              key={index}
-              current={entry.current}
-              target={entry.target}
-              label={formatCondition(entry)}
-              showBar={showUnlockBar}
-            />
-          ))}
-          <Button onClick={handleBuyFarm} disabled>
-            Llama Farm (locked)
-          </Button>
-        </Panel>
+        {/* Email links (issue #173): farm mail lands on this panel. */}
+        <HighlightAnchor tab="farm">
+          <Panel className="flex flex-col gap-2 p-3">
+            <p className="m-0 text-sm">
+              Every Senior Developer has the same exit plan: quit and
+              raise alpacas. Get enough of them on payroll and they stop
+              talking about it and start building. You still pay for the
+              barn.
+            </p>
+            <p className="m-0 text-xs font-semibold">Unlock requirement:</p>
+            {getUnlockProgressForFarm(state).map((entry, index) => (
+              <ProgressBar
+                key={index}
+                current={entry.current}
+                target={entry.target}
+                label={formatCondition(entry)}
+                showBar={showUnlockBar}
+              />
+            ))}
+            <Button onClick={handleBuyFarm} disabled>
+              Llama Farm (locked)
+            </Button>
+          </Panel>
+        </HighlightAnchor>
       </SectionLayout>
     );
   }
@@ -157,27 +161,29 @@ export function Farm() {
     const canAfford = state.money >= barnCost;
     return (
       <SectionLayout sectionId="farm">
-        <Panel className="flex flex-col gap-2 p-3">
-          {/* The farm intro lives in the section description (green code
-              comment above this panel), so it is not repeated here. */}
-          <p className="m-0 text-sm">
-            Buy the barn and it arrives empty. No llamas come with it.
-            Buy llamas, move them into nests, set the lights, breed
-            them, and sell the kids. Barn prices track your production:
-            it costs {formatEstimateDuration(LLAMA_ECONOMY.barnSeconds)} of
-            what your team writes, so it is never a rounding error and
-            never a mortgage.
-          </p>
-          <Button onClick={handleBuyFarm} disabled={!canAfford}>
-            Buy the Llama Farm ({formatMoney(barnCost)})
-          </Button>
-          {!canAfford && (
+        <HighlightAnchor tab="farm">
+          <Panel className="flex flex-col gap-2 p-3">
+            {/* The farm intro lives in the section description (green code
+                comment above this panel), so it is not repeated here. */}
             <p className="m-0 text-sm">
-              You need {formatMoney(barnCost)}. Ship some projects first.
+              Buy the barn and it arrives empty. No llamas come with it.
+              Buy llamas, move them into nests, set the lights, breed
+              them, and sell the kids. Barn prices track your production:
+              it costs {formatEstimateDuration(LLAMA_ECONOMY.barnSeconds)} of
+              what your team writes, so it is never a rounding error and
+              never a mortgage.
             </p>
-          )}
-          <PricingNote rate={pricingRate} />
-        </Panel>
+            <Button onClick={handleBuyFarm} disabled={!canAfford}>
+              Buy the Llama Farm ({formatMoney(barnCost)})
+            </Button>
+            {!canAfford && (
+              <p className="m-0 text-sm">
+                You need {formatMoney(barnCost)}. Ship some projects first.
+              </p>
+            )}
+            <PricingNote rate={pricingRate} />
+          </Panel>
+        </HighlightAnchor>
       </SectionLayout>
     );
   }
@@ -192,18 +198,20 @@ export function Farm() {
 
   return (
     <SectionLayout sectionId="farm">
-      <Panel className="flex flex-col gap-2 p-3">
-        <p className="m-0 text-sm">
-          {llamaCount} {llamaCount === 1 ? "llama" : "llamas"} in the barn.{" "}
-          {llamaCount === 0
-            ? "The barn is empty. Pick an empty stall and buy your first llamas."
-            : eligible.length > 0
-              ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now (one breeding tick every ${FARM_CONFIG.breedingTickSeconds}s).`
-              : "No empty stall sits between two llamas right now, so nothing can breed. Move some llamas into a nest."}{" "}
-          Click a stall to select it.
-        </p>
-        <PricingNote rate={pricingRate} />
-      </Panel>
+      <HighlightAnchor tab="farm">
+        <Panel className="flex flex-col gap-2 p-3">
+          <p className="m-0 text-sm">
+            {llamaCount} {llamaCount === 1 ? "llama" : "llamas"} in the barn.{" "}
+            {llamaCount === 0
+              ? "The barn is empty. Pick an empty stall and buy your first llamas."
+              : eligible.length > 0
+                ? `${eligible.length} empty ${eligible.length === 1 ? "stall" : "stalls"} can breed right now (one breeding tick every ${FARM_CONFIG.breedingTickSeconds}s).`
+                : "No empty stall sits between two llamas right now, so nothing can breed. Move some llamas into a nest."}{" "}
+            Click a stall to select it.
+          </p>
+          <PricingNote rate={pricingRate} />
+        </Panel>
+      </HighlightAnchor>
 
       {/* Barn stalls: a 3x3 grid. Each stall shows its llama (or Empty)
           and its lighting color as a tint. Clicking selects a stall;

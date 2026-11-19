@@ -9,6 +9,7 @@ import {
 import { SectionLayout } from "./SectionLayout.jsx";
 import { ProjectCard } from "./ProjectCard.jsx";
 import { LockedFreelanceProjectCard } from "./LockedFreelanceProjectCard.jsx";
+import { HighlightAnchor } from "./HighlightAnchor.jsx";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -50,36 +51,40 @@ export function Projects() {
             }
             const progress =
               getUnlockProgressForFreelanceProject(projectKey, state);
+            // Email links (issue #173): a teaser lands here, on the
+            // unlock progress bars.
             return (
-              <LockedFreelanceProjectCard
-                key={projectKey}
-                project={project}
-                progress={progress}
-              />
+              <HighlightAnchor key={projectKey} tab="projects" itemId={projectKey}>
+                <LockedFreelanceProjectCard
+                  project={project}
+                  progress={progress}
+                />
+              </HighlightAnchor>
             );
           }
 
           const canComplete = state.linesOfCode >= project.loc;
 
           return (
-            <ProjectCard
-              key={projectKey}
-              project={project}
-              onComplete={() => handleCompleteProject(projectKey)}
-              canComplete={canComplete}
-              completionCount={
-                state.freelanceProjectsCompleted[projectKey] || 0
-              }
-              releaseManager={
-                managersOwned > 0
-                  ? {
-                      ...rmEconomics.perProject[projectKey],
-                      unassigned: rmEconomics.unassigned,
-                      onChange: (count) => setAssignment(projectKey, count),
-                    }
-                  : null
-              }
-            />
+            <HighlightAnchor key={projectKey} tab="projects" itemId={projectKey}>
+              <ProjectCard
+                project={project}
+                onComplete={() => handleCompleteProject(projectKey)}
+                canComplete={canComplete}
+                completionCount={
+                  state.freelanceProjectsCompleted[projectKey] || 0
+                }
+                releaseManager={
+                  managersOwned > 0
+                    ? {
+                        ...rmEconomics.perProject[projectKey],
+                        unassigned: rmEconomics.unassigned,
+                        onChange: (count) => setAssignment(projectKey, count),
+                      }
+                    : null
+                }
+              />
+            </HighlightAnchor>
           );
         }
       )}

@@ -25,6 +25,7 @@ import {
   initialSaveState,
   normalizeSaveState,
   settleNightShift,
+  wipedSaveState,
 } from "../../shared/game-balance.js";
 import { METRICS_SAMPLING, deriveMetricsSnapshot } from "./metrics.js";
 import {
@@ -164,7 +165,12 @@ async function lockSaveRow(client, playerId, nowMs) {
   if (Number.isFinite(version) && version >= SAVE_SCHEMA_VERSION) {
     return { snapshot: rowToSnapshot(row), wiped: false };
   }
-  const state = initialSaveState();
+  // Issue #172: the fresh inbox explains the reset (one unread mail,
+  // fixed trigger key). Only this path adds it; a mint stays empty.
+  const state = wipedSaveState(SAVE_SCHEMA_VERSION, {
+    emailId: randomUUID(),
+    nowMs,
+  });
   await client.query(
     `UPDATE git_saves SET state = $1, saved_at = $2, schema_version = $3
      WHERE player_id = $4`,

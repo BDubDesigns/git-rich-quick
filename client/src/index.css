@@ -259,6 +259,37 @@ body {
   white-space: nowrap;
 }
 
+/* Email deep links (issue #173): the card an email link lands on
+   flashes once. HighlightAnchor adds the class for 1.6s; the outline
+   (it never changes layout) fades from the link blue to nothing. With
+   reduced motion it holds a steady outline for the same 1.6s instead. */
+.highlight-flash {
+  border-radius: 1rem;
+  animation: grq-highlight-flash 1.6s ease-out 1 both;
+}
+
+@keyframes grq-highlight-flash {
+  0%,
+  30% {
+    outline: 3px solid rgba(0, 120, 212, 0.95);
+    outline-offset: 2px;
+    box-shadow: 0 0 18px rgba(0, 120, 212, 0.6);
+  }
+  100% {
+    outline: 3px solid rgba(0, 120, 212, 0);
+    outline-offset: 2px;
+    box-shadow: 0 0 18px rgba(0, 120, 212, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .highlight-flash {
+    animation: none;
+    outline: 3px solid rgba(0, 120, 212, 0.95);
+    outline-offset: 2px;
+  }
+}
+
 /* Splash screen (issue #141): the blinking block cursor at the end of
    the `npm start` button, terminal-style. A hard on/off blink (steps),
    and no blink at all when the player prefers reduced motion. */
