@@ -250,9 +250,15 @@ test("GoldenStar: spawn schedule and StarBroker cooldown use serverNowMs(), not 
       assert.doesNotMatch(line, /Date\.now\(\)/, line.trim());
     }
   }
-  assert.match(src, /\(serverNow - state\.lastStarBuyAtMs\) \/ 1000/);
+  // Moonshot (issue #165): the shared buy timer math moved into
+  // shared.starBuyCooldownRemainingSeconds; both buttons (gold and red)
+  // still feed it the server-time reading, never the device clock.
+  const timerCalls = src.match(
+    /starBuyCooldownRemainingSeconds\(\s*\w+,\s*state\.lastStarBuyAtMs,\s*serverNow\s*\)/g
+  );
+  assert.equal(timerCalls?.length, 2);
   assert.match(src, /const boughtAtServerMs = serverNowMs\(\);/);
-  assert.match(src, /payload: \{ cost: buyCost, atMs: boughtAtServerMs \}/);
+  assert.match(src, /payload: \{ cost, atMs: boughtAtServerMs \}/);
   // The countdown's arm time and its tick read the same clock.
   assert.match(src, /setCountdownStartedAtMs\(now\);/);
   assert.match(src, /const now = serverNowMs\(\);\n\s+const windowEndMs =/);

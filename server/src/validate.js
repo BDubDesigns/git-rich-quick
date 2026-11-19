@@ -89,6 +89,7 @@ import {
   FREELANCE_PROJECT_KEYS,
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
+  MOONSHOT_CONFIG,
   PRESTIGE_STORE_IDS,
   achievementsDecreased,
   achievementsStateError,
@@ -655,6 +656,10 @@ function starBuffMultiplierValid(effect, multiplier) {
         multiplier === 0.5 ||
         (Number.isInteger(multiplier) && multiplier >= 3 && multiplier <= 15)
       );
+    // To the Moon (Moonshot jackpot, issue #165): exactly the config
+    // multiplier, never a range, so any other value is tampered.
+    case "moonshot":
+      return multiplier === MOONSHOT_CONFIG.jackpotMultiplier;
     default:
       return false;
   }
@@ -670,8 +675,8 @@ function activeStarEffectError(entry) {
   ) {
     return "activeStarEffects entries have unknown or missing keys";
   }
-  if (!["frenzy", "click", "employee"].includes(entry.effect)) {
-    return "activeStarEffects effect must be a timed buff (frenzy, click, employee)";
+  if (!["frenzy", "click", "employee", "moonshot"].includes(entry.effect)) {
+    return "activeStarEffects effect must be a timed buff (frenzy, click, employee, moonshot)";
   }
   if (!starBuffMultiplierValid(entry.effect, entry.multiplier)) {
     return `activeStarEffects multiplier ${entry.multiplier} is not valid for ${entry.effect}`;

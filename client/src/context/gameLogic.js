@@ -253,6 +253,10 @@ export function calculateLOCPerSecond(state) {
   // Frenzy scales the whole passive rate (including any Employee extra).
   const frenzy = activeStarBuff(state, "frenzy");
   if (frenzy) total *= frenzy.multiplier;
+  // To the Moon (Moonshot jackpot, issue #165) scales the whole rate
+  // too, and stacks with a live Overclock (a separate effect).
+  const moonshot = activeStarBuff(state, "moonshot");
+  if (moonshot) total *= moonshot.multiplier;
   // Floor the final total (Brandon: a tick must never commit a
   // fractional amount). The shared base rate is already floored, but a
   // live buff's extra can re-fractionalize the total, so the floor

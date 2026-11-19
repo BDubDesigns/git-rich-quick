@@ -11,7 +11,13 @@ import {
   getStarBrokerLevel,
 } from "../context/gameLogic";
 import {
+  MOONSHOT_CONFIG,
   STAR_CONFIG,
+  launchPadBuyCost,
+  launchPadCooldownSeconds,
+  resolveMoonshotClaim,
+  rollStarIsRed,
+  starBuyCooldownRemainingSeconds,
   rollNextStarAtMs,
   rollStarEffect,
   rollStarGood,
@@ -34,6 +40,9 @@ import "./GoldenStar.css";
 
 /** The star's rendered size in px; spawn positions keep it fully on-screen. */
 const STAR_SIZE_PX = 64;
+/** Star colors: gold means reward, red means gamble (Moonshot, issue #165). */
+const GOLD_STAR_COLOR = "#ffd700";
+const RED_STAR_COLOR = "#ff3b3b";
 /** localStorage key for the collapsed star bar area (same `grq:` prefix as the player id). */
 const STAR_BARS_COLLAPSED_KEY = "grq:starBarsCollapsed";
 
@@ -83,6 +92,9 @@ function formatCountdown(seconds) {
  */
 function StarEffectBar({ buff, nowMs }) {
   const good = buff.multiplier > 1;
+  // To the Moon (Moonshot jackpot, issue #165) gets its own red and
+  // gold fill so it reads as the jackpot, not a plain Overclock.
+  const isMoonshot = buff.effect === "moonshot";
   const totalSeconds = starBuffDurationSeconds(buff.effect, good) ?? 0;
   const remainingSeconds = Math.max(
     0,
@@ -110,7 +122,11 @@ function StarEffectBar({ buff, nowMs }) {
     >
       <div
         className={`star-effect-bar-fill ${
-          good ? "star-effect-bar-fill--good" : "star-effect-bar-fill--bad"
+          isMoonshot
+            ? "star-effect-bar-fill--moonshot"
+            : good
+              ? "star-effect-bar-fill--good"
+              : "star-effect-bar-fill--bad"
         }`}
         style={{ width: `${fillPct}%` }}
       />
@@ -225,6 +241,10 @@ export function GoldenStar() {
   }, []);
   const constellationLevel = getConstellationLevel(state);
   const starBrokerLevel = getStarBrokerLevel(state);
+  // Moonshot (issue #165): owning Moonshot makes 1 in 4 natural stars
+  // red; Launch Pad buys red stars on the StarBroker timer.
+  const moonshotLevel = state.openSourceProjects.moonshot?.level ?? 0;
+  const launchPadLevel = state.openSourceProjects.launchPad?.level ?? 0;
 
   // Roll a fresh next-star time and persist it (SET_NEXT_STAR_AT).
   // The arm effect (below) picks up the new state.nextStarAtMs and
@@ -355,20 +375,26 @@ export function GoldenStar() {
   // clock — the total minus the elapsed time since the buy — never
   // from counting ticks. Null when no cooldown is armed: the player
   // never bought (ready), or owns no StarBroker.
+  //
+  // Moonshot (issue #165): StarBroker and Launch Pad share this one
+  // timer. Each button counts its OWN cooldown from the last buy of
+  // EITHER color, so any buy locks both: one or the other per cooldown.
   const buyCooldownTotalSeconds =
     starBrokerLevel >= 1 ? starBrokerCooldownSeconds(starBrokerLevel) : null;
-  const buyCooldownRemainingSeconds =
-    buyCooldownTotalSeconds === null || state.lastStarBuyAtMs === null
-      ? null
-      : Math.max(
-          0,
-          Math.ceil(
-            buyCooldownTotalSeconds -
-              (serverNow - state.lastStarBuyAtMs) / 1000
-          )
-        );
-  const buyCooldownActive =
-    buyCooldownRemainingSeconds !== null && buyCooldownRemainingSeconds > 0;
+  const buyCooldownRemainingSeconds = starBuyCooldownRemainingSeconds(
+    buyCooldownTotalSeconds,
+    state.lastStarBuyAtMs,
+    serverNow
+  );
+  const buyCooldownActive = buyCooldownRemainingSeconds > 0;
+  const redCooldownTotalSeconds =
+    launchPadLevel >= 1 ? launchPadCooldownSeconds(launchPadLevel) : null;
+  const redCooldownRemainingSeconds = starBuyCooldownRemainingSeconds(
+    redCooldownTotalSeconds,
+    state.lastStarBuyAtMs,
+    serverNow
+  );
+  const redCooldownActive = redCooldownRemainingSeconds > 0;
 
   // Tick the clock once a second while any effect is live, so the
   // duration bars deplete, while the buy cooldown is active (so its
@@ -379,6 +405,7 @@ export function GoldenStar() {
     if (
       liveEffects.length === 0 &&
       !buyCooldownActive &&
+      !redCooldownActive &&
       boughtStar === null
     )
       return undefined;
@@ -387,7 +414,7 @@ export function GoldenStar() {
       setServerNow(serverNowMs());
     }, 1000);
     return () => clearInterval(id);
-  }, [liveEffects.length, buyCooldownActive, boughtStar]);
+  }, [liveEffects.length, buyCooldownActive, redCooldownActive, boughtStar]);
 
   // Show the star the moment the countdown hits zero. secondsLeft is
   // null while no star is due (awaiting the next roll), so the guard
@@ -421,9 +448,12 @@ export function GoldenStar() {
       rollNextStar();
       return undefined;
     }
-    setStar(randomStarPosition());
+    // Moonshot (issue #165): the color is rolled at spawn (it is
+    // visible); the outcome is still rolled at click.
+    setStar({ ...randomStarPosition(), red: rollStarIsRed(moonshotLevel) });
     playStarSpawnSound();
   }, [
+    moonshotLevel,
     star,
     chainActive,
     secondsLeft,
@@ -536,6 +566,24 @@ export function GoldenStar() {
         : buyCost !== null
           ? `${formatNumber(buyCost)} LOC`
           : "";
+  // Launch a Moonshot (Launch Pad, issue #165): the same 30x passive
+  // LOC/s price, its own cooldown ladder, the shared timer.
+  const redBuyCost =
+    launchPadLevel < 1 ? null : launchPadBuyCost(getBaseLocPerSecond(state));
+  const redBuyReady =
+    launchPadLevel >= 1 &&
+    !redCooldownActive &&
+    redBuyCost !== null &&
+    state.linesOfCode >= redBuyCost;
+  const redOdds = `1 in ${Math.round(1 / MOONSHOT_CONFIG.jackpotChance)} goes to the moon`;
+  const redBuyText =
+    launchPadLevel < 1
+      ? ""
+      : redCooldownActive
+        ? `Launch in ${formatCountdown(redCooldownRemainingSeconds)}`
+        : redBuyCost !== null
+          ? `${formatNumber(redBuyCost)} LOC · ${redOdds}`
+          : "";
 
   // Apply a locally-rolled star claim (natural or bought — the two
   // claims are the same shape). The claim and the state change are
@@ -554,7 +602,7 @@ export function GoldenStar() {
         position.x + STAR_SIZE_PX / 2,
         position.y,
         starRewardLabel(claim),
-        <FaStar size={20} color="#ffd700" />
+        <FaStar size={20} color={claim.red ? RED_STAR_COLOR : GOLD_STAR_COLOR} />
       );
     },
     [dispatch, requestClaimSave, triggerFloatingText]
@@ -580,6 +628,19 @@ export function GoldenStar() {
     });
     // Each claim is its own email trigger (issue #31), so it needs a
     // unique id: the star email is keyed `star-reward:<claimId>`.
+    return { ...claim, claimId: newStarClaimId() };
+  }, [constellationLevel, state]);
+
+  // Roll a red star's outcome (Moonshot, issue #165): 1 in 3 To the
+  // Moon, otherwise a crash into an unlocked bad effect.
+  const rollRedClaim = useCallback(() => {
+    const claim = resolveMoonshotClaim({
+      constellationLevel,
+      locPerSecond: getBaseLocPerSecond(state),
+      money: state.money,
+      linesOfCode: state.linesOfCode,
+      employeeCounts: flatEmployeeCounts(state),
+    });
     return { ...claim, claimId: newStarClaimId() };
   }, [constellationLevel, state]);
 
@@ -712,7 +773,7 @@ export function GoldenStar() {
     setSecondsLeft(null);
     setCountdownTotalSeconds(null);
     setCountdownStartedAtMs(null);
-    const claim = rollClaim();
+    const claim = star.red ? rollRedClaim() : rollClaim();
     if (claim === null) {
       rollNextStar();
       return;
@@ -723,7 +784,29 @@ export function GoldenStar() {
     // itself stays hidden until the chain ends (endChain re-rolls).
     rollNextStar();
     if (claim.effect === "shootingStars") startChain(claim, true);
-  }, [star, rollClaim, applyClaim, rollNextStar, startChain]);
+  }, [star, rollClaim, rollRedClaim, applyClaim, rollNextStar, startChain]);
+
+  // The shared buy path (StarBroker gold or Launch Pad red): deduct
+  // the cost and arm the shared timer (BUY_STAR), show the bought star
+  // in its color, and save promptly so the deduction persists.
+  const buyStar = useCallback(
+    (cost, red) => {
+      // The buy time is server-time ms (issue #148), so the cooldown
+      // cannot be skipped by setting the device clock forward.
+      const boughtAtServerMs = serverNowMs();
+      setServerNow(boughtAtServerMs);
+      dispatch({
+        type: "BUY_STAR",
+        payload: { cost, atMs: boughtAtServerMs },
+      });
+      setBoughtStar({ ...randomStarPosition(), red });
+      setBoughtFading(false);
+      setBoughtStarAtMs(Date.now());
+      playStarSpawnSound();
+      saveNow();
+    },
+    [dispatch, saveNow]
+  );
 
   // Buy a golden star (StarBroker). Validated client-side now (the
   // server no longer polices buys): the player must own StarBroker,
@@ -738,27 +821,19 @@ export function GoldenStar() {
     if (buyCooldownActive) return;
     if (buyCost === null) return;
     if (state.linesOfCode < buyCost) return;
-    // The buy time is server-time ms (issue #148), so the cooldown
-    // cannot be skipped by setting the device clock forward.
-    const boughtAtServerMs = serverNowMs();
-    setServerNow(boughtAtServerMs);
-    dispatch({
-      type: "BUY_STAR",
-      payload: { cost: buyCost, atMs: boughtAtServerMs },
-    });
-    setBoughtStar(randomStarPosition());
-    setBoughtFading(false);
-    setBoughtStarAtMs(Date.now());
-    playStarSpawnSound();
-    saveNow();
-  }, [
-    starBrokerLevel,
-    buyCooldownActive,
-    buyCost,
-    state.linesOfCode,
-    dispatch,
-    saveNow,
-  ]);
+    buyStar(buyCost, false);
+  }, [starBrokerLevel, buyCooldownActive, buyCost, state.linesOfCode, buyStar]);
+
+  // Launch a Moonshot (Launch Pad, issue #165): the same buy path as a
+  // gold star (BUY_STAR deducts the cost and arms the shared timer),
+  // but the bought star is red.
+  const handleBuyRedStar = useCallback(() => {
+    if (launchPadLevel < 1) return;
+    if (redCooldownActive) return;
+    if (redBuyCost === null) return;
+    if (state.linesOfCode < redBuyCost) return;
+    buyStar(redBuyCost, true);
+  }, [launchPadLevel, redCooldownActive, redBuyCost, state.linesOfCode, buyStar]);
 
   // Claim a bought star: the player clicked the star they bought. The
   // outcome is rolled locally at click time (like the natural star)
@@ -771,7 +846,7 @@ export function GoldenStar() {
     setBoughtStar(null);
     setBoughtFading(false);
     setBoughtStarAtMs(null);
-    const claim = rollClaim();
+    const claim = boughtStar.red ? rollRedClaim() : rollClaim();
     if (claim === null) return;
     applyClaim(claim, position);
     // A bought Shooting Stars starts a chain; during a running chain it
@@ -779,7 +854,7 @@ export function GoldenStar() {
     if (claim.effect === "shootingStars" && !chainActive) {
       startChain(claim, false);
     }
-  }, [boughtStar, rollClaim, applyClaim, chainActive, startChain]);
+  }, [boughtStar, rollClaim, rollRedClaim, applyClaim, chainActive, startChain]);
 
   // Whether the next-star countdown may be shown (a client-side
   // unlock now): the player reaches Constellation level
@@ -816,12 +891,19 @@ export function GoldenStar() {
       {star && (
         <button
           type="button"
-          aria-label="Golden star, click for a random reward"
-          className={fading ? "golden-star fading" : "golden-star"}
+          aria-label={
+            star.red
+              ? "Red Moonshot star, a gamble: 1 in 3 goes to the moon, 2 in 3 crash"
+              : "Golden star, click for a random reward"
+          }
+          className={`golden-star${star.red ? " red-star" : ""}${fading ? " fading" : ""}`}
           style={{ left: `${star.x}px`, top: `${star.y}px` }}
           onClick={handleStarClick}
         >
-          <FaStar size={STAR_SIZE_PX} color="#ffd700" />
+          <FaStar
+            size={STAR_SIZE_PX}
+            color={star.red ? RED_STAR_COLOR : GOLD_STAR_COLOR}
+          />
         </button>
       )}
       {/* Shooting Stars chain star (issue #138): same look, a 6s life,
@@ -844,12 +926,19 @@ export function GoldenStar() {
       {boughtStar && (
         <button
           type="button"
-          aria-label="Bought golden star, click for a random reward"
-          className={boughtFading ? "golden-star fading" : "golden-star"}
+          aria-label={
+            boughtStar.red
+              ? "Launched Moonshot star, a gamble: 1 in 3 goes to the moon, 2 in 3 crash"
+              : "Bought golden star, click for a random reward"
+          }
+          className={`golden-star${boughtStar.red ? " red-star" : ""}${boughtFading ? " fading" : ""}`}
           style={{ left: `${boughtStar.x}px`, top: `${boughtStar.y}px` }}
           onClick={handleBoughtStarClick}
         >
-          <FaStar size={STAR_SIZE_PX} color="#ffd700" />
+          <FaStar
+            size={STAR_SIZE_PX}
+            color={boughtStar.red ? RED_STAR_COLOR : GOLD_STAR_COLOR}
+          />
         </button>
       )}
       {/* Shooting Stars chain strip (issue #138): while a chain runs,
@@ -961,12 +1050,21 @@ export function GoldenStar() {
           player owns StarBroker. Tapping the bar (not the button)
           collapses the whole star area; the button itself buys (its
           click stops propagation so it never collapses instead). */}
-      {starBrokerLevel >= 1 &&
+      {(starBrokerLevel >= 1 || launchPadLevel >= 1) &&
         buyBarEnabled &&
         !starBarsCollapsed &&
         buySlot &&
         createPortal(
-          <div className="star-buy-bar" onClick={toggleStarBarsCollapsed}>
+          <div
+            className={`star-buy-bar${
+              starBrokerLevel >= 1 && launchPadLevel >= 1
+                ? " star-buy-bar--dual"
+                : ""
+            }`}
+            onClick={toggleStarBarsCollapsed}
+          >
+            {starBrokerLevel >= 1 && (
+              <>
             <button
               type="button"
               className="star-buy-button"
@@ -986,6 +1084,33 @@ export function GoldenStar() {
               ★ Buy a Star
             </button>
             <span className="star-buy-text">{buyText}</span>
+              </>
+            )}
+            {/* Launch a Moonshot (Launch Pad, issue #165): the red buy,
+                on the same shared timer as the gold one. The odds are
+                stated plainly next to the button. */}
+            {launchPadLevel >= 1 && (
+              <>
+                <button
+                  type="button"
+                  className="star-buy-button star-buy-button--red"
+                  disabled={!redBuyReady}
+                  title="1 in 3 goes to the moon. 2 in 3 crash."
+                  aria-label={
+                    redCooldownActive
+                      ? `Launch a Moonshot, available in ${formatCountdown(redCooldownRemainingSeconds)}`
+                      : `Launch a Moonshot for ${formatNumber(redBuyCost)} LOC. 1 in 3 goes to the moon, 2 in 3 crash`
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleBuyRedStar();
+                  }}
+                >
+                  ★ Moonshot
+                </button>
+                <span className="star-buy-text">{redBuyText}</span>
+              </>
+            )}
           </div>,
           buySlot
         )}

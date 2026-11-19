@@ -22,6 +22,7 @@ import {
   EMPLOYEE_DISPLAY_NAMES,
   FARM_CONFIG,
   FREELANCE_PROJECT_DISPLAY_NAMES,
+  OPEN_SOURCE_DISPLAY_NAMES,
   UNLOCK_VISIBILITY_THRESHOLD,
 } from "../../../shared/game-balance.js";
 
@@ -153,6 +154,21 @@ function progressForConditions(unlockConditions, state) {
           0
         );
         break;
+      // Moonshot (issue #165): an Open Source level (client state
+      // holds { level } per project) and lifetime gold stars clicked.
+      // A missing or NaN value reads 0.
+      case "OPEN_SOURCE_LEVEL": {
+        const level = Number(
+          state.openSourceProjects?.[condition.projectId]?.level ?? 0
+        );
+        current = Number.isFinite(level) ? level : 0;
+        break;
+      }
+      case "GOLD_STARS_CLICKED": {
+        const clicked = Number(state.achievements?.goldStarsClicked ?? 0);
+        current = Number.isFinite(clicked) ? clicked : 0;
+        break;
+      }
       default:
         current = 0;
     }
@@ -172,6 +188,10 @@ function progressForConditions(unlockConditions, state) {
       ...(condition.type === "SPECIFIC_PROJECT_COUNT" && {
         projectKey: condition.projectKey,
         projectName: FREELANCE_PROJECT_DISPLAY_NAMES[condition.projectKey],
+      }),
+      ...(condition.type === "OPEN_SOURCE_LEVEL" && {
+        projectId: condition.projectId,
+        projectName: OPEN_SOURCE_DISPLAY_NAMES[condition.projectId],
       }),
     };
   });
