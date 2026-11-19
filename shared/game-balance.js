@@ -765,6 +765,72 @@ export function releaseManagerAssignedCount(assignments) {
 }
 
 /**
+ * Release Manager shipping economics (issue #163): the readout behind
+ * the per-project assignment rows on the Projects tab and the shipping
+ * summary strip under the Release Manager card. Pure math, no state
+ * writes, so the client UI and the tests read the same numbers.
+ *
+ * - passiveIn: the buffed healthy passive LOC/s the caller passes in
+ *   (getBaseLocPerSecond on the client: star buffs excluded).
+ * - Per project: assigned count x ships per manager per second x the
+ *   project's LOC cost per ship (locPerSecond), and the same ship rate
+ *   x the reward per ship (cashPerSecond, integer cents per ship like
+ *   the tick, which rounds each payout after the Client Network
+ *   multiplier). At Ship Happens level 0 with the 1s interval that is
+ *   exactly assigned x loc and assigned x reward. Locked projects
+ *   contribute 0, because the tick skips them.
+ * - rmOut: the sum of the per-project locPerSecond.
+ * - cashPerSecond: the sum of the per-project cashPerSecond.
+ * - net: passiveIn minus rmOut. Negative means a deficit.
+ * - unassigned: managers owned minus managers assigned, never below 0.
+ *
+ * These are the intended rates: managers only ship when there is LOC to
+ * burn, so in a deficit the real outflow is capped by what is banked.
+ * A missing or non-numeric count reads as 0, so the result is never NaN.
+ */
+export function releaseManagerShippingEconomics({
+  assignments = {},
+  managersOwned = 0,
+  passiveLocPerSecond = 0,
+  unlockedProjects = {},
+  openSourceLevels = {},
+  permanentStoreRanks = {},
+} = {}) {
+  const safe = (n) => (Number.isFinite(n) && n > 0 ? n : 0);
+  const shipsPerSecond =
+    releaseManagerShipsPerInterval(openSourceLevels ?? {}) /
+    RELEASE_MANAGER_CONFIG.shipIntervalSeconds;
+  const payoutMultiplier = clientNetworkPayoutMultiplier(
+    permanentStoreRanks ?? {}
+  );
+  const perProject = {};
+  let assignedCount = 0;
+  let rmOut = 0;
+  let cashPerSecond = 0;
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    const assigned = safe(assignments?.[key]);
+    assignedCount += assigned;
+    const project = BALANCE.freelanceProjects[key];
+    const ships = unlockedProjects?.[key] ? assigned * shipsPerSecond : 0;
+    const locPerSecond = ships * project.loc;
+    const cash = ships * Math.round(project.reward * payoutMultiplier);
+    perProject[key] = { assigned, locPerSecond, cashPerSecond: cash };
+    rmOut += locPerSecond;
+    cashPerSecond += cash;
+  }
+  const passiveIn = safe(passiveLocPerSecond);
+  return {
+    passiveIn,
+    rmOut,
+    cashPerSecond,
+    net: passiveIn - rmOut,
+    assignedCount,
+    unassigned: Math.max(0, safe(managersOwned) - assignedCount),
+    perProject,
+  };
+}
+
+/**
  * The most auto-ships `managerCount` Release Managers could have made
  * in a window of `elapsedSeconds`: one ship per manager per interval,
  * plus one grace ship for a ship event landing exactly on a window

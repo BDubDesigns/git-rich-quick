@@ -19,7 +19,7 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
-import { ReleaseManagerAssignments } from "./ReleaseManagerAssignments.jsx";
+import { ReleaseManagerShippingSummary } from "./ReleaseManagerShippingSummary.jsx";
 import { NightShiftCard } from "./NightShiftCard.jsx";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
@@ -137,12 +137,12 @@ export function Shop() {
                 quantity={quantity}
                 effectMultiplier={effectMultiplier}
               />
-              {/* Release Manager assignments: which project each
-                  manager auto-ships. Only under the Release Manager
-                  card, only while managers are owned (the component
-                  hides itself at zero). */}
+              {/* Release Manager shipping summary (issue #163): the
+                  in / out / net readout and the unassigned count. The
+                  assignment controls live on the project cards. Hidden
+                  while no manager is owned. */}
               {employeeType === "releaseManager" && (
-                <ReleaseManagerAssignments />
+                <ReleaseManagerShippingSummary />
               )}
             </div>
           );
