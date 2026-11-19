@@ -14,6 +14,7 @@ import {
 import { SectionLayout } from "./SectionLayout.jsx";
 import { OpenSourceCard } from "./OpenSourceCard.jsx";
 import { LockedOpenSourceCard } from "./LockedOpenSourceCard.jsx";
+import { HighlightAnchor } from "./HighlightAnchor.jsx";
 
 export function OpenSource() {
   const { state, dispatch } = useGameContext();
@@ -66,14 +67,15 @@ export function OpenSource() {
         return {
           isMaxed: false,
           element: (
-            <LockedOpenSourceCard
-              key={id}
-              projectId={id}
-              project={config}
-              progress={progress}
-              nextBonus={config.levels[0]?.bonus}
-              locCost={config.levels[0]?.locCost}
-            />
+            <HighlightAnchor key={id} tab="openSource" itemId={id}>
+              <LockedOpenSourceCard
+                projectId={id}
+                project={config}
+                progress={progress}
+                nextBonus={config.levels[0]?.bonus}
+                locCost={config.levels[0]?.locCost}
+              />
+            </HighlightAnchor>
           ),
         };
       }
@@ -103,23 +105,24 @@ export function OpenSource() {
       return {
         isMaxed,
         element: (
-          <OpenSourceCard
-            key={id}
-            projectId={id}
-            project={config}
-            currentLevel={currentLevel}
-            currentBonus={currentBonus}
-            nextBonus={nextBonus}
-            locCost={locCost}
-            isMaxed={isMaxed}
-            canContribute={canContribute}
-            onContribute={() => handleContribute(id)}
-            isFavorite={(state.favoriteOpenSourceProjects ?? []).includes(
-              id
-            )}
-            onToggleFavorite={() => handleToggleFavorite(id)}
-            lockedRoundName={lockedRoundName}
-          />
+          <HighlightAnchor key={id} tab="openSource" itemId={id}>
+            <OpenSourceCard
+              projectId={id}
+              project={config}
+              currentLevel={currentLevel}
+              currentBonus={currentBonus}
+              nextBonus={nextBonus}
+              locCost={locCost}
+              isMaxed={isMaxed}
+              canContribute={canContribute}
+              onContribute={() => handleContribute(id)}
+              isFavorite={(state.favoriteOpenSourceProjects ?? []).includes(
+                id
+              )}
+              onToggleFavorite={() => handleToggleFavorite(id)}
+              lockedRoundName={lockedRoundName}
+            />
+          </HighlightAnchor>
         ),
       };
     })

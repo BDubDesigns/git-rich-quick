@@ -14,6 +14,7 @@ import * as shared from "../../../shared/game-balance.js";
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Panel } from "./Panel.jsx";
+import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import { ProgressBar } from "./ProgressBar.jsx";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
@@ -48,13 +49,12 @@ export function Achievements() {
           the shelf.
         </p>
       </Panel>
+      {/* Email links (issue #173): an achievement mail's trophy
+          links land on these cards. */}
       {shared.ACHIEVEMENTS.map((def) => (
-        <AchievementCard
-          key={def.id}
-          def={def}
-          ctx={ctx}
-          showBars={showBars}
-        />
+        <HighlightAnchor key={def.id} tab="achievements" itemId={def.id}>
+          <AchievementCard def={def} ctx={ctx} showBars={showBars} />
+        </HighlightAnchor>
       ))}
     </SectionLayout>
   );

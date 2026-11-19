@@ -21,6 +21,7 @@ import { EmployeeCard } from "./EmployeeCard.jsx";
 import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
 import { ReleaseManagerShippingSummary } from "./ReleaseManagerShippingSummary.jsx";
 import { NightShiftCard } from "./NightShiftCard.jsx";
+import { HighlightAnchor } from "./HighlightAnchor.jsx";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -127,7 +128,7 @@ export function Shop() {
                   );
 
           return (
-            <div key={employeeType}>
+            <HighlightAnchor key={employeeType} tab="shop" itemId={employeeType}>
               <EmployeeCard
                 config={cardConfig}
                 currentCost={currentCost}
@@ -144,7 +145,7 @@ export function Shop() {
               {employeeType === "releaseManager" && (
                 <ReleaseManagerShippingSummary />
               )}
-            </div>
+            </HighlightAnchor>
           );
         }
 
@@ -160,7 +161,11 @@ export function Shop() {
             key={employeeType}
             className={!hasCrossedThreshold ? "hidden" : ""}
           >
-            <LockedEmployeeCard config={config} progress={progress} />
+            {/* Email links (issue #173): a teaser lands here, on the
+                unlock progress bars. */}
+            <HighlightAnchor tab="shop" itemId={employeeType}>
+              <LockedEmployeeCard config={config} progress={progress} />
+            </HighlightAnchor>
           </div>
         );
       })}

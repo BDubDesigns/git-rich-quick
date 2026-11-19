@@ -502,9 +502,10 @@ test("the achievement email batches every tier from one action into one mail", (
     ],
   });
   assert.equal(mail.subject, "3 achievements unlocked");
-  assert.match(mail.body, /Intern-al Affairs I: \+1% LOC/);
-  assert.match(mail.body, /Intern-al Affairs II: \+2% LOC/);
-  assert.match(mail.body, /Hello, World: \+1% LOC/);
+  // Issue #173: one line per trophy, its tiers grouped, with the buff
+  // those tiers add and the trophy's flavor line.
+  assert.match(mail.body, /Intern-al Affairs I, II \(\+3% LOC\): They work for exposure/);
+  assert.match(mail.body, /Hello, World \(\+1% LOC\): Every empire starts/);
   const single = buildAchievementEmail({ unlocked: [{ id: "helloWorld", tier: 1 }] });
   assert.equal(single.subject, "Achievement unlocked: Hello, World");
 });

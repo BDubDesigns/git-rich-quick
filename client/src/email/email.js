@@ -2,7 +2,12 @@
  * In-game email (issue #31) — the ONE module that owns the inbox.
  *
  * The inbox is a list of plain records in the game state:
- *   { id, triggerKey, sender, subject, body, createdAtMs, read }
+ *   { id, triggerKey, sender, subject, body, createdAtMs, read,
+ *     target?, trophies? }
+ * `target` (issue #173) links the email to the tab and card it
+ * mentions; `trophies` lists an achievement mail's earned tiers, one
+ * link each. Both are optional: an old email has neither and renders
+ * no link.
  * Every game system that wants to send mail calls this module; no
  * component builds or mutates inbox entries directly.
  *
@@ -20,6 +25,7 @@
  */
 
 import {
+  ACHIEVEMENT_EMAIL_OUTRO,
   EMAIL_CONFIG,
   EMPLOYEE_DISPLAY_NAMES,
   EMPLOYEE_TYPES,
@@ -30,6 +36,7 @@ import {
   LLAMA_TYPE_NAMES,
   OPEN_SOURCE_DISPLAY_NAMES,
   OPEN_SOURCE_IDS,
+  achievementEmailEntries,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
   buildFarmNewTypeEmail,
@@ -42,6 +49,9 @@ import {
   buildOpenSourceUnlockedEmail,
   buildOpenSourceVisibleEmail,
   buildStarRewardEmail,
+  findAchievement,
+  sanitizeEmailTarget,
+  sanitizeEmailTrophies,
   starEffectName,
   starRewardDetail,
 } from "../../../shared/game-balance.js";
@@ -87,6 +97,11 @@ export function newStarClaimId() {
  * that key already exists, the inbox is returned unchanged. Past the
  * cap, the oldest emails are dropped (the array is chronological).
  * Returns `{ emails, added }` where `added` is the new entry or null.
+ *
+ * The content's optional `target` and `trophies` (issue #173) are
+ * copied only when valid (the shared sanitizers), so a builder bug can
+ * never store a link the server's shape check would reject. A missing
+ * or bad one just means no link.
  */
 export function addEmail(emails, content, triggerKey, createdAtMs) {
   const inbox = emails ?? [];
@@ -102,6 +117,10 @@ export function addEmail(emails, content, triggerKey, createdAtMs) {
     createdAtMs,
     read: false,
   };
+  const target = sanitizeEmailTarget(content.target);
+  if (target) entry.target = target;
+  const trophies = sanitizeEmailTrophies(content.trophies);
+  if (trophies) entry.trophies = trophies;
   let next = [...inbox, entry];
   while (next.length > EMAIL_CONFIG.maxInboxEmails) {
     next = next.slice(1);
@@ -332,7 +351,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     if (!config) continue;
     if (!wasUnlocked && isUnlocked) {
       send(
-        buildEmployeeUnlockedEmail({ employeeName: config }),
+        buildEmployeeUnlockedEmail({ employeeName: config, employeeType: type }),
         `employee-unlocked:${type}`
       );
     } else if (
@@ -342,6 +361,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
       send(
         buildEmployeeVisibleEmail({
           employeeName: config,
+          employeeType: type,
           requirementText: describeUnlockRequirements(
             getUnlockProgress(type, newState)
           ),
@@ -360,7 +380,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     if (!config) continue;
     if (!wasUnlocked && isUnlocked) {
       send(
-        buildOpenSourceUnlockedEmail({ projectName: config }),
+        buildOpenSourceUnlockedEmail({ projectName: config, projectId }),
         `opensource-unlocked:${projectId}`
       );
     } else if (
@@ -370,6 +390,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
       send(
         buildOpenSourceVisibleEmail({
           projectName: config,
+          projectId,
           requirementText: describeUnlockRequirements(
             getUnlockProgressForOpenSource(projectId, newState)
           ),
@@ -381,7 +402,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     const newLevel = newState.openSourceProjects?.[projectId]?.level ?? 0;
     for (let level = prevLevel + 1; level <= newLevel; level += 1) {
       send(
-        buildOpenSourceLevelEmail({ projectName: config, level }),
+        buildOpenSourceLevelEmail({ projectName: config, level, projectId }),
         `opensource-level:${projectId}:${level}`
       );
     }
@@ -396,7 +417,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     if (!config) continue;
     if (!wasUnlocked && isUnlocked) {
       send(
-        buildFreelanceProjectUnlockedEmail({ projectName: config }),
+        buildFreelanceProjectUnlockedEmail({ projectName: config, projectKey }),
         `freelance-unlocked:${projectKey}`
       );
     } else if (
@@ -406,6 +427,7 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
       send(
         buildFreelanceProjectVisibleEmail({
           projectName: config,
+          projectKey,
           requirementText: describeUnlockRequirements(
             getUnlockProgressForFreelanceProject(projectKey, newState)
           ),
@@ -487,4 +509,86 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
   }
 
   return { emails, newEmailId };
+}
+
+/** ===== Email links (issue #173): what the detail view renders ===== */
+
+/** The display name of the item a target names, from the shared maps. */
+function targetItemName(target) {
+  switch (target.tab) {
+    case "shop":
+      return EMPLOYEE_DISPLAY_NAMES[target.itemId] ?? null;
+    case "projects":
+      return FREELANCE_PROJECT_DISPLAY_NAMES[target.itemId] ?? null;
+    case "openSource":
+      return OPEN_SOURCE_DISPLAY_NAMES[target.itemId] ?? null;
+    case "achievements":
+      return findAchievement(target.itemId)?.name ?? null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The link button text for an email's target. A teaser (the "visible"
+ * mail) lands on the item's unlock progress, so it says so; an unlock
+ * or level-up is a call to action (hire it, ship it, contribute).
+ * Names come from the shared display maps, never from the email text.
+ */
+export function emailLinkLabel(email, target) {
+  const name = targetItemName(target);
+  const teaser = isTeaserEmail(email);
+  switch (target.tab) {
+    case "shop":
+      if (!name) return "Go to Hire";
+      return teaser ? `See the ${name} unlock progress` : `Hire a ${name}`;
+    case "projects":
+      if (!name) return "Go to Projects";
+      return teaser ? `See the ${name} unlock progress` : `Ship ${name}`;
+    case "openSource":
+      if (!name) return "Go to Open Source";
+      return teaser
+        ? `See the ${name} unlock progress`
+        : `Contribute to ${name}`;
+    case "farm":
+      return teaser ? "See the Farm unlock progress" : "Go to the Farm";
+    case "achievements":
+      return name ? `See ${name} in the Trophy Case` : "Go to Trophies";
+    default:
+      return "Go there";
+  }
+}
+
+/**
+ * Everything the email detail view renders, from one email record:
+ *   { body, trophies, outro, link }
+ * - body: the body text to show (null for an achievement mail with a
+ *   valid trophy list, which renders the list instead).
+ * - trophies: achievementEmailEntries (one linked entry per trophy,
+ *   names and flavor from the definitions), or null.
+ * - outro: the shared closing line under the trophy list, or null.
+ * - link: { target, label } for the email's own link, or null when the
+ *   email has no target (an old email), a malformed one, or a trophy
+ *   list (each trophy is its own link there).
+ * Missing fields read as empty; this never throws on a partial record.
+ */
+export function emailDetailModel(email) {
+  const record = email && typeof email === "object" ? email : {};
+  const body = typeof record.body === "string" ? record.body : "";
+  const entries = achievementEmailEntries(record.trophies);
+  if (entries.length > 0) {
+    return {
+      body: null,
+      trophies: entries,
+      outro: ACHIEVEMENT_EMAIL_OUTRO,
+      link: null,
+    };
+  }
+  const target = sanitizeEmailTarget(record.target);
+  return {
+    body,
+    trophies: null,
+    outro: null,
+    link: target ? { target, label: emailLinkLabel(record, target) } : null,
+  };
 }

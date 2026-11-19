@@ -4961,33 +4961,112 @@ export function achievementProgress(id, ctx = {}) {
 }
 
 /**
+ * The closing paragraph of every achievement email. The detail view
+ * renders it under the linked trophy list (issue #173), and the body
+ * text ends with it, so both say the same thing.
+ */
+export const ACHIEVEMENT_EMAIL_OUTRO =
+  `Every tier is a permanent boost to all LOC, clicks and passive ` +
+  `alike, and it survives selling the company. Check the Trophies ` +
+  `tab for what is next. Nobody asked for a trophy case. You got ` +
+  `one anyway.`;
+
+/**
+ * The trophies one achievement email covers, one entry per trophy
+ * (issue #173). `trophies` is the email's stored list of earned tiers
+ * ([{ id, tier }], evaluateAchievements' shape); tiers of the same
+ * trophy group into one entry. Every name, goal and flavor line comes
+ * from the ACHIEVEMENTS definitions, never from the email, so a
+ * stored mail cannot drift from the Trophies tab. Unknown ids and bad
+ * tiers are dropped (sanitizeEmailTrophies). Each entry:
+ *   { id, name, tiers, tierText, goal, flavor, buffPercent, target }
+ * where `tierText` is "" for a one-tier trophy, else " I" / " I, II",
+ * `goal` is the highest tier's goal, `buffPercent` sums the tiers,
+ * and `target` links to the trophy on the Achievements tab.
+ */
+export function achievementEmailEntries(trophies) {
+  const clean = sanitizeEmailTrophies(trophies) ?? [];
+  const byId = new Map();
+  for (const { id, tier } of clean) {
+    const tiers = byId.get(id) ?? [];
+    if (!tiers.includes(tier)) tiers.push(tier);
+    byId.set(id, tiers);
+  }
+  const entries = [];
+  for (const [id, tiers] of byId) {
+    const def = findAchievement(id);
+    tiers.sort((a, b) => a - b);
+    const multiTier = def.thresholds.length > 1;
+    entries.push({
+      id,
+      name: def.name,
+      tiers,
+      tierText: multiTier
+        ? ` ${tiers.map((t) => achievementTierLabel(t)).join(", ")}`
+        : "",
+      goal: achievementTierDescription(id, tiers[tiers.length - 1]),
+      flavor: def.flavor,
+      buffPercent: tiers.reduce(
+        (sum, t) => sum + achievementTierBuffPercent(t),
+        0
+      ),
+      target: emailTarget("achievements", id),
+    });
+  }
+  return entries;
+}
+
+/**
  * The inbox mail for newly earned achievement tiers (one mail per
  * action, however many tiers landed, so a big moment never floods the
  * 25-mail inbox). `unlocked` is evaluateAchievements' list.
+ *
+ * Issue #173: the mail lists each trophy on its own line with its
+ * name and its flavor line (from the definitions), and carries the
+ * earned tiers as `trophies` so the inbox can link every entry to
+ * its card on the Achievements tab. `target` points at the first
+ * trophy. The body is the plain-text copy (list preview, old
+ * clients); it stays under EMAIL_CONFIG.maxBodyLength by dropping
+ * the flavor lines, then the tail of the list, on a huge batch. The
+ * linked list in the detail view always shows every trophy.
  */
 export function buildAchievementEmail({ unlocked }) {
-  const lines = unlocked.map(({ id, tier }) => {
-    const def = findAchievement(id);
-    const name = def?.name ?? id;
-    const label =
-      (def?.thresholds.length ?? 1) > 1 ? ` ${achievementTierLabel(tier)}` : "";
-    return `${name}${label}: +${achievementTierBuffPercent(tier)}% LOC`;
-  });
-  const first = findAchievement(unlocked[0]?.id);
+  const trophies = sanitizeEmailTrophies(unlocked) ?? [];
+  const entries = achievementEmailEntries(trophies);
+  const tierCount = trophies.length;
+  const first = entries[0] ?? null;
   const subject =
-    unlocked.length === 1
+    tierCount === 1
       ? `Achievement unlocked: ${first?.name ?? "Something"}`
-      : `${unlocked.length} achievements unlocked`;
-  return {
+      : `${tierCount} achievements unlocked`;
+  const header = (entry) =>
+    `${entry.name}${entry.tierText} (+${entry.buffPercent}% LOC)`;
+  const outro = `\n\n${ACHIEVEMENT_EMAIL_OUTRO}`;
+  const fits = (lines) =>
+    lines.join("\n").length + outro.length <= EMAIL_CONFIG.maxBodyLength;
+  let lines = entries.map((entry) => `${header(entry)}: ${entry.flavor}`);
+  if (!fits(lines)) lines = entries.map(header);
+  if (!fits(lines)) {
+    // Keep as many headers as fit, then say how many more there are.
+    for (let keep = entries.length - 1; keep >= 0; keep -= 1) {
+      const more = entries.length - keep;
+      lines = [
+        ...entries.slice(0, keep).map(header),
+        `...and ${more} more in the Trophies tab.`,
+      ];
+      if (fits(lines)) break;
+    }
+  }
+  const mail = {
     sender: "The Trophy Case",
     subject,
-    body:
-      `${lines.join("\n")}\n\n` +
-      `Every tier is a permanent boost to all LOC, clicks and passive ` +
-      `alike, and it survives selling the company. Check the Trophies ` +
-      `tab for what is next. Nobody asked for a trophy case. You got ` +
-      `one anyway.`,
+    body: `${lines.join("\n")}${outro}`,
   };
+  if (trophies.length > 0) {
+    mail.target = first.target;
+    mail.trophies = trophies;
+  }
+  return mail;
 }
 
 /** The save state a brand-new player starts from. Unlocks derive from the configs. */
@@ -5736,7 +5815,235 @@ export const EMAIL_CONFIG = Object.freeze({
   maxSenderLength: 100,
   maxSubjectLength: 200,
   maxBodyLength: 2000,
+  /** Max length of an email link's item id (issue #173). */
+  maxTargetItemIdLength: 64,
+  /** Max earned tiers one achievement email can list: every tier of
+   *  every achievement (ACHIEVEMENTS is defined above). */
+  maxTrophies: ACHIEVEMENTS.reduce((sum, def) => sum + def.thresholds.length, 0),
 });
+
+/** ===== Email links (issue #173) =====
+ *
+ * An email that mentions a specific thing links to it. The link is an
+ * optional `target` on the email record: { tab, itemId }, where `tab`
+ * is one of EMAIL_LINK_TABS (the client's nav tab ids) and `itemId`
+ * names the card on that tab (an employee type, an open-source
+ * project id, a freelance project key, an achievement id). The Farm
+ * has no per-item cards, so its links take itemId null and land on
+ * the tab's top panel. Achievement emails also carry
+ * `trophies` ([{ id, tier }]), one link per trophy (see
+ * achievementEmailEntries).
+ *
+ * Both fields are optional: old emails have neither and render no
+ * link. A missing or malformed target reads as "no link" on the
+ * client (sanitizeEmailTarget) and fails the server's save shape
+ * check (emailTargetError), so a bad one is never stored.
+ */
+export const EMAIL_LINK_TABS = Object.freeze([
+  "shop",
+  "projects",
+  "openSource",
+  "farm",
+  "achievements",
+]);
+
+/** The ids a target's itemId may name on each tab (null: tab only). */
+function emailTargetItemIds(tab) {
+  switch (tab) {
+    case "shop":
+      return EMPLOYEE_TYPES;
+    case "projects":
+      return FREELANCE_PROJECT_KEYS;
+    case "openSource":
+      return OPEN_SOURCE_IDS;
+    case "achievements":
+      return ACHIEVEMENTS.map((def) => def.id);
+    default:
+      return [];
+  }
+}
+
+/**
+ * Why a value is not a valid email target, or null when it is. A
+ * target is { tab, itemId } (exactly those keys): tab one of
+ * EMAIL_LINK_TABS, itemId a known id on that tab (null on the Farm,
+ * which has no per-item cards). Undefined or null (no target) is
+ * valid: the field is optional.
+ */
+export function emailTargetError(target) {
+  if (target === undefined || target === null) return null;
+  if (typeof target !== "object" || Array.isArray(target)) {
+    return "emails target must be an object";
+  }
+  const keys = Object.keys(target);
+  if (
+    keys.length !== 2 ||
+    !keys.includes("tab") ||
+    !keys.includes("itemId")
+  ) {
+    return "emails target must have exactly tab and itemId";
+  }
+  if (!EMAIL_LINK_TABS.includes(target.tab)) {
+    return "emails target tab is not a linkable tab";
+  }
+  // A tab with cards links to one of them; the Farm (no per-item
+  // cards) links to the tab itself, itemId null.
+  const itemIds = emailTargetItemIds(target.tab);
+  if (itemIds.length === 0) {
+    return target.itemId === null
+      ? null
+      : "emails target itemId must be null on that tab";
+  }
+  if (
+    typeof target.itemId !== "string" ||
+    target.itemId.length < 1 ||
+    target.itemId.length > EMAIL_CONFIG.maxTargetItemIdLength ||
+    !itemIds.includes(target.itemId)
+  ) {
+    return "emails target itemId is not an item on that tab";
+  }
+  return null;
+}
+
+/** A clean copy of a valid target, or null (missing or malformed). */
+export function sanitizeEmailTarget(target) {
+  if (target === undefined || target === null) return null;
+  if (emailTargetError(target) !== null) return null;
+  return { tab: target.tab, itemId: target.itemId };
+}
+
+/** A target for `tab` (and `itemId`, default none), or null if invalid. */
+export function emailTarget(tab, itemId = null) {
+  return sanitizeEmailTarget({ tab, itemId: itemId ?? null });
+}
+
+/**
+ * Builder helper: the mail content with `target` attached when there
+ * is one. A builder called without a valid item id (an old call site,
+ * a test) builds no link at all, never a broken one.
+ */
+function withEmailTarget(target, content) {
+  return target ? { ...content, target } : content;
+}
+
+/** ===== Save wipe explanation mail (issue #172) =====
+ *
+ * When the server wipes a save that predates the current schema
+ * (lockSaveRow in server/src/store.js), the fresh state's inbox holds
+ * one mail saying why. A brand-new player (a mint) was never reset and
+ * never gets it. Keyed by schema version: a future deliberate wipe adds
+ * its own entry here; a version without one wipes silently.
+ */
+const SAVE_WIPE_EMAILS = Object.freeze({
+  2: Object.freeze({
+    sender: "GitNub",
+    subject: "Your company was reset (so was everyone's)",
+    body:
+      `Git Rich Quick just shipped its biggest rebalance yet: Funding ` +
+      `Rounds. Equity, the Open Source tracks and the permanent store ` +
+      `all work differently now, and the old numbers could not survive ` +
+      `the move.\n\n` +
+      `So every company was reset, and you are starting fresh. This is ` +
+      `not a bug, and nothing you did caused it. It was not just you, ` +
+      `either: every single player was reset at the same time. Your LOC, ` +
+      `your Equity and your trophies are gone, and so are everyone ` +
+      `else's. The playing field has never been flatter.\n\n` +
+      `What changed: Equity now grows with the cube root of lifetime ` +
+      `LOC, the Open Source tracks multiply 1.4x per level, and the ` +
+      `higher versions open as you raise Funding Rounds (Seed, Series A, ` +
+      `Series B, Series C, IPO) in the permanent store after a sale.\n\n` +
+      `Think of it as a pivot. Investors love a pivot. Start typing.`,
+  }),
+});
+
+/** The fixed trigger key of a schema version's wipe mail. */
+export function saveWipeEmailTriggerKey(schemaVersion) {
+  return `save-wipe:v${schemaVersion}`;
+}
+
+/** The wipe mail content for a schema version, or null (wipe silently). */
+export function buildSaveWipeEmail(schemaVersion) {
+  const mail = SAVE_WIPE_EMAILS[schemaVersion];
+  return mail ? { ...mail } : null;
+}
+
+/**
+ * The fresh state a wiped save is replaced with: initialSaveState(),
+ * plus the version's explanation mail (unread) when it has one.
+ * `emailId` is the new mail's UUID (the server's randomUUID), `nowMs`
+ * its arrival time. Only the wipe path calls this; a mint uses
+ * initialSaveState() directly, so a new player's inbox stays empty.
+ */
+export function wipedSaveState(schemaVersion, { emailId, nowMs }) {
+  const state = initialSaveState();
+  const mail = buildSaveWipeEmail(schemaVersion);
+  if (mail && typeof emailId === "string" && emailId.length > 0) {
+    const createdAtMs = Math.max(0, Math.floor(Number(nowMs) || 0));
+    state.emails = [
+      {
+        id: emailId,
+        triggerKey: saveWipeEmailTriggerKey(schemaVersion),
+        ...mail,
+        createdAtMs,
+        read: false,
+      },
+    ];
+  }
+  return state;
+}
+
+/** Whether one { id, tier } names a real tier of a real achievement. */
+function isEmailTrophy(entry) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    return false;
+  }
+  const def = findAchievement(entry.id);
+  return (
+    def !== null &&
+    Number.isInteger(entry.tier) &&
+    entry.tier >= 1 &&
+    entry.tier <= def.thresholds.length
+  );
+}
+
+/**
+ * Why a value is not a valid achievement-email trophy list, or null
+ * when it is (undefined: no list, valid). A list is a non-empty array
+ * of up to EMAIL_CONFIG.maxTrophies { id, tier } entries (exactly
+ * those keys), each a real tier of a real achievement.
+ */
+export function emailTrophiesError(trophies) {
+  if (trophies === undefined) return null;
+  if (!Array.isArray(trophies) || trophies.length < 1) {
+    return "emails trophies must be a non-empty array";
+  }
+  if (trophies.length > EMAIL_CONFIG.maxTrophies) {
+    return "emails trophies exceeds the trophy cap";
+  }
+  for (const entry of trophies) {
+    if (
+      !isEmailTrophy(entry) ||
+      Object.keys(entry).length !== 2
+    ) {
+      return "emails trophies entries must be { id, tier } of a real achievement tier";
+    }
+  }
+  return null;
+}
+
+/**
+ * The valid { id, tier } entries of a trophy list, copied, capped at
+ * EMAIL_CONFIG.maxTrophies; null when none are valid (or it is not
+ * an array). Extra keys on an entry are dropped.
+ */
+export function sanitizeEmailTrophies(trophies) {
+  if (!Array.isArray(trophies)) return null;
+  const clean = trophies
+    .filter(isEmailTrophy)
+    .slice(0, EMAIL_CONFIG.maxTrophies)
+    .map(({ id, tier }) => ({ id, tier }));
+  return clean.length > 0 ? clean : null;
+}
 
 /**
  * Total duration (seconds) of a timed star buff, from its effect and
@@ -5877,8 +6184,8 @@ export function starRewardDetail(claim, employeeTypeName) {
  * goal. `requirementText` is the human-readable unlock requirement
  * (e.g. "Earn 100 total lines of code"), supplied by the caller.
  */
-export function buildEmployeeVisibleEmail({ employeeName, requirementText }) {
-  return {
+export function buildEmployeeVisibleEmail({ employeeName, requirementText, employeeType = null }) {
+  return withEmailTarget(emailTarget("shop", employeeType), {
     sender: "HR Dept",
     subject: `We found a ${employeeName}!`,
     body:
@@ -5886,24 +6193,24 @@ export function buildEmployeeVisibleEmail({ employeeName, requirementText }) {
       `yet. They want to see a bigger operation first.\n\n` +
       `To win them over: ${requirementText}.\n\n` +
       `Keep shipping. They'll be watching your commit history.`,
-  };
+  });
 }
 
 /** An employee's unlock requirement is met — they are hireable now. */
-export function buildEmployeeUnlockedEmail({ employeeName }) {
-  return {
+export function buildEmployeeUnlockedEmail({ employeeName, employeeType = null }) {
+  return withEmailTarget(emailTarget("shop", employeeType), {
     sender: "HR Dept",
     subject: `${employeeName} is available to hire!`,
     body:
       `Good news: the ${employeeName} looked at your commit history and ` +
       `decided you're worth working for.\n\n` +
       `They're on the market now. Hire them before some other startup does.`,
-  };
+  });
 }
 
 /** A freelance project became VISIBLE but is not unlocked yet — a teaser and a goal. */
-export function buildFreelanceProjectVisibleEmail({ projectName, requirementText }) {
-  return {
+export function buildFreelanceProjectVisibleEmail({ projectName, requirementText, projectKey = null }) {
+  return withEmailTarget(emailTarget("projects", projectKey), {
     sender: "Freelance Board",
     subject: `${projectName} is on the board!`,
     body:
@@ -5911,12 +6218,12 @@ export function buildFreelanceProjectVisibleEmail({ projectName, requirementText
       `newcomers. They want to see a track record first.\n\n` +
       `To land it: ${requirementText}.\n\n` +
       `Ship more gigs and they'll come around. They always do.`,
-  };
+  });
 }
 
 /** A freelance project's unlock requirement is met — it can be shipped now. */
-export function buildFreelanceProjectUnlockedEmail({ projectName }) {
-  return {
+export function buildFreelanceProjectUnlockedEmail({ projectName, projectKey = null }) {
+  return withEmailTarget(emailTarget("projects", projectKey), {
     sender: "Freelance Board",
     subject: `${projectName} is available to ship!`,
     body:
@@ -5924,12 +6231,12 @@ export function buildFreelanceProjectUnlockedEmail({ projectName }) {
       `is yours now.\n\n` +
       `It's a bigger job with a bigger payout. Ship it before someone ` +
       `else does.`,
-  };
+  });
 }
 
 /** An open-source project became VISIBLE but is not unlocked yet — a teaser and a goal. */
-export function buildOpenSourceVisibleEmail({ projectName, requirementText }) {
-  return {
+export function buildOpenSourceVisibleEmail({ projectName, requirementText, projectId = null }) {
+  return withEmailTarget(emailTarget("openSource", projectId), {
     sender: "GitNub",
     subject: `${projectName} is on the horizon!`,
     body:
@@ -5937,12 +6244,12 @@ export function buildOpenSourceVisibleEmail({ projectName, requirementText }) {
       `maintainers are watching for one thing:\n\n` +
       `${requirementText}.\n\n` +
       `Get there and the repo is yours to spam with pull requests.`,
-  };
+  });
 }
 
 /** An open-source project's unlock requirement is met. */
-export function buildOpenSourceUnlockedEmail({ projectName }) {
-  return {
+export function buildOpenSourceUnlockedEmail({ projectName, projectId = null }) {
+  return withEmailTarget(emailTarget("openSource", projectId), {
     sender: "GitNub",
     subject: `${projectName} is open for contributions!`,
     body:
@@ -5950,12 +6257,12 @@ export function buildOpenSourceUnlockedEmail({ projectName }) {
       `been waiting. Mostly patiently.\n\n` +
       `Ship some code their way and they'll owe you one. Or at least a ` +
       `shoutout in the changelog.`,
-  };
+  });
 }
 
 /** An open-source project reached a new level. */
-export function buildOpenSourceLevelEmail({ projectName, level }) {
-  return {
+export function buildOpenSourceLevelEmail({ projectName, level, projectId = null }) {
+  return withEmailTarget(emailTarget("openSource", projectId), {
     sender: "GitNub",
     subject: `${projectName} reached v${level}.0!`,
     body:
@@ -5963,7 +6270,7 @@ export function buildOpenSourceLevelEmail({ projectName, level }) {
       `changelog just says "various bug fixes and performance ` +
       `improvements", but you know what you did.\n\n` +
       `Keep contributing. The next version has your name on it. Figuratively.`,
-  };
+  });
 }
 
 /**
@@ -6007,7 +6314,7 @@ export function buildShootingStarsChainEmail({ stars, totalLoc, reason }) {
 
 /** The llama farm was bought — the barn opens empty. */
 export function buildFarmPurchasedEmail() {
-  return {
+  return withEmailTarget(emailTarget("farm"), {
     sender: "Your Team",
     subject: "We bought a llama farm??",
     body:
@@ -6021,7 +6328,7 @@ export function buildFarmPurchasedEmail() {
       `breed. Sell the kids for cash: a llama goes for half of what ` +
       `it would cost you today, and that price grows with your ` +
       `team. Get a Mama Llama. Trust us on the Mama Llama.`,
-  };
+  });
 }
 
 /**
@@ -6030,7 +6337,7 @@ export function buildFarmPurchasedEmail() {
  * human-readable requirement, e.g. "Hire 10 Senior Developers".
  */
 export function buildFarmVisibleEmail({ requirementText }) {
-  return {
+  return withEmailTarget(emailTarget("farm"), {
     sender: "Your Team",
     subject: "A Senior wants to talk about alpacas",
     body:
@@ -6040,12 +6347,12 @@ export function buildFarmVisibleEmail({ requirementText }) {
       `To unlock the Llama Farm: ${requirementText}. Get enough of ` +
       `them dreaming the same dream and they will build it for you. ` +
       `You still pay for the barn. They are dreamers, not donors.`,
-  };
+  });
 }
 
 /** The farm's unlock requirement is met: the barn can be bought now. */
 export function buildFarmUnlockedEmail() {
-  return {
+  return withEmailTarget(emailTarget("farm"), {
     sender: "Your Team",
     subject: "The Seniors have drawn up barn plans",
     body:
@@ -6053,12 +6360,12 @@ export function buildFarmUnlockedEmail() {
       `pretending to code and started sketching stalls on the ` +
       `whiteboard. The Llama Farm is unlocked: open the Farm tab and ` +
       `buy the barn before they put the deposit on the company card.`,
-  };
+  });
 }
 
 /** A brand-new llama type was discovered by breeding. */
 export function buildFarmNewTypeEmail({ typeName, typeDescription }) {
-  return {
+  return withEmailTarget(emailTarget("farm"), {
     sender: "Your Team",
     subject: `A ${typeName} was born!`,
     body:
@@ -6067,5 +6374,5 @@ export function buildFarmNewTypeEmail({ typeName, typeDescription }) {
       `${typeDescription}\n\n` +
       `Keep breeding. There are more types out there, and the barn ` +
       `only gets weirder from here.`,
-  };
+  });
 }
