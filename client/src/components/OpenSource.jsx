@@ -4,6 +4,7 @@ import { isOpenSourceProjectUnlocked } from "../context/gameLogic";
 import {
   fundingRoundName,
   fundingRoundRankForLevel,
+  openSourceNextLevelCost,
   openSourceNextLevelNeedsRound,
 } from "../../../shared/game-balance.js";
 import {
@@ -15,9 +16,13 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { OpenSourceCard } from "./OpenSourceCard.jsx";
 import { LockedOpenSourceCard } from "./LockedOpenSourceCard.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
+import { SortControl } from "./SortControl.jsx";
+import { useSortMode } from "../hooks/useSortMode.js";
 
 export function OpenSource() {
   const { state, dispatch } = useGameContext();
+  // Sort mode (issue #180): Default or Cheapest, a device preference.
+  const [sortMode] = useSortMode("openSource");
 
   const handleContribute = (projectId) => {
     dispatch({ type: "CONTRIBUTE_TO_PROJECT", payload: { projectId } });
@@ -35,10 +40,12 @@ export function OpenSource() {
   };
 
   // Maxed-out projects sink to the bottom; projects that still have
-  // levels to buy stay higher (stable within each group).
+  // levels to buy stay higher (stable within each group). Cheapest
+  // mode orders the buyable list by next-level cost instead.
   const sortedIds = sortOpenSourceProjectIds(
     Object.keys(OPEN_SOURCE_PROJECTS_CONFIG),
-    state
+    state,
+    sortMode
   );
 
   // Build the visible cards first, then split them: projects that still
@@ -73,7 +80,7 @@ export function OpenSource() {
                 project={config}
                 progress={progress}
                 nextBonus={config.levels[0]?.bonus}
-                locCost={config.levels[0]?.locCost}
+                locCost={openSourceNextLevelCost(id, 0)}
               />
             </HighlightAnchor>
           ),
@@ -86,7 +93,9 @@ export function OpenSource() {
         currentLevel > 0 ? config.levels[currentLevel - 1].bonus : null;
       const nextLevelConfig = !isMaxed ? config.levels[currentLevel] : null;
       const nextBonus = nextLevelConfig?.bonus;
-      const locCost = nextLevelConfig?.locCost;
+      // The shared next-level cost (issue #180): what this card shows,
+      // what contributing charges, and what Cheapest sorts by.
+      const locCost = openSourceNextLevelCost(id, currentLevel) ?? undefined;
       // Funding Rounds (issue #170): the next level may exist but sit
       // above the owned round's cap; the card shows the round it needs.
       const needsRound =
@@ -133,6 +142,7 @@ export function OpenSource() {
 
   return (
     <SectionLayout sectionId="openSource">
+      <SortControl tab="openSource" />
       {activeCards.map((card) => card.element)}
       {maxedCards.length > 0 && (
         <>

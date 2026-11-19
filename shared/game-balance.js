@@ -3911,6 +3911,21 @@ export function employeePurchaseCosts(employeeType, fromCount, n) {
   return costs;
 }
 
+/**
+ * LOC cost of a project's NEXT level when it sits at `level` (issue
+ * #180): level 0 (a locked or unstarted project) is level 1's cost.
+ * The number the card shows, the contribute action charges and the
+ * Cheapest sort orders by. Null when the track has no next level
+ * (maxed, or a level past what this client defines) or the id is
+ * unknown.
+ */
+export function openSourceNextLevelCost(projectId, level) {
+  const levels = BALANCE.openSource[projectId]?.levels;
+  if (!levels) return null;
+  const index = Number.isInteger(level) && level > 0 ? level : 0;
+  return levels[index]?.locCost ?? null;
+}
+
 /** Total LOC cost of raising a project from `fromLevel` to `toLevel`. */
 export function openSourceLevelCosts(projectId, fromLevel, toLevel) {
   const config = BALANCE.openSource[projectId];

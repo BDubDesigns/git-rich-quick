@@ -125,8 +125,9 @@ export const SECTIONS_CONFIG = Object.freeze({
   openSource: {
     id: "openSource",
     displayName: "GitNub Contributions",
+    // Issue #180: explains the tab's mechanics, not just the verb.
     description:
-      "Contribute your LOC to open-source projects to unlock permanent bonuses.",
+      "Give your LOC away to open source and the internet pays you back in bonuses that last as long as this company does. Every level costs LOC, and selling the company resets them all. Each track does a different job: some make one kind of employee wildly more productive, some turn your clicking finger into a weapon, and Constellation is where the golden stars come from, with StarBroker, Moonshot and the rest hanging off it. The higher levels of the big tracks wait behind Funding Rounds, which you buy with Equity after a sale. Star a project to favorite it and pin it to the top of the Default order, or sort by Cheapest to see what you can afford next. Finished tracks retire under Maxed Out at the bottom, like their maintainers.",
   },
   farm: {
     id: "farm",
