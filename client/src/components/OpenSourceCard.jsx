@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { ActionButton } from "./ActionButton.jsx";
+import { Button } from "./Button.jsx";
 // Number abbreviation (issue #42) — the shared formatter.
 import { formatNumber } from "../../../shared/formatNumber.js";
 import {
@@ -7,6 +9,9 @@ import {
   STAR_CONFIG,
   formatCooldownSeconds,
   isDoublingProject,
+  launchPadCooldownSeconds,
+  launchPadLevelUpFloatText,
+  moonshotOddsText,
   starBrokerCooldownSeconds,
   starBrokerLevelUpFloatText,
   starSpawnIntervalSeconds,
@@ -74,6 +79,21 @@ export function OpenSourceCard({
 }) {
   const isConstellation = projectId === "constellation";
   const isStarBroker = projectId === "starBroker";
+  // Moonshot (issue #165): the opt-in asks for confirmation before
+  // the buy (red stars are a gamble and last until the sale). Launch
+  // Pad shows its cooldown like StarBroker.
+  const isMoonshot = projectId === "moonshot";
+  const isLaunchPad = projectId === "launchPad";
+  const needsConfirm = isMoonshot && currentLevel === 0 && !isMaxed;
+  const [confirming, setConfirming] = useState(false);
+  const launchPadCooldown =
+    isLaunchPad && currentLevel > 0
+      ? formatCooldownSeconds(launchPadCooldownSeconds(currentLevel))
+      : null;
+  const launchPadNextCooldown =
+    isLaunchPad && !isMaxed
+      ? formatCooldownSeconds(launchPadCooldownSeconds(currentLevel + 1))
+      : null;
   // Doubling upgrades (issue #118): the bonus is a multiplier, not
   // an additive amount, so the card shows the output multiplier
   // instead of "+2 DOUBLE". The multiplier at level L is 2^L.
@@ -97,9 +117,11 @@ export function OpenSourceCard({
   // unlock, not a numeric bonus (there is none); for StarBroker it
   // names the new cooldown, not "+0 STAR" (also no numeric bonus);
   // for a doubling upgrade it names the new multiplier.
-  const floatText = isMaxed
+  const floatText = isMaxed || needsConfirm
     ? ""
-    : isConstellation
+    : isLaunchPad
+      ? launchPadLevelUpFloatText(currentLevel + 1)
+      : isConstellation
       ? starNext.newEffectName
         ? `${starNext.newEffectName}!`
         : starNext.fasterSpawns
@@ -110,6 +132,14 @@ export function OpenSourceCard({
         : isDoubling
           ? `x${doublingNextMultiplier}!`
           : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
+
+  const handleContributeClick = () => {
+    if (needsConfirm) {
+      setConfirming(true);
+      return;
+    }
+    onContribute();
+  };
 
   return (
     <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
@@ -139,6 +169,20 @@ export function OpenSourceCard({
                     ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
                     : "No stars yet. Chart the first one"
                 }
+                valueClassName="text-green-400"
+              />
+            ) : isMoonshot && currentLevel > 0 ? (
+              <JsDocLine
+                tag="@returns"
+                type="STAR"
+                value={moonshotOddsText()}
+                valueClassName="text-red-400"
+              />
+            ) : isLaunchPad && currentLevel > 0 ? (
+              <JsDocLine
+                tag="@returns"
+                type="STAR"
+                value={`Cooldown ${launchPadCooldown} between bought stars (shared with StarBroker)`}
                 valueClassName="text-green-400"
               />
             ) : isStarBroker && currentLevel > 0 ? (
@@ -183,6 +227,20 @@ export function OpenSourceCard({
                   value={`Cooldown ${starBrokerNextCooldown} between bought stars`}
                   valueClassName="text-green-400"
                 />
+              ) : isMoonshot ? (
+                <JsDocLine
+                  tag="@returns"
+                  type="Bonus"
+                  value={moonshotOddsText()}
+                  valueClassName="text-red-400"
+                />
+              ) : isLaunchPad ? (
+                <JsDocLine
+                  tag="@returns"
+                  type="Bonus"
+                  value={`Cooldown ${launchPadNextCooldown} between bought stars (shared with StarBroker)`}
+                  valueClassName="text-green-400"
+                />
               ) : isDoubling ? (
                 <JsDocLine
                   tag="@returns"
@@ -212,8 +270,8 @@ export function OpenSourceCard({
 
           {/* Contribute/Maxed Button */}
           <ActionButton
-            onClick={onContribute}
-            disabled={!canContribute || isMaxed}
+            onClick={handleContributeClick}
+            disabled={!canContribute || isMaxed || confirming}
             floatText={floatText}
             icon={<project.icon size={20} />}
             fullWidth={false}
@@ -249,6 +307,33 @@ export function OpenSourceCard({
           )}
         </div>
       </div>
+      {/* Moonshot confirmation (issue #165): opting in to red stars
+          is a gamble that lasts until the sale, so the buy takes a
+          second, explicit tap. Cancel backs out with nothing spent. */}
+      {needsConfirm && confirming && (
+        <div className="flex flex-col gap-2 pb-2" role="alertdialog" aria-label="Confirm Moonshot">
+          <p className="m-0 text-xs text-[#f48771]">
+            Red stars are a gamble. 1 in 4 stars will be red, and most of
+            them crash. This lasts until you sell the company.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              className="game-button--danger"
+              disabled={!canContribute}
+              onClick={() => {
+                setConfirming(false);
+                onContribute();
+              }}
+            >
+              Launch anyway
+            </Button>
+            <Button type="button" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }

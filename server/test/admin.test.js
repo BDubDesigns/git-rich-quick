@@ -96,6 +96,8 @@ function seededState() {
     blocker: 0,
     constellation: 2,
     starBroker: 0,
+    moonshot: 0,
+    launchPad: 0,
     coffeeScript: 0,
     juniorAchievement: 0,
     seniorMoment: 0,

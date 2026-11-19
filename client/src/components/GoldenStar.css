@@ -291,3 +291,54 @@
   background: rgba(34, 211, 238, 0.3);
   color: #67e8f9;
 }
+
+/* Moonshot (issue #165): the red gamble star. Same shape, lifetime and
+   fade as the golden star; a red glow so gold means reward and red
+   means gamble at a glance. */
+.golden-star.red-star {
+  animation: red-star-glow 1.5s ease-in-out infinite;
+}
+
+.golden-star.red-star.fading {
+  animation:
+    red-star-glow 1.5s ease-in-out infinite,
+    star-fade-out 5s ease-in forwards;
+}
+
+@keyframes red-star-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(255, 59, 59, 0.55));
+  }
+  50% {
+    filter: drop-shadow(0 0 22px rgba(255, 59, 59, 1));
+  }
+}
+
+/* To the Moon buff bar: red into gold, so the jackpot reads apart from
+   a plain Overclock. */
+.star-effect-bar-fill--moonshot {
+  background: linear-gradient(90deg, #b91c1c, #ff3b3b, #ffd700);
+}
+
+/* Launch a Moonshot button: the red twin of Buy a Star. */
+.star-buy-button--red {
+  background: linear-gradient(90deg, #991b1b, #ff3b3b);
+  color: #fff;
+}
+
+.star-buy-button--red:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Both buy buttons owned (StarBroker and Launch Pad): let the bar grow
+   and wrap so the second button and its odds never clip at phone width. */
+.star-buy-bar--dual {
+  height: auto;
+  min-height: 16px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}

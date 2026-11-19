@@ -100,6 +100,10 @@ test("shared math matches the client formulas", () => {
     // StarBroker requires TOTAL_LOC >= 5000, so a fresh player starts
     // locked; it becomes visible at 500 LOC.
     starBroker: false,
+    // Moonshot (issue #165) needs Constellation L1 and 25 gold stars;
+    // Launch Pad needs Moonshot. A fresh player starts locked on both.
+    moonshot: false,
+    launchPad: false,
     // The doubling upgrades (issue #118) each require 10 of their
     // employee type, so a fresh player starts locked on all six.
     coffeeScript: false,

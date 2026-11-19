@@ -5,6 +5,8 @@ import {
   EMPLOYEE_DISPLAY_NAMES,
   formatCooldownSeconds,
   isDoublingProject,
+  launchPadCooldownSeconds,
+  moonshotOddsText,
   starBrokerCooldownSeconds,
 } from "../../../shared/game-balance.js";
 import { Button } from "./Button.jsx";
@@ -52,7 +54,11 @@ export function LockedOpenSourceCard({
               value={
                 isStarBroker
                   ? `Cooldown ${formatCooldownSeconds(starBrokerCooldownSeconds(1))} between bought stars`
-                  : isDoubling
+                  : projectId === "moonshot"
+                    ? moonshotOddsText()
+                    : projectId === "launchPad"
+                      ? `Buy red stars, cooldown ${formatCooldownSeconds(launchPadCooldownSeconds(1))} (shared with StarBroker)`
+                      : isDoubling
                     ? `${doublingEmployeeName} output x2`
                     : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`
               }

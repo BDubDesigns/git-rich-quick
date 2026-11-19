@@ -42,6 +42,7 @@ import { FaAtom } from "react-icons/fa"; // quantum to-do list
 import { FaCircleRadiation } from "react-icons/fa6"; // overReact framework
 import { FaFishFins } from "react-icons/fa6"; // blocker containerization platform
 import { FaStar } from "react-icons/fa"; // gitnub constellation (golden star)
+import { FaMoon } from "react-icons/fa"; // moonshot (red gamble star, issue #165)
 import {
   FaCoffee,
   FaMedal,
@@ -369,6 +370,26 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     color: "gold",
     description:
       "Why wait for the sky to provide when you can just buy a star? Sacrifice 30 seconds of passive LOC and a golden star falls on demand. Stack it with a natural one for a two-star combo. Each level halves the wait before you can buy another. Fair warning: nobody trusts your commits for a bit after finding out you buy stars.",
+  },
+  // Moonshot (issue #165): the opt-in for red gamble stars, and the
+  // Launch Pad that buys them. Numbers come from shared.
+  moonshot: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.moonshot,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.moonshot,
+    icon: FaMoon,
+    color: "#ff4d4d",
+    description:
+      "Gold stars are for people who like nice things. Opt in and 1 in 4 stars falls red. Red stars are a gamble: 1 in 3 goes To the Moon, the other 2 in 3 crash. You earned this bad decision by clicking 25 gold stars. It lasts until you sell the company.",
+  },
+  launchPad: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.launchPad,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.launchPad,
+    icon: FaRocket,
+    color: "#ff4d4d",
+    description:
+      "Why wait for the sky to gamble for you? Burn 30 seconds of passive LOC and launch a red star on demand. It shares the StarBroker timer, so every cooldown you choose: the safe gold star or the moonshot. Each level halves the wait.",
   },
   // Doubling upgrades (issue #118): one leveled project per employee
   // type, 10 levels each. Every level doubles that type's output.

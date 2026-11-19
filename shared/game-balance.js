@@ -102,6 +102,182 @@ export function starBrokerLevelUpFloatText(newLevel) {
 }
 
 /**
+ * Moonshot (issue #165): the red gamble star. Gold means reward, red
+ * means gamble (Golden Cookie vs Wrath Cookie). Golden stars are always
+ * good (STAR_CONFIG.goodChance 1.0); the bad outcomes live here.
+ *
+ * Two Open Source projects carry it:
+ * - Moonshot (opt-in, 1 level): unlocks at Constellation L1+ AND
+ *   `goldStarsToUnlock` gold stars clicked (lifetime, in
+ *   achievements.goldStarsClicked). Buying it asks for confirmation.
+ *   Once owned, each natural star spawn is red with `redStarChance`.
+ * - Launch Pad (buy a red star, 5 levels): unlocks when Moonshot is
+ *   owned; StarBroker is NOT required. A red star costs
+ *   `buyCostLocPerSecondMultiplier` x passive LOC/s (the same 30x as a
+ *   gold star) with the StarBroker cooldown ladder per level.
+ *
+ * StarBroker and Launch Pad share ONE buy timer (lastStarBuyAtMs): a
+ * player can own both, but buys one or the other per cooldown.
+ *
+ * Every red star rolls `jackpotChance` To the Moon (all passive
+ * production x`jackpotMultiplier` for `jackpotDurationSeconds`, its
+ * own timed effect, so it stacks with a live Overclock), otherwise a
+ * crash: one unlocked bad effect at its existing softened values and
+ * weights (Shooting Stars has no bad version and is gold-only).
+ *
+ * Expected value in seconds of passive LOC/s: a bought red star nets
+ * about +83s (1/3 x 360 - 2/3 x 10 - 30) vs about +70s for a bought
+ * gold star: a similar average with much more variance.
+ */
+export const MOONSHOT_CONFIG = Object.freeze({
+  /** Gold stars a player must have clicked (lifetime) to unlock Moonshot. */
+  goldStarsToUnlock: 25,
+  /** Constellation level Moonshot needs (you need good stars first). */
+  constellationLevelToUnlock: 1,
+  /** Chance a natural star spawns red once Moonshot is owned. */
+  redStarChance: 0.25,
+  /** Chance a clicked red star is To the Moon (vs a crash). */
+  jackpotChance: 1 / 3,
+  /** To the Moon: all passive production multiplier. */
+  jackpotMultiplier: 25,
+  /** To the Moon duration, in seconds. Shorter than the shortest buy cooldown. */
+  jackpotDurationSeconds: 15,
+  /** Display name of the jackpot (locked by Brandon). */
+  jackpotName: "To the Moon",
+  /** A bought red star costs this many seconds of passive LOC/s. */
+  buyCostLocPerSecondMultiplier: 30,
+  /** Launch Pad cooldown per level (index level-1): the StarBroker ladder. */
+  launchPadCooldownSeconds: Object.freeze([480, 240, 120, 60, 30]),
+});
+
+/** Cooldown (seconds) before another star can be bought, at a Launch Pad level; null at level 0. */
+export function launchPadCooldownSeconds(launchPadLevel) {
+  const level = Math.floor(Number(launchPadLevel) || 0);
+  if (level < 1) return null;
+  const ladder = MOONSHOT_CONFIG.launchPadCooldownSeconds;
+  return ladder[Math.min(level, ladder.length) - 1];
+}
+
+/** LOC cost of buying one red star, from the player's passive LOC/s. */
+export function launchPadBuyCost(locPerSecondValue) {
+  const rate = Number(locPerSecondValue);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return Math.floor(MOONSHOT_CONFIG.buyCostLocPerSecondMultiplier * rate);
+}
+
+/** Floating text for buying a Launch Pad level: the new cooldown. */
+export function launchPadLevelUpFloatText(newLevel) {
+  return `Cooldown ${formatCooldownSeconds(launchPadCooldownSeconds(newLevel))}!`;
+}
+
+/**
+ * Seconds left on the shared star buy timer (StarBroker and Launch Pad
+ * share lastStarBuyAtMs), for a button whose cooldown is
+ * `cooldownSeconds`. 0 when ready: never bought (null), no cooldown
+ * (null, the project is unowned), or the cooldown has passed. Each
+ * button counts its OWN cooldown from the last buy of EITHER color,
+ * so any buy locks both. NaN-safe: a non-finite reading is ready.
+ */
+export function starBuyCooldownRemainingSeconds(
+  cooldownSeconds,
+  lastStarBuyAtMs,
+  nowMs
+) {
+  if (
+    cooldownSeconds === null ||
+    lastStarBuyAtMs === null ||
+    lastStarBuyAtMs === undefined ||
+    !Number.isFinite(Number(cooldownSeconds)) ||
+    !Number.isFinite(Number(lastStarBuyAtMs)) ||
+    !Number.isFinite(Number(nowMs))
+  ) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.ceil(Number(cooldownSeconds) - (Number(nowMs) - Number(lastStarBuyAtMs)) / 1000)
+  );
+}
+
+/**
+ * Roll whether a natural star spawns red. Only after the player owns
+ * Moonshot (level 1); before that every star is gold. Rolled at SPAWN
+ * time (the color is visible), the outcome is rolled at click.
+ */
+export function rollStarIsRed(moonshotLevel, rng = Math.random) {
+  if (!(Math.floor(Number(moonshotLevel) || 0) >= 1)) return false;
+  return rng() < MOONSHOT_CONFIG.redStarChance;
+}
+
+/** The Moonshot odds as card copy: "1 in 4 stars fall red · 1 in 3 red stars go To the Moon". */
+export function moonshotOddsText() {
+  const red = Math.round(1 / MOONSHOT_CONFIG.redStarChance);
+  const moon = Math.round(1 / MOONSHOT_CONFIG.jackpotChance);
+  return `1 in ${red} stars fall red · 1 in ${moon} red stars go ${MOONSHOT_CONFIG.jackpotName}`;
+}
+
+/** The bad effects a red star can crash into at a Constellation level (no Shooting Stars). */
+export function moonshotCrashEffects(constellationLevel) {
+  return unlockedStarEffects(constellationLevel).filter(
+    (id) => id !== "shootingStars"
+  );
+}
+
+/**
+ * Resolve a clicked red star into a claim (the same claim shape as a
+ * golden star, plus `red: true`). 1 in 3 is To the Moon (effect
+ * "moonshot", a timed x25 production buff for 15s); otherwise a crash:
+ * a weighted pick from the unlocked bad effects, resolved with the
+ * existing softened bad values. Pure; `rng` is injectable.
+ */
+export function resolveMoonshotClaim({
+  constellationLevel,
+  locPerSecond,
+  money,
+  linesOfCode,
+  employeeCounts,
+  rng = Math.random,
+}) {
+  if (rng() < MOONSHOT_CONFIG.jackpotChance) {
+    return {
+      effect: "moonshot",
+      good: true,
+      locDelta: 0,
+      moneyDelta: 0,
+      multiplier: MOONSHOT_CONFIG.jackpotMultiplier,
+      durationSeconds: MOONSHOT_CONFIG.jackpotDurationSeconds,
+      employeeType: null,
+      red: true,
+    };
+  }
+  const pool = moonshotCrashEffects(constellationLevel);
+  const effects = pool.length > 0 ? pool : ["lucky"];
+  const totalWeight = effects.reduce(
+    (sum, id) => sum + STAR_CONFIG.effects[id].weight,
+    0
+  );
+  let roll = rng() * totalWeight;
+  let effect = effects[effects.length - 1];
+  for (const id of effects) {
+    roll -= STAR_CONFIG.effects[id].weight;
+    if (roll < 0) {
+      effect = id;
+      break;
+    }
+  }
+  const claim = resolveStarClaim({
+    effect,
+    good: false,
+    locPerSecond: Number.isFinite(Number(locPerSecond)) ? Number(locPerSecond) : 0,
+    money: Number.isFinite(Number(money)) ? Number(money) : 0,
+    linesOfCode: Number.isFinite(Number(linesOfCode)) ? Number(linesOfCode) : 0,
+    employeeCounts: employeeCounts ?? {},
+    rng,
+  });
+  return { ...claim, red: true };
+}
+
+/**
  * Doubling levels for one employee type (issue #118): every level
  * doubles that type's output. The bonus is { type: "DOUBLE", value: 2 }
  * at every level: a multiplier, not an additive bonus, so
@@ -578,6 +754,63 @@ export const BALANCE = Object.freeze({
         }),
       ]),
     }),
+    // Moonshot (issue #165): the opt-in for red gamble stars. One
+    // level. Unlocks at Constellation L1+ and 25 gold stars clicked
+    // (lifetime); buying it asks for confirmation. Once owned, 1 in 4
+    // natural stars spawns red (MOONSHOT_CONFIG). Resets on sale like
+    // every other upgrade. No numeric bonus (type STAR, value 0).
+    moonshot: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "OPEN_SOURCE_LEVEL",
+          projectId: "constellation",
+          target: 1,
+        }),
+        Object.freeze({ type: "GOLD_STARS_CLICKED", target: 25 }),
+      ]),
+      levels: Object.freeze([
+        Object.freeze({
+          locCost: 20000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+      ]),
+    }),
+    // Launch Pad (issue #165): buy a red star on demand. Unlocks when
+    // Moonshot is owned; StarBroker is not required. Level costs and
+    // cooldowns mirror StarBroker (MOONSHOT_CONFIG.launchPadCooldownSeconds),
+    // and it shares StarBroker's buy timer: one or the other per
+    // cooldown. No numeric bonus (type STAR, value 0).
+    launchPad: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "OPEN_SOURCE_LEVEL",
+          projectId: "moonshot",
+          target: 1,
+        }),
+      ]),
+      levels: Object.freeze([
+        Object.freeze({
+          locCost: 10000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 40000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 150000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 500000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 2000000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+      ]),
+    }),
     // Doubling upgrades (issue #118): one leveled GitNub project per
     // employee type, 10 levels each. Every level doubles that type's
     // output. Cost curve is 2x per level (Brandon, Nov 15): 10x makes
@@ -674,6 +907,8 @@ export const OPEN_SOURCE_IDS = Object.freeze([
   "blocker",
   "constellation",
   "starBroker",
+  "moonshot",
+  "launchPad",
   "coffeeScript",
   "juniorAchievement",
   "seniorMoment",
@@ -701,6 +936,20 @@ export const DOUBLING_PROJECT_EMPLOYEE = Object.freeze({
   commitmentIssues: "commitSpecialist",
   shipHappens: "releaseManager",
 });
+
+/**
+ * The Moonshot projects (issue #165), added after the doubling
+ * upgrades. normalizeSaveState / normalizeActions fill their missing
+ * keys with fresh defaults (level 0, latch derived from the save), the
+ * same way as the doubling projects. No backfill of any other field.
+ */
+export const MOONSHOT_PROJECT_IDS = Object.freeze(["moonshot", "launchPad"]);
+
+/** Open Source ids added after the original set, filled in when a save predates them. */
+const LATER_OPEN_SOURCE_IDS = Object.freeze([
+  ...DOUBLING_PROJECT_IDS,
+  ...MOONSHOT_PROJECT_IDS,
+]);
 
 /** Whether a project id is one of the six doubling upgrades. */
 export function isDoublingProject(projectId) {
@@ -1396,8 +1645,12 @@ export const STAR_CONFIG = Object.freeze({
    * The CSS fade-out duration in GoldenStar.css must match this.
    */
   starFadeSeconds: 5,
-  /** Chance a clicked star is a good outcome (vs bad). */
-  goodChance: 0.75,
+  /**
+   * Chance a clicked golden star is a good outcome (vs bad). 1.0 since
+   * Moonshot (issue #165): gold always means reward; the bad outcomes
+   * moved to the opt-in red star (MOONSHOT_CONFIG). Kept as a knob.
+   */
+  goodChance: 1,
   /**
    * Constellation level that unlocks the next-star countdown display.
    * The client only SHOWS that countdown once the player reaches
@@ -1806,6 +2059,7 @@ export function resolveStarClaim({
 
 /** The display name of a star outcome (the locked pun name). */
 export function starEffectName(effect, good) {
+  if (effect === "moonshot") return MOONSHOT_CONFIG.jackpotName;
   const names = STAR_CONFIG.effects[effect]?.names;
   if (!names) return "Golden Star";
   return good ? names.good : names.bad;
@@ -3426,6 +3680,16 @@ export function conditionMet(condition, state) {
         totalProjectsShipped(state.freelanceProjectsCompleted) >=
         condition.target
       );
+    // Moonshot (issue #165): an Open Source project's level (flat
+    // save-shaped levels), and the lifetime gold stars clicked. A
+    // missing level or counter reads 0.
+    case "OPEN_SOURCE_LEVEL":
+      return (
+        safeCount(state.openSourceProjects?.[condition.projectId]) >=
+        condition.target
+      );
+    case "GOLD_STARS_CLICKED":
+      return safeCount(state.achievements?.goldStarsClicked) >= condition.target;
     default:
       return false;
   }
@@ -3942,6 +4206,7 @@ export function zeroAchievementsState() {
     hires: zeroCountMap(EMPLOYEE_TYPES),
     clicks: 0,
     peakLocPerSecond: 0,
+    goldStarsClicked: 0,
     llamasBought: zeroCountMap(LLAMA_TYPES),
     llamasSold: zeroCountMap(LLAMA_TYPES),
   };
@@ -3953,6 +4218,7 @@ export const ACHIEVEMENTS_STATE_KEYS = Object.freeze([
   "hires",
   "clicks",
   "peakLocPerSecond",
+  "goldStarsClicked",
   "llamasBought",
   "llamasSold",
 ]);
@@ -3995,6 +4261,9 @@ export function normalizeAchievementsState(achievements) {
   fillMap("llamasSold", LLAMA_TYPES);
   if (next.clicks === undefined) next.clicks = 0;
   if (next.peakLocPerSecond === undefined) next.peakLocPerSecond = 0;
+  // Moonshot (issue #165): fresh default, no backfill. Nothing counted
+  // gold star clicks before, so every save starts at 0.
+  if (next.goldStarsClicked === undefined) next.goldStarsClicked = 0;
   return next;
 }
 
@@ -4029,6 +4298,7 @@ export function sanitizeAchievementsState(achievements) {
     hires: intMap(source.hires, EMPLOYEE_TYPES),
     clicks: Math.floor(safeCount(source.clicks)),
     peakLocPerSecond: safeCount(source.peakLocPerSecond),
+    goldStarsClicked: Math.floor(safeCount(source.goldStarsClicked)),
     llamasBought: intMap(source.llamasBought, LLAMA_TYPES),
     llamasSold: intMap(source.llamasSold, LLAMA_TYPES),
   };
@@ -4099,6 +4369,12 @@ export function achievementsStateError(achievements) {
     return "achievements.clicks must be a non-negative integer";
   }
   if (
+    !Number.isInteger(achievements.goldStarsClicked) ||
+    achievements.goldStarsClicked < 0
+  ) {
+    return "achievements.goldStarsClicked must be a non-negative integer";
+  }
+  if (
     typeof achievements.peakLocPerSecond !== "number" ||
     !Number.isFinite(achievements.peakLocPerSecond) ||
     achievements.peakLocPerSecond < 0
@@ -4159,6 +4435,19 @@ export function recordHires(achievements, employeeType, n = 1) {
       ...base.hires,
       [employeeType]: base.hires[employeeType] + Math.floor(safeCount(n)),
     },
+  };
+}
+
+/**
+ * Record `n` gold star clicks (pure). Moonshot (issue #165) unlocks at
+ * 25 lifetime gold star clicks. Natural and bought gold stars count;
+ * red stars and Shooting Stars chain clicks do not.
+ */
+export function recordGoldStarClicks(achievements, n = 1) {
+  const base = sanitizeAchievementsState(achievements);
+  return {
+    ...base,
+    goldStarsClicked: base.goldStarsClicked + Math.floor(safeCount(n)),
   };
 }
 
@@ -4643,7 +4932,7 @@ export function normalizeSaveState(state) {
     // this, the exact-keys shape check rejects the old save.
     let changed = false;
     const filled = { ...next.openSourceProjects };
-    for (const projectId of DOUBLING_PROJECT_IDS) {
+    for (const projectId of LATER_OPEN_SOURCE_IDS) {
       if (filled[projectId] === undefined) {
         filled[projectId] = 0;
         changed = true;
@@ -4687,7 +4976,7 @@ export function normalizeSaveState(state) {
     // Constellation, which gained its condition after shipping
     // unlocked), and only filling missing ones keeps normalize
     // idempotent for current saves.
-    for (const projectId of DOUBLING_PROJECT_IDS) {
+    for (const projectId of LATER_OPEN_SOURCE_IDS) {
       if (next.unlockedOpenSourceProjects[projectId] === undefined) {
         next.unlockedOpenSourceProjects[projectId] =
           openSourceUnlockConditionsMet(projectId, next);
@@ -5070,7 +5359,7 @@ export function normalizeActions(actions) {
     // check rejects the save.
     let changed = false;
     const filled = { ...next.openSourceLevelsBought };
-    for (const projectId of DOUBLING_PROJECT_IDS) {
+    for (const projectId of LATER_OPEN_SOURCE_IDS) {
       if (filled[projectId] === undefined) {
         filled[projectId] = 0;
         changed = true;
@@ -5184,6 +5473,8 @@ export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
   blocker: "Blocker Containerization Platform",
   constellation: "GitNub Constellation",
   starBroker: "StarBroker",
+  moonshot: "Moonshot",
+  launchPad: "Launch Pad",
   coffeeScript: "CoffeeScript",
   juniorAchievement: "Junior Achievement",
   seniorMoment: "Senior Moment",
@@ -5238,6 +5529,8 @@ export function starBuffDurationSeconds(effect, good) {
       return STAR_CONFIG.clickDurationSeconds[key];
     case "employee":
       return STAR_CONFIG.employeeDurationSeconds[key];
+    case "moonshot":
+      return MOONSHOT_CONFIG.jackpotDurationSeconds;
     default:
       return null;
   }
@@ -5288,7 +5581,9 @@ export function effectiveEmployeeMultiplier(
   let multiplier = 1;
   for (const buff of activeStarEffects ?? []) {
     if (buff.expiresAtMs <= nowMs) continue;
-    if (buff.effect === "frenzy") {
+    // To the Moon (issue #165) scales all production like Frenzy, and
+    // stacks with it (a separate effect).
+    if (buff.effect === "frenzy" || buff.effect === "moonshot") {
       multiplier *= buff.multiplier;
     } else if (
       buff.effect === "employee" &&
@@ -5337,6 +5632,9 @@ export function starRewardDetail(claim, employeeTypeName) {
     }
     case "frenzy":
       return `Production ${claim.multiplier}x`;
+    // To the Moon (issue #165): "Production 25x for 15s".
+    case "moonshot":
+      return `Production ${claim.multiplier}x for ${claim.durationSeconds ?? MOONSHOT_CONFIG.jackpotDurationSeconds}s`;
     case "click":
       return `Clicks ${claim.multiplier}x`;
     case "employee": {

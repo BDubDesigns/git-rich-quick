@@ -1102,12 +1102,20 @@ function gameReducer(state, action) {
           buff,
         ];
       }
+      // Moonshot (issue #165): every gold star click counts toward the
+      // 25 that unlock Moonshot. Natural and bought gold stars count
+      // (including a Shooting Stars star, chain click 1); red stars and
+      // the later Shooting Stars chain clicks do not.
+      const isGoldStarClick = !claim.red && !((claim.chainStep ?? 1) > 1);
       const newState = {
         ...state,
         linesOfCode: newLinesOfCode,
         totalLinesOfCode: newTotalLinesOfCode,
         money: newMoney,
         activeStarEffects,
+        achievements: isGoldStarClick
+          ? shared.recordGoldStarClicks(state.achievements, 1)
+          : state.achievements,
       };
       // A star reward can push total LOC past an unlock threshold, and
       // the reward itself sends mail (issue #31).
@@ -1297,6 +1305,10 @@ function checkCondition(condition, state) {
     totalLinesOfCode: state.totalLinesOfCode,
     employees: flatEmployeeCounts(state),
     freelanceProjectsCompleted: state.freelanceProjectsCompleted,
+    // Moonshot (issue #165): Open Source levels and the lifetime gold
+    // star clicks, in the save shape conditionMet reads.
+    openSourceProjects: flatOpenSourceLevels(state),
+    achievements: state.achievements,
   });
 }
 

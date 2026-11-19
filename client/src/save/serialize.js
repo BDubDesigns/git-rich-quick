@@ -598,7 +598,11 @@ export function isInitialSaveState(saveState) {
   // Achievements (issue #132): any earned tier or counter is progress.
   const achievements = sanitizeAchievementsState(saveState.achievements);
   if (achievementTiersEarned(achievements) !== 0) return false;
-  if (achievements.clicks !== 0 || achievements.peakLocPerSecond !== 0) {
+  if (
+    achievements.clicks !== 0 ||
+    achievements.peakLocPerSecond !== 0 ||
+    achievements.goldStarsClicked !== 0
+  ) {
     return false;
   }
   for (const map of [
