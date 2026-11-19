@@ -7,11 +7,13 @@ import {
   DOUBLING_PROJECT_EMPLOYEE,
   EMPLOYEE_DISPLAY_NAMES,
   STAR_CONFIG,
+  doublingTrackMultiplier,
   formatCooldownSeconds,
   isDoublingProject,
   launchPadCooldownSeconds,
   launchPadLevelUpFloatText,
   moonshotOddsText,
+  projectManagerBoostFraction,
   starBrokerCooldownSeconds,
   starBrokerLevelUpFloatText,
   starSpawnIntervalSeconds,
@@ -51,6 +53,14 @@ function constellationNextInfo(level) {
   return { nextInterval, newEffectName, fasterSpawns };
 }
 
+/** The passive boost one Project Manager gives at a Scrum Master level, in percent. */
+function scrumBoostPercent(level) {
+  return (
+    projectManagerBoostFraction({ projectManager: 1 }, 1, { scrumMaster: level }) *
+    100
+  );
+}
+
 /**
  * StarBroker cooldown label for a level ("8m", "30s"), or null at
  * level 0. StarBroker has no numeric bonus — its bonus IS the shorter
@@ -76,6 +86,10 @@ export function OpenSourceCard({
   // callers (tests, stories) keep working without them.
   isFavorite = false,
   onToggleFavorite = null,
+  // Funding Rounds (issue #170): the round the next level needs, when
+  // the owned round's cap holds it back (null when it is buyable or
+  // the track is maxed). The card then shows the level as locked.
+  lockedRoundName = null,
 }) {
   const isConstellation = projectId === "constellation";
   const isStarBroker = projectId === "starBroker";
@@ -94,17 +108,30 @@ export function OpenSourceCard({
     isLaunchPad && !isMaxed
       ? formatCooldownSeconds(launchPadCooldownSeconds(currentLevel + 1))
       : null;
-  // Doubling upgrades (issue #118): the bonus is a multiplier, not
-  // an additive amount, so the card shows the output multiplier
-  // instead of "+2 DOUBLE". The multiplier at level L is 2^L.
+  // Track upgrades (issue #118, retuned in #170): the bonus is a
+  // multiplier, not an additive amount, so the card shows the output
+  // multiplier from the shared formula (1.4x per level for the passive
+  // tracks, 2x for Commitment Issues and Ship Happens). Scrum Master
+  // is linear, so it reads as the boost each Project Manager gives.
   const isDoubling = isDoublingProject(projectId);
+  const isScrumMaster = projectId === "scrumMaster";
+  const isRoundLocked = !isMaxed && lockedRoundName !== null;
   const doublingEmployeeName = isDoubling
     ? EMPLOYEE_DISPLAY_NAMES[DOUBLING_PROJECT_EMPLOYEE[projectId]]
     : null;
-  const doublingMultiplier = isDoubling ? Math.pow(2, currentLevel) : 1;
+  const trackEffect = (level) =>
+    isScrumMaster
+      ? `each ${doublingEmployeeName} boosts passive LOC +${formatNumber(scrumBoostPercent(level))}%`
+      : `${doublingEmployeeName} output x${formatNumber(doublingTrackMultiplier(projectId, level))}`;
+  const doublingNow = isDoubling ? trackEffect(currentLevel) : null;
+  const doublingNext = isDoubling ? trackEffect(currentLevel + 1) : null;
   const doublingNextMultiplier = isDoubling
-    ? Math.pow(2, currentLevel + 1)
-    : 1;
+    ? formatNumber(
+        isScrumMaster
+          ? scrumBoostPercent(currentLevel + 1)
+          : doublingTrackMultiplier(projectId, currentLevel + 1)
+      )
+    : null;
   const starInfo = isConstellation ? constellationInfo(currentLevel) : null;
   const starNext =
     isConstellation && !isMaxed ? constellationNextInfo(currentLevel) : null;
@@ -117,7 +144,7 @@ export function OpenSourceCard({
   // unlock, not a numeric bonus (there is none); for StarBroker it
   // names the new cooldown, not "+0 STAR" (also no numeric bonus);
   // for a doubling upgrade it names the new multiplier.
-  const floatText = isMaxed || needsConfirm
+  const floatText = isMaxed || needsConfirm || isRoundLocked
     ? ""
     : isLaunchPad
       ? launchPadLevelUpFloatText(currentLevel + 1)
@@ -130,7 +157,9 @@ export function OpenSourceCard({
       : isStarBroker
         ? starBrokerLevelUpFloatText(currentLevel + 1)
         : isDoubling
-          ? `x${doublingNextMultiplier}!`
+          ? isScrumMaster
+            ? `+${doublingNextMultiplier}% each!`
+            : `x${doublingNextMultiplier}!`
           : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`;
 
   const handleContributeClick = () => {
@@ -196,7 +225,7 @@ export function OpenSourceCard({
               <JsDocLine
                 tag="@returns"
                 type="MULTIPLIER"
-                value={`${doublingEmployeeName} output x${doublingMultiplier} now`}
+                value={`${doublingNow.charAt(0).toUpperCase()}${doublingNow.slice(1)} now`}
                 valueClassName="text-green-400"
               />
             ) : (
@@ -212,7 +241,14 @@ export function OpenSourceCard({
             )}
 
             {/* next bonus or maxed out */}
-            {!isMaxed ? (
+            {isRoundLocked ? (
+              <JsDocLine
+                tag="@returns"
+                type="LOCKED"
+                value={`v.${currentLevel + 1}.0 opens at ${lockedRoundName}. Raise it in the permanent store after a sale.`}
+                valueClassName="text-[#f48771]"
+              />
+            ) : !isMaxed ? (
               isConstellation ? (
                 <JsDocLine
                   tag="@returns"
@@ -245,7 +281,7 @@ export function OpenSourceCard({
                 <JsDocLine
                   tag="@returns"
                   type="Bonus"
-                  value={`${doublingEmployeeName} output x${doublingNextMultiplier}`}
+                  value={`${doublingNext.charAt(0).toUpperCase()}${doublingNext.slice(1)}`}
                   valueClassName="text-green-400"
                 />
               ) : (
@@ -271,12 +307,17 @@ export function OpenSourceCard({
           {/* Contribute/Maxed Button */}
           <ActionButton
             onClick={handleContributeClick}
-            disabled={!canContribute || isMaxed || confirming}
+            disabled={!canContribute || isMaxed || isRoundLocked || confirming}
             floatText={floatText}
             icon={<project.icon size={20} />}
             fullWidth={false}
           >
-            {!isMaxed ? (
+            {isRoundLocked ? (
+              <>
+                <div>Needs</div>
+                <div>{lockedRoundName}</div>
+              </>
+            ) : !isMaxed ? (
               <>
                 <div>Contribute!</div>
                 <div>({formatNumber(locCost)} LOC)</div>

@@ -1,20 +1,18 @@
 /**
- * Tests for the doubling upgrades (issue #118): one leveled GitNub
- * project per employee type, 10 levels each, each level doubling that
- * type's output. Cost curve is 2x per level (Brandon, Nov 15) — this
- * supersedes the Nov 11 10x lock: 10x makes the high click levels
- * unreachable (Commitment Issues L5 would cost 10B, over a month of
- * passive at 3,660 LOC/s) while 1.15x maxes everything in about 1.5
- * hours. At 2x, maxing one track costs about 1B LOC (around 3 days
- * at 3,660/s) and maxing all six is about 16 days of passive.
+ * Tests for the track upgrades (issue #118, retuned by Funding Rounds
+ * in issue #170): one leveled GitNub project per employee type.
  *
- * Key numbers: CoffeeScript (Intern, 100k), Junior Achievement
- * (Junior, 250k), Senior Moment (Senior, 500k), Scrum Master
- * (Project Manager, 1M), Commitment Issues (Commit Specialist, 1M),
- * Ship Happens (Release Manager, 2M). Unlock: own 10 of that type.
- * Click formula is floor((base + 0.2 x CS) x (1 + clickBonus)): at
- * OverReact L5 the multiplier is 32, so 9 Commit Specialists give
- * 89 at Commitment Issues L0, 492 at L3, 1875 at L5.
+ * - CoffeeScript (Intern, 100K), Junior Achievement (Junior, 250K),
+ *   Senior Moment (Senior, 500K): 21 levels, 1.4x output per level,
+ *   cost x2.5 per level rounded to 3 significant figures.
+ * - Scrum Master (Project Manager, 1M): 20 levels, LINEAR, cost x2:
+ *   the per-manager boost is 1% x (1 + level).
+ * - Commitment Issues (Commit Specialist, 460K): 16 levels at the
+ *   #160 prices, 2x per level.
+ * - Ship Happens (Release Manager, 2M): unchanged, 10 levels at 2x.
+ * Unlock: own 10 of that type. The Funding Rounds caps are covered in
+ * funding-rounds.test.js. Click formula is
+ * floor((base + 0.2 x CS) x (1 + clickBonus)).
  */
 
 import test from "node:test";
@@ -42,6 +40,14 @@ import {
 
 const T0 = 1_700_000_000_000;
 const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
+
+/** Float-tolerant equality for the 1.4x products. */
+function near(actual, expected, epsilon = 1e-9) {
+  assert.ok(
+    Math.abs(actual - expected) <= epsilon * Math.max(1, Math.abs(expected)),
+    `expected ${expected}, got ${actual}`
+  );
+}
 
 /** Flat open-source levels with every project at 0. */
 function zeroLevels(overrides = {}) {
@@ -108,7 +114,7 @@ function body(state, actions) {
   return { playerId: PLAYER_ID, state, actionsSinceLastSave: actions };
 }
 
-test("config: six doubling projects, 2x power per level, unlock at 10 of that type", () => {
+test("config: six track projects, per-track power and length (issue #170), unlock at 10 of that type", () => {
   assert.deepEqual(DOUBLING_PROJECT_IDS, [
     "coffeeScript",
     "juniorAchievement",
@@ -125,15 +131,17 @@ test("config: six doubling projects, 2x power per level, unlock at 10 of that ty
     commitmentIssues: "commitSpecialist",
     shipHappens: "releaseManager",
   });
+  const expected = {
+    coffeeScript: { length: 21, bonus: { type: "MULTIPLY", value: 1.4 } },
+    juniorAchievement: { length: 21, bonus: { type: "MULTIPLY", value: 1.4 } },
+    seniorMoment: { length: 21, bonus: { type: "MULTIPLY", value: 1.4 } },
+    scrumMaster: { length: 20, bonus: { type: "LINEAR", value: 1 } },
+    commitmentIssues: { length: 16, bonus: { type: "MULTIPLY", value: 2 } },
+    shipHappens: { length: 10, bonus: { type: "MULTIPLY", value: 2 } },
+  };
   for (const id of DOUBLING_PROJECT_IDS) {
     assert.ok(OPEN_SOURCE_IDS.includes(id), id);
-    // Commitment Issues has 20 levels (issue #151); the five passive
-    // tracks keep 10.
-    assert.equal(
-      BALANCE.openSource[id].levels.length,
-      id === "commitmentIssues" ? 20 : 10,
-      id
-    );
+    assert.equal(BALANCE.openSource[id].levels.length, expected[id].length, id);
     assert.deepEqual(
       BALANCE.openSource[id].unlockConditions,
       [
@@ -148,48 +156,56 @@ test("config: six doubling projects, 2x power per level, unlock at 10 of that ty
     for (let i = 0; i < BALANCE.openSource[id].levels.length; i += 1) {
       assert.deepEqual(
         BALANCE.openSource[id].levels[i].bonus,
-        { type: "DOUBLE", value: 2 },
+        expected[id].bonus,
         `${id} L${i + 1}`
       );
     }
     assert.ok(OPEN_SOURCE_DISPLAY_NAMES[id], id);
   }
-  // Cost curve is 2x per level: base x 2^(level-1).
+  // Base costs are unchanged.
   assert.equal(BALANCE.openSource.coffeeScript.levels[0].locCost, 100000);
-  assert.equal(BALANCE.openSource.coffeeScript.levels[1].locCost, 200000);
-  assert.equal(BALANCE.openSource.coffeeScript.levels[9].locCost, 51200000);
-  assert.equal(
-    BALANCE.openSource.juniorAchievement.levels[0].locCost,
-    250000
-  );
+  assert.equal(BALANCE.openSource.juniorAchievement.levels[0].locCost, 250000);
   assert.equal(BALANCE.openSource.seniorMoment.levels[0].locCost, 500000);
   assert.equal(BALANCE.openSource.scrumMaster.levels[0].locCost, 1000000);
-  assert.equal(
-    BALANCE.openSource.commitmentIssues.levels[0].locCost,
-    460000 // issue #160
-  );
+  assert.equal(BALANCE.openSource.commitmentIssues.levels[0].locCost, 460000);
   assert.equal(BALANCE.openSource.shipHappens.levels[0].locCost, 2000000);
-  // Total to max a passive track is base x (2^10 - 1) = base x 1023.
-  assert.equal(openSourceLevelCosts("coffeeScript", 0, 10), 102300000);
-  assert.equal(openSourceLevelCosts("scrumMaster", 0, 10), 1023000000);
-  assert.equal(openSourceLevelCosts("coffeeScript", 0, 3), 700000);
-  // The five passive tracks are untouched by issue #151: 2x cost steps.
-  for (const id of DOUBLING_PROJECT_IDS.filter((x) => x !== "commitmentIssues")) {
+  // The Senior Moment cost line from the build spec (issue #170).
+  const senior = (level) => BALANCE.openSource.seniorMoment.levels[level - 1].locCost;
+  assert.equal(senior(6), 48_800_000);
+  assert.equal(senior(9), 763_000_000);
+  assert.equal(senior(12), 11_900_000_000);
+  assert.equal(senior(15), 186_000_000_000);
+  assert.equal(senior(18), 2_910_000_000_000);
+  assert.equal(senior(21), 45_500_000_000_000);
+  // The passive tracks step 2.5x (within the 3-figure rounding), and
+  // every price is a whole number of LOC.
+  for (const id of ["coffeeScript", "juniorAchievement", "seniorMoment"]) {
+    const levels = BALANCE.openSource[id].levels;
+    for (let i = 1; i < levels.length; i += 1) {
+      const step = levels[i].locCost / levels[i - 1].locCost;
+      assert.ok(Math.abs(step - 2.5) < 0.02, `${id} L${i + 1} step ${step}`);
+      assert.ok(Number.isInteger(levels[i].locCost), `${id} L${i + 1}`);
+    }
+  }
+  // Scrum Master and Ship Happens keep exact 2x cost steps.
+  for (const id of ["scrumMaster", "shipHappens"]) {
     const levels = BALANCE.openSource[id].levels;
     for (let i = 1; i < levels.length; i += 1) {
       assert.equal(levels[i].locCost, levels[i - 1].locCost * 2, `${id} L${i + 1}`);
     }
   }
+  // Ship Happens is untouched: base x (2^10 - 1) to max.
+  assert.equal(openSourceLevelCosts("shipHappens", 0, 10), 2_046_000_000);
+  assert.equal(BALANCE.openSource.scrumMaster.levels[19].locCost, 524_288_000_000);
 });
 
-test("Commitment Issues (issue #160): 20 levels at the derived costs, every step at least 2x", () => {
+test("Commitment Issues (issues #160, #170): 16 levels at the derived costs, every step at least 2x", () => {
   const costs = BALANCE.openSource.commitmentIssues.levels.map((l) => l.locCost);
   assert.deepEqual(costs, [
     460_000, 1_300_000, 3_300_000, 8_000_000, 19_000_000, 43_000_000,
     96_000_000, 210_000_000, 470_000_000, 1_000_000_000, 2_200_000_000,
     4_700_000_000, 10_000_000_000, 21_000_000_000, 45_000_000_000,
-    95_000_000_000, 200_000_000_000, 420_000_000_000, 880_000_000_000,
-    1_800_000_000_000,
+    95_000_000_000,
   ]);
   // The cost never steps slower than the 2x power (the #151 sqrt(2)
   // step is what let clicking run away).
@@ -197,39 +213,37 @@ test("Commitment Issues (issue #160): 20 levels at the derived costs, every step
     const step = costs[i] / costs[i - 1];
     assert.ok(step >= 2 && step < 3, `L${i + 1} step ${step}`);
   }
-  assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 20 }), 2 ** 20);
+  assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 16 }), 2 ** 16);
+  // Levels 17 to 20 are gone: a level past the end clamps to 16.
+  assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 20 }), 2 ** 16);
 });
 
-test("doublingMultiplier: 2^level per type, 1 at level 0 or missing", () => {
+test("doublingMultiplier: 1.4^L passive, 1 + L Scrum Master, 2^L click and ships; 1 at level 0 or missing", () => {
   assert.equal(doublingMultiplier("intern", {}), 1);
   assert.equal(doublingMultiplier("intern", zeroLevels()), 1);
-  assert.equal(doublingMultiplier("intern", { coffeeScript: 1 }), 2);
-  assert.equal(doublingMultiplier("intern", { coffeeScript: 3 }), 8);
-  assert.equal(doublingMultiplier("intern", { coffeeScript: 10 }), 1024);
-  // Per-type independence: leveling one track does not double another.
-  assert.equal(
-    doublingMultiplier("junior", { coffeeScript: 10 }),
-    1
-  );
-  assert.equal(
-    doublingMultiplier("junior", { juniorAchievement: 2 }),
-    4
-  );
-  assert.equal(
-    doublingMultiplier("commitSpecialist", { commitmentIssues: 5 }),
-    32
-  );
-  assert.equal(
-    doublingMultiplier("projectManager", { scrumMaster: 10 }),
-    1024
-  );
-  assert.equal(
-    doublingMultiplier("releaseManager", { shipHappens: 3 }),
-    8
-  );
-  // Unknown employee type (or no doubling project) is 1x.
+  near(doublingMultiplier("intern", { coffeeScript: 1 }), 1.4);
+  near(doublingMultiplier("intern", { coffeeScript: 3 }), 2.744);
+  // The round caps' multipliers (issue #170 section 4).
+  near(doublingMultiplier("senior", { seniorMoment: 6 }), 7.529536);
+  near(doublingMultiplier("senior", { seniorMoment: 21 }), 1.4 ** 21);
+  assert.equal(Math.round(doublingMultiplier("senior", { seniorMoment: 21 })), 1171);
+  // Per-type independence: leveling one track does not touch another.
+  assert.equal(doublingMultiplier("junior", { coffeeScript: 10 }), 1);
+  near(doublingMultiplier("junior", { juniorAchievement: 2 }), 1.96);
+  assert.equal(doublingMultiplier("commitSpecialist", { commitmentIssues: 5 }), 32);
+  // Scrum Master is linear: 1 + level.
+  assert.equal(doublingMultiplier("projectManager", { scrumMaster: 1 }), 2);
+  assert.equal(doublingMultiplier("projectManager", { scrumMaster: 10 }), 11);
+  assert.equal(doublingMultiplier("projectManager", { scrumMaster: 20 }), 21);
+  assert.equal(doublingMultiplier("releaseManager", { shipHappens: 3 }), 8);
+  // Unknown employee type (or no track project) is 1x.
   assert.equal(doublingMultiplier("noPilot", { coffeeScript: 10 }), 1);
   assert.equal(doublingMultiplier("intern", undefined), 1);
+  // NaN, negative, fractional and past-the-end levels are guarded.
+  assert.equal(doublingMultiplier("intern", { coffeeScript: Number.NaN }), 1);
+  assert.equal(doublingMultiplier("intern", { coffeeScript: -3 }), 1);
+  near(doublingMultiplier("intern", { coffeeScript: 1.9 }), 1.4);
+  near(doublingMultiplier("intern", { coffeeScript: 99 }), 1.4 ** 21);
 });
 
 test("clicks: Commitment Issues doubles the per-specialist bonus each level", () => {
@@ -253,66 +267,56 @@ test("clicks: Commitment Issues doubles the per-specialist bonus each level", ()
     locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 10 }), nineCS),
     73768
   );
-  // L20: 0.2 x 9 x 2^20 = 1887436.8, floor((1 + 1887436.8) x 40).
+  // L16 (the top since issue #170): 0.2 x 9 x 2^16 = 117964.8,
+  // floor((1 + 117964.8) x 40) = 4718632.
   assert.equal(
-    locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 20 }), nineCS),
-    75497512
+    locPerClick(zeroLevels({ overReactFramework: 10, commitmentIssues: 16 }), nineCS),
+    4718632
   );
   // Without OverReact the doubling still applies to the raw bonus.
   assert.equal(locPerClick(zeroLevels({ commitmentIssues: 1 }), nineCS), 4);
 });
 
-test("passive: CoffeeScript / Junior Achievement / Senior Moment double their type", () => {
+test("passive: CoffeeScript / Junior Achievement / Senior Moment multiply their type by 1.4 per level", () => {
   assert.equal(baseLocPerSecond(counts({ intern: 10 }), zeroLevels()), 10);
-  assert.equal(
-    baseLocPerSecond(counts({ intern: 10 }), { coffeeScript: 1 }),
-    20
-  );
-  assert.equal(
-    baseLocPerSecond(counts({ intern: 10 }), { coffeeScript: 3 }),
-    80
-  );
-  assert.equal(
-    baseLocPerSecond(counts({ junior: 10 }), { juniorAchievement: 2 }),
-    200
-  );
-  assert.equal(
-    baseLocPerSecond(counts({ senior: 5 }), { seniorMoment: 1 }),
-    200
-  );
+  near(baseLocPerSecond(counts({ intern: 10 }), { coffeeScript: 1 }), 14);
+  near(baseLocPerSecond(counts({ intern: 10 }), { coffeeScript: 3 }), 27.44);
+  near(baseLocPerSecond(counts({ junior: 10 }), { juniorAchievement: 2 }), 98);
+  near(baseLocPerSecond(counts({ senior: 5 }), { seniorMoment: 1 }), 140);
   // locPerSecond floors the final total, same as before.
-  assert.equal(
-    locPerSecond(counts({ intern: 10 }), { coffeeScript: 1 }),
-    20
-  );
+  assert.equal(locPerSecond(counts({ intern: 10 }), { coffeeScript: 1 }), 14);
+  // 10 x 1.96 + 25 x 1.4 = 54.6, floored to 54.
   assert.equal(
     locPerSecond(
       counts({ intern: 10, junior: 5 }),
       { coffeeScript: 2, juniorAchievement: 1 }
     ),
-    90
+    54
   );
 });
 
-test("Scrum Master doubles the per-manager passive boost each level", () => {
+test("Scrum Master raises the per-manager passive boost linearly: 1% x (1 + level) (issue #170)", () => {
   assert.equal(projectManagerBoostFraction(counts({ projectManager: 1 })), 0.01);
-  assert.equal(
-    projectManagerBoostFraction(counts({ projectManager: 1 }), 1, {
-      scrumMaster: 1,
-    }),
+  near(
+    projectManagerBoostFraction(counts({ projectManager: 1 }), 1, { scrumMaster: 1 }),
     0.02
   );
-  assert.equal(
-    projectManagerBoostFraction(counts({ projectManager: 2 }), 1, {
-      scrumMaster: 3,
-    }),
-    0.16
+  near(
+    projectManagerBoostFraction(counts({ projectManager: 2 }), 1, { scrumMaster: 3 }),
+    0.08
   );
-  assert.equal(
-    projectManagerBoostFraction(counts({ projectManager: 1 }), 1, {
-      scrumMaster: 10,
-    }),
-    10.24
+  near(
+    projectManagerBoostFraction(counts({ projectManager: 1 }), 1, { scrumMaster: 10 }),
+    0.11
+  );
+  // The round caps: 6% Bootstrapped (L5) to 21% at IPO (L20).
+  near(
+    projectManagerBoostFraction(counts({ projectManager: 1 }), 1, { scrumMaster: 5 }),
+    0.06
+  );
+  near(
+    projectManagerBoostFraction(counts({ projectManager: 1 }), 1, { scrumMaster: 20 }),
+    0.21
   );
   // The boost flows into the passive rate: 100 interns + 1 PM is
   // floor(100 x 1.01) = 101 at L0, floor(100 x 1.02) = 102 at L1.
@@ -321,20 +325,17 @@ test("Scrum Master doubles the per-manager passive boost each level", () => {
     101
   );
   assert.equal(
-    locPerSecond(
-      counts({ intern: 100, projectManager: 1 }),
-      { scrumMaster: 1 }
-    ),
+    locPerSecond(counts({ intern: 100, projectManager: 1 }), { scrumMaster: 1 }),
     102
   );
-  // CoffeeScript and Scrum Master multiply: 100 interns doubled to
-  // 200, then the L1 boost is floor(200 x 1.02) = 204.
+  // CoffeeScript and Scrum Master multiply: 100 interns at 1.4x is
+  // 140, then the L1 boost is floor(140 x 1.02) = 142.
   assert.equal(
     locPerSecond(
       counts({ intern: 100, projectManager: 1 }),
       { coffeeScript: 1, scrumMaster: 1 }
     ),
-    204
+    142
   );
 });
 
@@ -346,19 +347,13 @@ test("Ship Happens doubles ships per manager per interval", () => {
   assert.equal(releaseManagerShipsPerInterval({ shipHappens: 10 }), 1024);
 });
 
-test("effectiveEmployeeMultiplier includes the doubling project", () => {
-  // No buffs, no managers: an Intern with CoffeeScript L1 reads 2x.
-  assert.equal(
-    effectiveEmployeeMultiplier([], "intern", T0, null, { coffeeScript: 1 }),
-    2
-  );
-  assert.equal(
-    effectiveEmployeeMultiplier([], "intern", T0, null, { coffeeScript: 2 }),
-    4
-  );
+test("effectiveEmployeeMultiplier includes the track project", () => {
+  // No buffs, no managers: an Intern with CoffeeScript L1 reads 1.4x.
+  near(effectiveEmployeeMultiplier([], "intern", T0, null, { coffeeScript: 1 }), 1.4);
+  near(effectiveEmployeeMultiplier([], "intern", T0, null, { coffeeScript: 2 }), 1.96);
   // With a Project Manager owned, the PM boost multiplies with the
-  // doubling: (1 + 0.01) x 2 = 2.02.
-  assert.equal(
+  // track: (1 + 0.01) x 1.4 = 1.414.
+  near(
     effectiveEmployeeMultiplier(
       [],
       "intern",
@@ -366,13 +361,10 @@ test("effectiveEmployeeMultiplier includes the doubling project", () => {
       counts({ projectManager: 1 }),
       { coffeeScript: 1 }
     ),
-    2.02
+    1.414
   );
-  // No doubling project: unchanged from before (1x, or just the PM boost).
-  assert.equal(
-    effectiveEmployeeMultiplier([], "senior", T0, null, zeroLevels()),
-    1
-  );
+  // No track project: unchanged from before (1x, or just the PM boost).
+  assert.equal(effectiveEmployeeMultiplier([], "senior", T0, null, zeroLevels()), 1);
   assert.equal(
     effectiveEmployeeMultiplier(
       [],
@@ -421,9 +413,10 @@ test("fresh saves include the six new keys and validate", () => {
   assert.equal(r.ok, true, JSON.stringify(r));
 });
 
-test("a doubling project above level 10 is a shape rejection", () => {
+test("a track above its Bootstrapped cap is a shape rejection (issue #170)", () => {
+  // Bootstrapped, CoffeeScript caps at 6 (the full track is 21).
   const after = stateWith({
-    openSourceProjects: { coffeeScript: 11 },
+    openSourceProjects: { coffeeScript: 7 },
   });
   const r = validateSave(
     prev(initialSaveState(), T0),
@@ -432,7 +425,15 @@ test("a doubling project above level 10 is a shape rejection", () => {
   );
   assert.equal(r.ok, false);
   assert.equal(r.rule, "SHAPE");
-  assert.match(r.detail, /0-10/);
+  assert.match(r.detail, /0-6/);
+  // Ship Happens is not gated: its full 10 levels validate.
+  const ship = stateWith({ openSourceProjects: { shipHappens: 10 } });
+  const ok = validateSave(
+    prev(initialSaveState(), T0),
+    body(ship, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(ok.ok, true, JSON.stringify(ok));
 });
 
 test("old saves and old actions missing the six keys still validate (normalized)", () => {

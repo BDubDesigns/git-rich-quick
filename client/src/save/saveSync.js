@@ -675,6 +675,26 @@ export class SaveSync {
    * (error is "not-initialized" | "network" | a rule like "SALE" /
    * "PRESTIGE" | `http-<status>`).
    */
+  /**
+   * Funding Rounds save wipe (issue #170): a sale, store buy or
+   * intermission call that hits a save row from before the current
+   * schema gets a 409 with rule WIPE and the fresh company as
+   * lastGoodState. The server already reset the row, so the local
+   * state is stale: adopt the fresh one, the same revert the heartbeat
+   * save does on a 409. Any other rejection keeps the local state (a
+   * "no new Equity" sale must not throw away unsaved progress).
+   */
+  _revertIfWiped(result) {
+    const lastGood = result?.data?.lastGoodState;
+    if (result?.status !== 409 || result?.data?.rule !== "WIPE" || !lastGood) {
+      return;
+    }
+    this.baseline = lastGood.state;
+    this.restore(lastGood.state);
+    this._lastSeenBig = bigActionFields(lastGood.state);
+    this.clicks = 0;
+  }
+
   async sellCompany() {
     if (!this.initialized || !this.playerId) {
       return { ok: false, error: "not-initialized" };
@@ -717,6 +737,7 @@ export class SaveSync {
         return { ok: false, error: "network" };
       }
       if (result.status !== 200) {
+        this._revertIfWiped(result);
         console.warn(
           `[save] sale failed (HTTP ${result.status}):`,
           result.data?.rule,
@@ -863,6 +884,7 @@ export class SaveSync {
         return { ok: false, error: "network" };
       }
       if (result.status !== 200) {
+        this._revertIfWiped(result);
         console.warn(
           `[save] store buy failed (HTTP ${result.status}):`,
           result.data?.rule,
@@ -972,6 +994,7 @@ export class SaveSync {
         return { ok: false, error: "network" };
       }
       if (result.status !== 200) {
+        this._revertIfWiped(result);
         console.warn(
           `[save] intermission completion failed (HTTP ${result.status}):`,
           result.data?.rule,

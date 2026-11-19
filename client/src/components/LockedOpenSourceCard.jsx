@@ -3,10 +3,12 @@ import { formatNumber } from "../../../shared/formatNumber.js";
 import {
   DOUBLING_PROJECT_EMPLOYEE,
   EMPLOYEE_DISPLAY_NAMES,
+  doublingTrackMultiplier,
   formatCooldownSeconds,
   isDoublingProject,
   launchPadCooldownSeconds,
   moonshotOddsText,
+  projectManagerBoostFraction,
   starBrokerCooldownSeconds,
 } from "../../../shared/game-balance.js";
 import { Button } from "./Button.jsx";
@@ -26,8 +28,9 @@ export function LockedOpenSourceCard({
 }) {
   // StarBroker has no numeric bonus — v1.0 buys stars on an 8m
   // cooldown — so the bonus line names the cooldown, not "+0 STAR".
-  // A doubling upgrade (issue #118) has a multiplier bonus, so its
-  // line names the first level's multiplier instead of "+2 DOUBLE".
+  // A track upgrade (issue #118, retuned in #170) has a multiplier
+  // bonus, so its line names the first level's multiplier (from the
+  // shared formula) instead of a raw bonus value.
   const isStarBroker = projectId === "starBroker";
   const isDoubling = isDoublingProject(projectId);
   const doublingEmployeeName = isDoubling
@@ -58,8 +61,10 @@ export function LockedOpenSourceCard({
                     ? moonshotOddsText()
                     : projectId === "launchPad"
                       ? `Buy red stars, cooldown ${formatCooldownSeconds(launchPadCooldownSeconds(1))} (shared with StarBroker)`
-                      : isDoubling
-                    ? `${doublingEmployeeName} output x2`
+                      : projectId === "scrumMaster"
+                        ? `Each ${doublingEmployeeName} boosts passive LOC +${formatNumber(projectManagerBoostFraction({ projectManager: 1 }, 1, { scrumMaster: 1 }) * 100)}%`
+                        : isDoubling
+                    ? `${doublingEmployeeName} output x${formatNumber(doublingTrackMultiplier(projectId, 1))}`
                     : `+${formatNumber(nextBonus.value)} ${nextBonus.type}`
               }
               valueClassName="text-green-400"

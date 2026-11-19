@@ -97,17 +97,17 @@ test("formatBoostPercent keeps whole numbers whole and trims fractions", () => {
   assert.equal(formatBoostPercent(Number.NaN), "+0%");
 });
 
-test("equityProgress: the next Equity lands at 1M x (P + 1)^2", () => {
-  const p = equityProgress(1_500_000, 100);
+test("equityProgress: the next Equity lands at 10M x (P + 1)^3 (issue #170)", () => {
+  const p = equityProgress(15_000_000, 100);
   assert.equal(p.entitled, 1);
   assert.equal(p.nextEquity, 2);
-  assert.equal(p.bracketLowLoc, 1_000_000);
-  assert.equal(p.nextThresholdLoc, 4_000_000);
-  assert.equal(p.remainingLoc, 2_500_000);
-  close(p.fraction, 0.5 / 3);
-  assert.equal(p.seconds, 25_000);
+  assert.equal(p.bracketLowLoc, 10_000_000);
+  assert.equal(p.nextThresholdLoc, 80_000_000);
+  assert.equal(p.remainingLoc, 65_000_000);
+  close(p.fraction, 5 / 70);
+  assert.equal(p.seconds, 650_000);
   for (let n = 0; n < 10; n += 1) {
-    assert.equal(equityThresholdLoc(n + 1), 1_000_000 * (n + 1) ** 2);
+    assert.equal(equityThresholdLoc(n + 1), 10_000_000 * (n + 1) ** 3);
   }
 });
 
@@ -117,20 +117,20 @@ test("equityProgress: no production means no time estimate; NaN is guarded", () 
   assert.equal(p.entitled, 0);
   assert.equal(p.fraction, 0);
   assert.equal(p.seconds, null);
-  assert.equal(p.nextThresholdLoc, 1_000_000);
+  assert.equal(p.nextThresholdLoc, 10_000_000);
 });
 
 test("equityProgress rolls over to a fresh bracket exactly at the threshold", () => {
-  const at = equityProgress(4_000_000, 10);
+  const at = equityProgress(80_000_000, 10);
   assert.equal(at.entitled, 2);
   assert.equal(at.fraction, 0);
-  assert.equal(at.nextThresholdLoc, 9_000_000);
+  assert.equal(at.nextThresholdLoc, 270_000_000);
 });
 
 test("the header strip shows at 10% of the first Equity, or with any Equity", () => {
   assert.equal(equityGoalVisible(0, 0), false);
-  assert.equal(equityGoalVisible(99_999, 0), false);
-  assert.equal(equityGoalVisible(100_000, 0), true);
+  assert.equal(equityGoalVisible(999_999, 0), false);
+  assert.equal(equityGoalVisible(1_000_000, 0), true);
   assert.equal(equityGoalVisible(0, 1), true);
   assert.equal(equityGoalVisible(Number.NaN, Number.NaN), false);
 });

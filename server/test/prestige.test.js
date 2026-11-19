@@ -165,29 +165,45 @@ async function sell(base, playerId, state, saleId) {
 
 // --- Pure Equity math (criteria 15, 16, 17) ---
 
-test("entitled Equity follows floor(sqrt(lifetime LOC / 1M))", () => {
+test("entitled Equity follows floor(cbrt(lifetime LOC / 10M)) (issue #170)", () => {
   assert.equal(entitledEquity(0), 0);
-  assert.equal(entitledEquity(999_999), 0);
-  assert.equal(entitledEquity(1_000_000), 1);
-  assert.equal(entitledEquity(3_999_999), 1);
-  assert.equal(entitledEquity(4_000_000), 2);
-  assert.equal(entitledEquity(6_000_000), 2);
-  assert.equal(entitledEquity(9_000_000), 3);
-  assert.equal(entitledEquity(16_000_000), 4);
-  assert.equal(entitledEquity(16_533_977), 4);
-  assert.equal(entitledEquity(25_000_000), 5);
-  assert.equal(entitledEquity(7_225_000_000), 85);
+  assert.equal(entitledEquity(9_999_999), 0);
+  assert.equal(entitledEquity(10_000_000), 1);
+  assert.equal(entitledEquity(79_999_999), 1);
+  assert.equal(entitledEquity(80_000_000), 2);
+  assert.equal(entitledEquity(120_000_000), 2);
+  assert.equal(entitledEquity(270_000_000), 3);
+  assert.equal(entitledEquity(640_000_000), 4);
+  assert.equal(entitledEquity(656_533_977), 4);
+  assert.equal(entitledEquity(1_250_000_000), 5);
+  assert.equal(entitledEquity(10_000_000_000), 10);
+  // NaN, negative and missing read as 0, never NaN.
+  assert.equal(entitledEquity(Number.NaN), 0);
+  assert.equal(entitledEquity(-5), 0);
+  assert.equal(entitledEquity(undefined), 0);
+  // Exact at every boundary: a float cube root that lands a hair
+  // under a whole number can never withhold the point, and just short
+  // of a threshold never grants it. Below 2^53 "just short" is one
+  // LOC; above it (from 966 Equity, 9.01Qa) doubles are spaced more
+  // than 1 apart, so the step is a few units in the last place.
+  for (let n = 1; n <= 2000; n += 1) {
+    const threshold = equityThresholdLoc(n);
+    const step = threshold < 2 ** 53 ? 1 : threshold * 2 ** -50;
+    assert.equal(entitledEquity(threshold), n, `at ${n}`);
+    assert.equal(entitledEquity(threshold - step), n - 1, `below ${n}`);
+  }
 });
 
-test("Equity thresholds are 1M x n^2; 85 Equity needs 7.225B lifetime LOC (criterion 17)", () => {
+test("Equity thresholds are 10M x n^3; the 622-Equity store needs 2.41Qa lifetime LOC (criterion 17, issue #170)", () => {
   assert.equal(equityThresholdLoc(0), 0);
-  assert.equal(equityThresholdLoc(1), 1_000_000);
-  assert.equal(equityThresholdLoc(2), 4_000_000);
-  assert.equal(equityThresholdLoc(4), 16_000_000);
-  assert.equal(equityThresholdLoc(85), 7_225_000_000);
-  // The store grew to 87 with the Night Shift Contract (issue #149).
-  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 87);
-  assert.equal(equityThresholdLoc(87), 7_569_000_000);
+  assert.equal(equityThresholdLoc(1), 10_000_000);
+  assert.equal(equityThresholdLoc(2), 80_000_000);
+  assert.equal(equityThresholdLoc(4), 640_000_000);
+  assert.equal(equityThresholdLoc(87), 6_585_030_000_000);
+  assert.equal(equityThresholdLoc(Number.NaN), 0);
+  // The store grew to 622 with Funding Rounds (issue #170).
+  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 622);
+  assert.equal(equityThresholdLoc(622), 2_406_418_480_000_000);
 });
 
 test("Founder multiplier: 1 + 0.10P to P=50, then log growth", () => {
@@ -201,29 +217,29 @@ test("Founder multiplier: 1 + 0.10P to P=50, then log growth", () => {
 });
 
 test("claimable Equity is entitled minus earned; available is claimed minus spent", () => {
-  assert.equal(claimableEquity(16_533_977, 0), 4);
-  assert.equal(claimableEquity(16_533_977, 4), 0);
-  assert.equal(claimableEquity(6_000_000, 0), 2);
-  assert.equal(claimableEquity(4_000_000, 1), 1);
+  assert.equal(claimableEquity(656_533_977, 0), 4);
+  assert.equal(claimableEquity(656_533_977, 4), 0);
+  assert.equal(claimableEquity(120_000_000, 0), 2);
+  assert.equal(claimableEquity(80_000_000, 1), 1);
   assert.equal(availableEquity(4, 0), 4);
   assert.equal(availableEquity(4, 4), 0);
   assert.equal(availableEquity(4, 9), 0);
 });
 
-test("next-Equity estimate for the seeded save is 8,466,023 / 3,660s, about 38m 33s (criterion 16)", () => {
-  const estimate = nextEquityEstimate(16_533_977, 3660);
+test("next-Equity estimate for the seeded save is 593,466,023 / 3,660s, about 45h 2m (criterion 16)", () => {
+  const estimate = nextEquityEstimate(656_533_977, 3660);
   assert.equal(estimate.entitled, 4);
-  assert.equal(estimate.nextThresholdLoc, 25_000_000);
-  assert.equal(estimate.remainingLoc, 8_466_023);
-  // 8,466,023 / 3,660 = 2313.39s = 38m 33s. The estimate never
+  assert.equal(estimate.nextThresholdLoc, 1_250_000_000);
+  assert.equal(estimate.remainingLoc, 593_466_023);
+  // 593,466,023 / 3,660 = 162,149.19s = 45h 2m. The estimate never
   // subtracts the LOC bank: it is remaining lifetime LOC over rate.
-  assert.ok(Math.abs(estimate.seconds - 8_466_023 / 3660) < 1e-9);
-  assert.equal(formatEstimateDuration(estimate.seconds), "38m 33s");
+  assert.ok(Math.abs(estimate.seconds - 593_466_023 / 3660) < 1e-9);
+  assert.equal(formatEstimateDuration(estimate.seconds), "45h 2m");
 });
 
 test("next-Equity estimate with no production is null, not a number", () => {
-  const estimate = nextEquityEstimate(500_000, 0);
-  assert.equal(estimate.remainingLoc, 500_000);
+  const estimate = nextEquityEstimate(5_000_000, 0);
+  assert.equal(estimate.remainingLoc, 5_000_000);
   assert.equal(estimate.seconds, null);
 });
 
@@ -268,7 +284,7 @@ test("Founder multiplier applies once to click and employee production, and spen
 test("applyPrestigeSale returns null when there is nothing to claim", () => {
   const state = initialSaveState();
   assert.equal(applyPrestigeSale(state, randomUUID()), null);
-  const rich = { ...initialSaveState(), totalLinesOfCode: 999_999 };
+  const rich = { ...initialSaveState(), totalLinesOfCode: 9_999_999 };
   assert.equal(applyPrestigeSale(rich, randomUUID()), null);
 });
 
@@ -276,7 +292,7 @@ test("applyPrestigeSale resets the company and keeps the lifetime books", () => 
   const saleId = randomUUID();
   const pre = initialSaveState();
   pre.linesOfCode = 9_792_056;
-  pre.totalLinesOfCode = 16_533_977;
+  pre.totalLinesOfCode = 656_533_977;
   pre.money = 38800;
   pre.employees = {
     intern: 36,
@@ -365,8 +381,8 @@ test("applyPrestigeSale resets the company and keeps the lifetime books", () => 
   assert.equal(post.saleCount, 1);
   assert.equal(post.lastSaleId, saleId);
   // Lifetime progress survives; Company LOC restarts from it.
-  assert.equal(post.totalLinesOfCode, 16_533_977);
-  assert.equal(post.lifetimeLocAtLastSale, 16_533_977);
+  assert.equal(post.totalLinesOfCode, 656_533_977);
+  assert.equal(post.lifetimeLocAtLastSale, 656_533_977);
   assert.equal(companyLocEarned(post), 0);
   // Company state resets to new-company defaults.
   assert.equal(post.linesOfCode, 0);
@@ -448,13 +464,13 @@ test("applyPrestigeSale resets the company and keeps the lifetime books", () => 
 
 // --- The sale endpoint ---
 
-test("criterion 15: seeded save with 16,533,977 lifetime LOC claims 4 Equity, 4 spendable, 1.40x Founder", async () => {
+test("criterion 15: seeded save with 656,533,977 lifetime LOC claims 4 Equity, 4 spendable, 1.40x Founder", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 9_792_056,
-      totalLinesOfCode: 16_533_977,
+      totalLinesOfCode: 656_533_977,
       money: 38800,
       employees: { intern: 36, junior: 19, senior: 15 },
     });
@@ -474,7 +490,7 @@ test("criterion 15: seeded save with 16,533,977 lifetime LOC claims 4 Equity, 4 
     assert.equal(body.state.lifetimeEquityEarned, 4);
     assert.equal(body.state.equitySpent, 0);
     assert.equal(availableEquity(4, 0), 4);
-    assert.equal(body.state.totalLinesOfCode, 16_533_977);
+    assert.equal(body.state.totalLinesOfCode, 656_533_977);
     assert.equal(body.state.linesOfCode, 0);
     assert.equal(body.state.money, 0);
     assert.equal(body.state.saleCount, 1);
@@ -483,13 +499,13 @@ test("criterion 15: seeded save with 16,533,977 lifetime LOC claims 4 Equity, 4 
   }
 });
 
-test("criterion 2: sale at 1M awards one Equity; a later sale at 4M cumulative awards one more", async () => {
+test("criterion 2: sale at 10M awards one Equity; a later sale at 80M cumulative awards one more", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
       money: 100000,
       employees: { intern: 10 },
     });
@@ -499,13 +515,13 @@ test("criterion 2: sale at 1M awards one Equity; a later sale at 4M cumulative a
     assert.equal(firstBody.sale.gainedEquity, 1);
     assert.equal(firstBody.state.lifetimeEquityEarned, 1);
 
-    // Earn to 4M cumulative in the new company (a normal save from
+    // Earn to 80M cumulative in the new company (a normal save from
     // the post-sale baseline, past the rate limit).
     srv.advance(2000);
     const grown = {
       ...firstBody.state,
-      linesOfCode: 3_000_000,
-      totalLinesOfCode: 4_000_000,
+      linesOfCode: 70_000_000,
+      totalLinesOfCode: 80_000_000,
     };
     const saved = await post(srv.base, "/api/save", {
       playerId,
@@ -520,28 +536,28 @@ test("criterion 2: sale at 1M awards one Equity; a later sale at 4M cumulative a
     const secondBody = await second.json();
     assert.equal(secondBody.sale.gainedEquity, 1);
     assert.equal(secondBody.state.lifetimeEquityEarned, 2);
-    assert.equal(secondBody.state.totalLinesOfCode, 4_000_000);
+    assert.equal(secondBody.state.totalLinesOfCode, 80_000_000);
     assert.equal(secondBody.sale.founderMultiplierAfter, 1.2);
   } finally {
     await srv.stop();
   }
 });
 
-test("criterion 3: selling at 6M awards two Equity and preserves 6M cumulative progress", async () => {
+test("criterion 3: selling at 120M awards two Equity and preserves 120M cumulative progress", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
-      linesOfCode: 6_000_000,
-      totalLinesOfCode: 6_000_000,
+      linesOfCode: 120_000_000,
+      totalLinesOfCode: 120_000_000,
     });
     const res = await sell(srv.base, playerId, pre);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.sale.gainedEquity, 2);
     assert.equal(body.state.lifetimeEquityEarned, 2);
-    assert.equal(body.state.totalLinesOfCode, 6_000_000);
-    assert.equal(body.state.lifetimeLocAtLastSale, 6_000_000);
+    assert.equal(body.state.totalLinesOfCode, 120_000_000);
+    assert.equal(body.state.lifetimeLocAtLastSale, 120_000_000);
   } finally {
     await srv.stop();
   }
@@ -553,7 +569,7 @@ test("criterion 1: spending 200,000 LOC on Quantum To-Do List does not lower lif
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 500_000,
-      totalLinesOfCode: 1_200_000,
+      totalLinesOfCode: 12_000_000,
       money: 100000,
     });
     const entitledBefore = entitledEquity(pre.totalLinesOfCode);
@@ -594,7 +610,7 @@ test("a sale with no new Equity is a 409, and a second sale with a new id and no
     // new production: still nothing to claim.
     const rich = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
     });
     const first = await sell(srv.base, playerId, rich);
     assert.equal(first.status, 200);
@@ -613,7 +629,7 @@ test("criterion 5: simultaneous and retried sale actions grant the reward once",
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
     });
     const saleId = randomUUID();
     // Two simultaneous attempts with the same sale id. In production
@@ -655,20 +671,20 @@ test("criterion 5 (unsaved progress): the sale settles from the sent lifetime LO
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
-    // Stored: 900,000 lifetime LOC (no Equity yet).
+    // Stored: 9,000,000 lifetime LOC (no Equity yet).
     await setState(srv, playerId, {
       linesOfCode: 900_000,
-      totalLinesOfCode: 900_000,
+      totalLinesOfCode: 9_000_000,
     });
-    // Sent: 1,100,000 — 200,000 LOC earned since the last save.
+    // Sent: 11,000,000, 2,000,000 LOC earned since the last save.
     const sent = initialSaveState();
     sent.linesOfCode = 1_100_000;
-    sent.totalLinesOfCode = 1_100_000;
+    sent.totalLinesOfCode = 11_000_000;
     const res = await sell(srv.base, playerId, sent);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.sale.gainedEquity, 1);
-    assert.equal(body.state.totalLinesOfCode, 1_100_000);
+    assert.equal(body.state.totalLinesOfCode, 11_000_000);
   } finally {
     await srv.stop();
   }
@@ -680,7 +696,7 @@ test("criterion 8 (sale + offline): sale then reload settles with no lost or dup
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 4_000_000,
-      totalLinesOfCode: 4_000_000,
+      totalLinesOfCode: 80_000_000,
       money: 500000,
       employees: { intern: 10, junior: 5 },
     });
@@ -693,14 +709,14 @@ test("criterion 8 (sale + offline): sale then reload settles with no lost or dup
     // state: lifetime LOC and claimed Equity intact, company at 0.
     const loaded = await loadState(srv.base, playerId);
     assert.deepEqual(loaded, sold.state);
-    assert.equal(loaded.totalLinesOfCode, 4_000_000);
+    assert.equal(loaded.totalLinesOfCode, 80_000_000);
     assert.equal(loaded.lifetimeEquityEarned, 2);
     assert.equal(loaded.linesOfCode, 0);
 
     // A later normal save validates against the post-sale baseline
     // and grows from it: production after the sale is credited once.
     srv.advance(2000);
-    const grown = { ...loaded, linesOfCode: 500, totalLinesOfCode: 4_000_500 };
+    const grown = { ...loaded, linesOfCode: 500, totalLinesOfCode: 80_000_500 };
     const saved = await post(srv.base, "/api/save", {
       playerId,
       state: grown,
@@ -708,7 +724,7 @@ test("criterion 8 (sale + offline): sale then reload settles with no lost or dup
     });
     assert.equal(saved.status, 200);
     const reloaded = await loadState(srv.base, playerId);
-    assert.equal(reloaded.totalLinesOfCode, 4_000_500);
+    assert.equal(reloaded.totalLinesOfCode, 80_000_500);
     assert.equal(reloaded.lifetimeEquityEarned, 2);
   } finally {
     await srv.stop();
@@ -721,7 +737,7 @@ test("criterion 13: run automation is actually cleared on sale", async () => {
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
       money: 500000,
       employees: { intern: 30, junior: 10, releaseManager: 2 },
       releaseManagerAssignments: {
@@ -782,7 +798,7 @@ test("migration: a save from before prestige shipped backfills to 0 and still va
     // A pre-prestige stored state: the five prestige fields deleted.
     const old = initialSaveState();
     old.linesOfCode = 500_000;
-    old.totalLinesOfCode = 1_500_000;
+    old.totalLinesOfCode = 15_000_000;
     delete old.lifetimeEquityEarned;
     delete old.equitySpent;
     delete old.saleCount;
@@ -795,7 +811,7 @@ test("migration: a save from before prestige shipped backfills to 0 and still va
     srv.advance(2000);
     const current = initialSaveState();
     current.linesOfCode = 500_000;
-    current.totalLinesOfCode = 1_500_000;
+    current.totalLinesOfCode = 15_000_000;
     const saved = await post(srv.base, "/api/save", {
       playerId,
       state: current,
@@ -818,7 +834,7 @@ test("the farm resets on sale: llamas, barn, and discovered types do not survive
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
       money: 2000000,
       farm: {
         owned: true,
@@ -843,7 +859,7 @@ test("normal saves cannot move the Equity books: decreases and sale-only changes
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
     });
     const sold = await sell(srv.base, playerId, pre);
     assert.equal(sold.status, 200);
@@ -891,17 +907,17 @@ test("a sale cannot touch another player's save", async () => {
     const playerB = await mintPlayer(srv.base);
     const preA = await setState(srv, playerA, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
     });
     await setState(srv, playerB, {
       linesOfCode: 2_000_000,
-      totalLinesOfCode: 2_000_000,
+      totalLinesOfCode: 20_000_000,
     });
     const res = await sell(srv.base, playerA, preA);
     assert.equal(res.status, 200);
     const loadedB = await loadState(srv.base, playerB);
     assert.equal(loadedB.linesOfCode, 2_000_000);
-    assert.equal(loadedB.totalLinesOfCode, 2_000_000);
+    assert.equal(loadedB.totalLinesOfCode, 20_000_000);
     assert.equal(loadedB.lifetimeEquityEarned, 0);
   } finally {
     await srv.stop();
@@ -914,7 +930,7 @@ test("malformed sale bodies are 400; unknown players are 404", async () => {
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
     });
     const badId = await post(srv.base, "/api/save/sell", {
       playerId,

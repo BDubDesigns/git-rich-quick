@@ -4,9 +4,10 @@
  * Rendered by SellCompany whenever the post-sale intermission is
  * open (state.prestigeIntermission is non-null). Purchases are
  * available ONLY here, after selling and before starting the next
- * company: six upgrade tracks, ranks bought in order, prices are
- * per rank (not cumulative), no prerequisites between tracks. The
- * total cost of every rank is 87 Equity, and Equity prices are
+ * company: seven upgrade tracks (Funding Rounds, the progression
+ * gate, first), ranks bought in order, prices are per rank (not
+ * cumulative), no prerequisites between tracks. The total cost of
+ * every rank is 622 Equity, and Equity prices are
  * fixed — they are never multiplied by LOC/s.
  *
  * The Starting Capital grant is priced from the FROZEN quote stored
@@ -33,8 +34,22 @@ import { formatMoney } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
 
+/**
+ * Funding Rounds (issue #170): the level caps a round sets, read
+ * from the shared caps so the copy can never drift from the rules.
+ */
+function roundCapsText(rank) {
+  const ranks = { fundingRounds: rank };
+  const name = (id) => shared.OPEN_SOURCE_DISPLAY_NAMES[id] ?? id;
+  const cap = (id) => shared.openSourceLevelCap(id, ranks);
+  return `${name("coffeeScript")}, ${name("juniorAchievement")} and ${name("seniorMoment")} to level ${cap("seniorMoment")}, ${name("scrumMaster")} to ${cap("scrumMaster")}, ${name("commitmentIssues")} to ${cap("commitmentIssues")}`;
+}
+
 /** The effect line for a track at a given total rank. */
 function effectLine(storeId, rank, intermission, money) {
+  if (storeId === "fundingRounds") {
+    return `${shared.fundingRoundName(rank)}: ${roundCapsText(rank)}.`;
+  }
   if (rank < 1) return "Not owned yet.";
   switch (storeId) {
     case "startingCapital": {
@@ -83,6 +98,8 @@ function nextRankLine(storeId, nextRank, intermission, money) {
       return "Rank 1: favorited projects survive the next sale.";
     case "nightShiftContract":
       return "Rank 1: every new company starts with Night Shift level 1.";
+    case "fundingRounds":
+      return `${shared.fundingRoundName(nextRank)} raises the caps: ${roundCapsText(nextRank)}.`;
     default:
       return "";
   }
@@ -121,7 +138,13 @@ export function PermanentStore() {
     try {
       const result = await buyStoreRank(storeId);
       if (!result.ok) {
-        if (result.error === "STORE") {
+        if (result.error === "WIPE") {
+          // Funding Rounds save wipe (issue #170): the engine already
+          // loaded the fresh company the server reset this save to.
+          setStoreError(
+            "This save was reset for the Funding Rounds update. A fresh company is ready for you."
+          );
+        } else if (result.error === "STORE") {
           setStoreError(
             "That purchase is not available. The store may have changed, try again."
           );
@@ -211,6 +234,8 @@ export function PermanentStore() {
           <Panel key={storeId} className="flex flex-col gap-1 p-3">
             <h4 className="m-0 text-sm text-[#cccccc]">
               {config.displayName} · Rank {rank} of {maxRank}
+              {storeId === "fundingRounds" &&
+                ` · ${shared.fundingRoundName(rank)}`}
             </h4>
             <p className="m-0 text-sm">{config.description}</p>
             <p className="m-0 text-sm">
@@ -246,7 +271,9 @@ export function PermanentStore() {
                     onClick={() => handleBuy(storeId)}
                   >
                     {canAfford
-                      ? `Buy rank ${nextRank} for ${price} Equity`
+                      ? storeId === "fundingRounds"
+                        ? `Raise ${shared.fundingRoundName(nextRank)} for ${price} Equity`
+                        : `Buy rank ${nextRank} for ${price} Equity`
                       : `Need ${shortfall} more Equity`}
                   </Button>
                 </div>

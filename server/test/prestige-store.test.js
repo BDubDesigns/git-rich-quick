@@ -200,13 +200,13 @@ async function complete(base, playerId, state) {
  * A pre-sale company with a known healthy rate: 100 interns at 1
  * LOC/s each, no open-source levels, no Founder multiplier, so
  * R = 100. All seven freelance projects unlocked, so the best payout
- * per LOC is Quantum's 21 cents. Lifetime LOC 16,533,977 entitles 4
- * Equity, the same seeded figure as the Slice 1 tests.
+ * per LOC is Quantum's 21 cents. Lifetime LOC 656,533,977 entitles 4
+ * Equity on the cube-root curve (4^3 x 10M = 640M, issue #170).
  */
 function richPreSaleState() {
   const state = initialSaveState();
   state.linesOfCode = 9_792_056;
-  state.totalLinesOfCode = 16_533_977;
+  state.totalLinesOfCode = 656_533_977;
   state.money = 38800;
   state.employees = {
     intern: 100,
@@ -240,8 +240,9 @@ async function sellRichCompany(srv, playerId) {
 
 // --- Pure store math (criteria 18, 19) ---
 
-test("the store totals exactly 87 Equity for all ranks (criterion 18 + issue #149)", () => {
+test("the store totals exactly 622 Equity for all ranks (criterion 18 + issues #149, #170)", () => {
   assert.deepEqual(PRESTIGE_STORE_IDS, [
+    "fundingRounds",
     "startingCapital",
     "keyboard",
     "engineeringHandbook",
@@ -257,9 +258,14 @@ test("the store totals exactly 87 Equity for all ranks (criterion 18 + issue #14
   assert.deepEqual(PRESTIGE_STORE_CONFIG.clientNetwork.rankCosts, [2, 6, 15]);
   assert.deepEqual(PRESTIGE_STORE_CONFIG.companyTemplate.rankCosts, [2]);
   assert.deepEqual(PRESTIGE_STORE_CONFIG.nightShiftContract.rankCosts, [2]);
-  // 85 for the Slice 2 store plus 2 for the Night Shift Contract.
-  assert.equal(storeTotalEquityCost(), 87);
-  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 87);
+  // Funding Rounds (issue #170): five rounds at the locked prices.
+  assert.deepEqual(PRESTIGE_STORE_CONFIG.fundingRounds.rankCosts, [
+    5, 20, 60, 150, 300,
+  ]);
+  // 85 for the Slice 2 store, 2 for the Night Shift Contract, and 535
+  // for Funding Rounds.
+  assert.equal(storeTotalEquityCost(), 622);
+  assert.equal(PRESTIGE_CONFIG.totalStoreEquityCost, 622);
   // Prices are per rank, not cumulative: rank 2 of Starting Capital
   // costs 3, not 1 + 3.
   assert.equal(storeRankCost("startingCapital", 1), 1);
@@ -439,18 +445,19 @@ test("favorites reset on sale unless Company Template is owned (criterion 18)", 
 
 test("store purchase estimates use the target entitlement and the frozen rate (criterion 18)", () => {
   // Shortfall 3 Equity at 4 earned: target entitlement 7, threshold
-  // 49M lifetime LOC; the save has 16,533,977, so 32,466,023 remain;
-  // at the frozen 100 LOC/s that is 324,660.23 seconds.
-  const estimate = storePurchaseEstimate(4, 16_533_977, 3, 100);
+  // 7^3 x 10M = 3.43B lifetime LOC; the save has 656,533,977, so
+  // 2,773,466,023 remain; at the frozen 100 LOC/s that is
+  // 27,734,660.23 seconds.
+  const estimate = storePurchaseEstimate(4, 656_533_977, 3, 100);
   assert.equal(estimate.targetEntitlement, 7);
-  assert.equal(estimate.remainingLoc, 32_466_023);
-  assert.ok(Math.abs(estimate.seconds - 324660.23) < 1e-9);
+  assert.equal(estimate.remainingLoc, 2_773_466_023);
+  assert.ok(Math.abs(estimate.seconds - 27734660.23) < 1e-6);
   // The target is already entitled but unclaimed: no earning time.
-  const entitled = storePurchaseEstimate(4, 16_533_977, 0, 100);
+  const entitled = storePurchaseEstimate(4, 656_533_977, 0, 100);
   assert.equal(entitled.remainingLoc, 0);
   assert.equal(entitled.seconds, 0);
   // No production: the estimate cannot be a duration.
-  const noRate = storePurchaseEstimate(4, 16_533_977, 3, 0);
+  const noRate = storePurchaseEstimate(4, 656_533_977, 3, 0);
   assert.equal(noRate.seconds, null);
 });
 
@@ -461,6 +468,7 @@ test("old saves backfill the store fields and keep validating (criterion 18)", (
   delete old.favoriteOpenSourceProjects;
   const normalized = normalizeSaveState(old);
   assert.deepEqual(normalized.permanentStoreRanks, {
+    fundingRounds: 0,
     startingCapital: 0,
     keyboard: 0,
     engineeringHandbook: 0,
@@ -758,7 +766,7 @@ test("store ranks persist across a second sale; the new quote uses the new compa
   // is 200 x 1.4 = 280, not 200: R includes permanent bonuses.
   const grown = {
     ...body.state,
-    totalLinesOfCode: 25_000_000,
+    totalLinesOfCode: 1_250_000_000,
     employees: {
       intern: 200,
       junior: 0,
@@ -778,7 +786,7 @@ test("store ranks persist across a second sale; the new quote uses the new compa
   res = await sell(srv.base, playerId, grown);
   assert.equal(res.status, 200);
   body = await res.json();
-  // 25M lifetime LOC entitles 5 Equity; 4 were earned, so 1 more.
+  // 1.25B lifetime LOC entitles 5 Equity (5^3 x 10M); 4 were earned, so 1 more.
   assert.equal(body.state.lifetimeEquityEarned, 5);
   assert.equal(body.state.permanentStoreRanks.keyboard, 1);
   assert.equal(
@@ -806,6 +814,7 @@ test("a pre-store save backfills the store fields on save (criterion 18)", async
   assert.equal(loaded.favoriteOpenSourceProjects, undefined);
   const backfilled = normalizeSaveState(loaded);
   assert.deepEqual(backfilled.permanentStoreRanks, {
+    fundingRounds: 0,
     startingCapital: 0,
     keyboard: 0,
     engineeringHandbook: 0,

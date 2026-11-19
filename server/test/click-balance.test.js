@@ -11,12 +11,15 @@
  * - OverReact: 10 levels, whole click multipliers 2, 3, 4, 5, 7, 10,
  *   14, 20, 28, 40 (about 1.4x per level); costs from L3 on climb in
  *   step with the power.
- * - Commitment Issues: 20 levels, 2x power each, every cost step at
- *   or above 2x (no runaway).
- * - Commit Specialist ($4,000 at 1.1x) and the passive tracks are
- *   unchanged.
- * - The invariant is pinned at representative stages by the same
- *   stage model the numbers were derived from.
+ * - Commitment Issues: 16 levels since Funding Rounds (issue #170),
+ *   2x power each, every cost step at or above 2x (no runaway).
+ * - Commit Specialist ($4,000 at 1.1x) is unchanged.
+ * - The invariant is pinned twice: by the #160 affordability model in
+ *   the early first company (before any round cap binds), and at every
+ *   Funding Round's plateau (issue #170), where click at 10 clicks/s
+ *   must sit between 0.8x and 1.3x passive. Click doubles per
+ *   Commitment Issues level while passive grows 1.4x per track level,
+ *   so the round caps are what hold that band.
  */
 
 import test from "node:test";
@@ -24,12 +27,15 @@ import assert from "node:assert/strict";
 import {
   BALANCE,
   COMMITMENT_ISSUES_LEVELS,
-  DOUBLING_PROJECT_IDS,
   bestCentsPerLoc,
   clickBonus,
   doublingMultiplier,
   employeeCost,
+  founderMultiplier,
+  fundingRoundName,
   locPerClick,
+  locPerSecond,
+  openSourceLevelCap,
   openSourceLevelCosts,
 } from "../../shared/game-balance.js";
 
@@ -67,17 +73,17 @@ test("OverReact: costs, with L1 and L2 kept as the cheap bootstrap and the rest 
   }
 });
 
-test("Commitment Issues: 20 levels, 2x power each, every cost step at least 2x", () => {
-  assert.equal(ciLevels.length, 20);
-  assert.equal(COMMITMENT_ISSUES_LEVELS.count, 20);
+test("Commitment Issues: 16 levels, 2x power each, every cost step at least 2x (issue #170)", () => {
+  assert.equal(ciLevels.length, 16);
+  assert.equal(COMMITMENT_ISSUES_LEVELS.count, 16);
   const costs = ciLevels.map((l) => l.locCost);
   assert.deepEqual(costs, [...COMMITMENT_ISSUES_LEVELS.costs]);
   assert.equal(costs[0], 460_000);
-  assert.equal(costs.at(-1), 1_800_000_000_000);
+  assert.equal(costs.at(-1), 95_000_000_000);
   for (const level of ciLevels) {
-    assert.deepEqual({ ...level.bonus }, { type: "DOUBLE", value: 2 });
+    assert.deepEqual({ ...level.bonus }, { type: "MULTIPLY", value: 2 });
   }
-  for (let l = 1; l <= 20; l += 1) {
+  for (let l = 1; l <= 16; l += 1) {
     assert.equal(
       doublingMultiplier("commitSpecialist", { commitmentIssues: l }) /
         doublingMultiplier("commitSpecialist", { commitmentIssues: l - 1 }),
@@ -105,22 +111,9 @@ test("Commit Specialist stays $4,000 at 1.1x, +0.2 LOC per click, same unlock", 
   );
 });
 
-test("click track only: the five passive doubling tracks keep 10 levels at 2x cost", () => {
-  const bases = {
-    coffeeScript: 100000,
-    juniorAchievement: 250000,
-    seniorMoment: 500000,
-    scrumMaster: 1000000,
-    shipHappens: 2000000,
-  };
-  for (const id of DOUBLING_PROJECT_IDS.filter((x) => x !== "commitmentIssues")) {
-    const levels = BALANCE.openSource[id].levels;
-    assert.equal(levels.length, 10, id);
-    levels.forEach((level, i) => {
-      assert.equal(level.locCost, bases[id] * 2 ** i, `${id} L${i + 1}`);
-      assert.deepEqual({ ...level.bonus }, { type: "DOUBLE", value: 2 });
-    });
-  }
+test("Funding Rounds leaves OverReact and Blocker ungated and unchanged", () => {
+  assert.equal(openSourceLevelCap("overReactFramework", {}), 10);
+  assert.equal(openSourceLevelCap("blocker", {}), 5);
   assert.deepEqual(
     BALANCE.openSource.blocker.levels.map((l) => l.bonus.value),
     [0.5, 1, 1.5, 2, 2.5]
@@ -170,17 +163,90 @@ test("the stage model reproduces Brandon's live save: 5 Specialists at 533 LOC/s
   assert.equal((10 * Math.floor((1 + 0.2 * 5) * 128)) / 533 > 4.79, true);
 });
 
-test("invariant: click at 10 clicks/s roughly matches passive (0.5x to 2x) at every stage", () => {
-  const stages = [20, 50, 100, 200, 533, 1e3, 3e3, 1e4, 3e4, 1e5, 3e5, 1e6, 1e7, 1e8, 1e9, 1e10];
+test("invariant: click at 10 clicks/s roughly matches passive (0.5x to 2x) through the early first company", () => {
+  // Up to 200K LOC/s no round cap binds: the Bootstrapped Commitment
+  // Issues cap is L6 (43M LOC), which 3 minutes of passive first
+  // affords at about 239K LOC/s. Past that, the round plateaus below
+  // are the invariant.
+  const stages = [20, 50, 100, 200, 533, 1e3, 3e3, 1e4, 3e4, 1e5, 2e5];
   for (const P of stages) {
     const s = stage(P);
+    assert.ok(s.commitment <= openSourceLevelCap("commitmentIssues", {}), `P ${P}: CI L${s.commitment}`);
     assert.ok(s.ratio >= 0.5 && s.ratio <= 2, `P ${P}: ratio ${s.ratio.toFixed(2)} (OR L${s.overReact}, CI L${s.commitment}, ${s.specialists} CS)`);
   }
-  // And on a fine log grid from 20 LOC/s to 10 billion, no stage breaks it.
-  for (let e = Math.log10(20); e <= 10; e += 0.05) {
+  // And on a fine log grid from 20 LOC/s to 200K, no stage breaks it.
+  for (let e = Math.log10(20); e <= Math.log10(2e5); e += 0.05) {
     const s = stage(10 ** e);
     assert.ok(s.ratio >= 0.5 && s.ratio <= 2, `P ${(10 ** e).toPrecision(3)}: ${s.ratio.toFixed(2)}`);
   }
+});
+
+/**
+ * Funding Rounds plateaus (issue #170). Each is the end of a round in
+ * the balanced-player simulation run on these exact formulas (active
+ * profile, the one the proposal's stage table reports): every gated
+ * track at its round cap, OverReact 10, Blocker 5, Ship Happens 10, and
+ * the employee counts the simulated player owned when it ran out of
+ * upgrades worth buying. `passive` is the healthy rate at a 1x permanent
+ * multiplier; the simulated buffed plateaus (Founder, achievements,
+ * Handbook in) were about 1.3M, 17.5M, 213M, 1.28B, 5.7B and 22B LOC/s.
+ */
+const ROUND_PLATEAUS = [
+  { intern: 124, junior: 81, senior: 59, projectManager: 53, commitSpecialist: 82, releaseManager: 15 },
+  { intern: 153, junior: 101, senior: 74, projectManager: 69, commitSpecialist: 109, releaseManager: 15 },
+  { intern: 177, junior: 118, senior: 87, projectManager: 82, commitSpecialist: 133, releaseManager: 15 },
+  { intern: 195, junior: 130, senior: 96, projectManager: 91, commitSpecialist: 152, releaseManager: 15 },
+  { intern: 210, junior: 140, senior: 104, projectManager: 99, commitSpecialist: 168, releaseManager: 65 },
+  { intern: 223, junior: 149, senior: 111, projectManager: 106, commitSpecialist: 183, releaseManager: 109 },
+];
+
+/** Every gated track at the cap of `round`, the ungated tracks maxed. */
+function plateauLevels(round) {
+  const ranks = { fundingRounds: round };
+  const levels = { overReactFramework: 10, blocker: 5, shipHappens: 10 };
+  for (const id of ["coffeeScript", "juniorAchievement", "seniorMoment", "scrumMaster", "commitmentIssues"]) {
+    levels[id] = openSourceLevelCap(id, ranks);
+  }
+  return levels;
+}
+
+test("invariant (issue #170): at every Funding Round's plateau, click at 10 clicks/s is 0.8x to 1.3x passive", () => {
+  const ratios = ROUND_PLATEAUS.map((employees, round) => {
+    const ranks = { fundingRounds: round };
+    const levels = plateauLevels(round);
+    const passive = locPerSecond(employees, levels, 1, ranks);
+    const click = locPerClick(levels, employees, 1, 1, ranks);
+    const ratio = (10 * click) / passive;
+    assert.ok(
+      ratio >= 0.8 && ratio <= 1.3,
+      `${fundingRoundName(round)}: click ${click} x 10 vs passive ${passive} = ${ratio.toFixed(3)}`
+    );
+    return ratio;
+  });
+  assert.equal(ratios.length, 6);
+  // The permanent multipliers (Founder, achievements, Handbook) apply
+  // to click and passive alike, so the band holds at any of them: the
+  // Series B plateau at the Founder multiplier it is played at (6.58x
+  // at 287 Equity) and a full Handbook reads the same ratio.
+  const round = 3;
+  const levels = plateauLevels(round);
+  const ranks = { fundingRounds: round, engineeringHandbook: 3 };
+  const buffed = founderMultiplier(287) * 3.3;
+  const ratio =
+    (10 * locPerClick(levels, ROUND_PLATEAUS[round], 1, buffed, ranks)) /
+    locPerSecond(ROUND_PLATEAUS[round], levels, buffed, ranks);
+  assert.ok(Math.abs(ratio - ratios[round]) < 1e-3, `${ratio} vs ${ratios[round]}`);
+});
+
+test("invariant (issue #170): without the round caps, click would run away from passive", () => {
+  // The caps are what hold the band: the Series A plateau with
+  // Commitment Issues at L16 instead of its round cap (L10) clicks far
+  // above passive.
+  const employees = ROUND_PLATEAUS[2];
+  const levels = { ...plateauLevels(2), commitmentIssues: 16 };
+  const ratio =
+    (10 * locPerClick(levels, employees)) / locPerSecond(employees, levels);
+  assert.ok(ratio > 10, ratio.toFixed(1));
 });
 
 test("invariant: Brandon's stage now clicks at about 1.5x passive, not 4.8x", () => {
@@ -190,11 +256,11 @@ test("invariant: Brandon's stage now clicks at about 1.5x passive, not 4.8x", ()
   assert.ok(s.ratio <= 1.6, s.ratio.toFixed(2));
 });
 
-test("a full click build: 25 Commit Specialists, OverReact 10, Commitment Issues 20; no NaN", () => {
-  // floor((1 + 0.2 x 25 x 2^20) x 40)
+test("a full click build: 25 Commit Specialists, OverReact 10, Commitment Issues 16; no NaN", () => {
+  // floor((1 + 0.2 x 25 x 2^16) x 40)
   assert.equal(
-    locPerClick({ overReactFramework: 10, commitmentIssues: 20 }, { commitSpecialist: 25 }),
-    Math.floor((1 + 0.2 * 25 * 2 ** 20) * 40 + 1e-9)
+    locPerClick({ overReactFramework: 10, commitmentIssues: 16 }, { commitSpecialist: 25 }),
+    Math.floor((1 + 0.2 * 25 * 2 ** 16) * 40 + 1e-9)
   );
   assert.equal(locPerClick({}, {}), 1);
   assert.equal(locPerClick({ overReactFramework: 10 }, undefined), 40);

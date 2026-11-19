@@ -861,9 +861,14 @@ function gameReducer(state, action) {
       const projectState = state.openSourceProjects[projectId];
       const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
 
-      // check if there is a next level
-      if (projectState.level >= projectConfig.levels.length) {
-        return state; // already max level, return state unchanged
+      // check if there is a next level the owned Funding Round allows
+      // (issue #170): a gated track stops at the round's cap, and the
+      // server rejects a save above it, so the buy is refused here.
+      if (
+        projectState.level >=
+        shared.openSourceLevelCap(projectId, state.permanentStoreRanks)
+      ) {
+        return state; // at the cap, return state unchanged
       }
 
       // check if project is unlocked

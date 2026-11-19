@@ -23,6 +23,7 @@ import {
   FARM_CONFIG,
   FREELANCE_PROJECT_DISPLAY_NAMES,
   OPEN_SOURCE_DISPLAY_NAMES,
+  openSourceNextLevelNeedsRound,
   UNLOCK_VISIBILITY_THRESHOLD,
 } from "../../../shared/game-balance.js";
 
@@ -241,19 +242,33 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
  * non-maxed projects: a favorited project the player is working on
  * stays at the top of the list. Maxed projects still sink, even when
  * favorited — there is nothing left to buy there.
+ *
+ * Funding Rounds (issue #170): a gated track at its round's cap (but
+ * not at the end of the track) has nothing to buy this company
+ * either, so it sits between the buyable projects and the maxed ones.
  */
 export function sortOpenSourceProjectIds(projectIds, state) {
   const maxed = new Set();
+  const roundCapped = new Set();
   for (const id of projectIds) {
     const level = state.openSourceProjects?.[id]?.level ?? 0;
     const levelCount = BALANCE.openSource[id]?.levels?.length ?? 0;
     if (levelCount > 0 && level >= levelCount) maxed.add(id);
+    else if (
+      level > 0 &&
+      openSourceNextLevelNeedsRound(id, level, state.permanentStoreRanks)
+    ) {
+      roundCapped.add(id);
+    }
   }
   const favorites = new Set(state.favoriteOpenSourceProjects ?? []);
-  const active = projectIds.filter((id) => !maxed.has(id));
+  const active = projectIds.filter(
+    (id) => !maxed.has(id) && !roundCapped.has(id)
+  );
   return [
     ...active.filter((id) => favorites.has(id)),
     ...active.filter((id) => !favorites.has(id)),
+    ...projectIds.filter((id) => roundCapped.has(id)),
     ...projectIds.filter((id) => maxed.has(id)),
   ];
 }

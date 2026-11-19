@@ -168,7 +168,7 @@ test("derive: the progress fields the issue lists", () => {
   assert.equal(progress.doublingRanks.commitmentIssues, 4);
   assert.equal(progress.doublingRanks.coffeeScript, 0);
   assert.equal(progress.openSourceLevels.overReactFramework, 9);
-  assert.equal(progress.maxOpenSourceLevels.commitmentIssues, 20);
+  assert.equal(progress.maxOpenSourceLevels.commitmentIssues, 16);
   assert.equal(progress.saleCount, 2);
   assert.equal(progress.lifetimeEquityEarned, 3);
   assert.equal(progress.achievementTiers.legacyCode, 2);
@@ -272,7 +272,7 @@ test("every sale records the pre-sale state alongside the save snapshots", async
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
-    const pre = progressState({ money: 2_000_000 });
+    const pre = progressState({ money: 2_000_000, totalLinesOfCode: 10_000_000 });
     await setState(srv, playerId, pre);
     srv.advance(5000);
     assert.equal((await save(srv, playerId, pre)).status, 200);
@@ -404,7 +404,7 @@ test("store buys and intermission completions are accepted saves too, so they sn
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
-    const pre = progressState({ totalLinesOfCode: 16_533_977 });
+    const pre = progressState({ totalLinesOfCode: 640_000_000 });
     await setState(srv, playerId, pre);
     srv.advance(5000);
     let res = await post(srv.base, "/api/save/sell", { playerId, saleId: randomUUID(), state: pre, actionsSinceLastSave: zeroActions() });

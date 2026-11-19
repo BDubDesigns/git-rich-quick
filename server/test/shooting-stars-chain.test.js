@@ -4,7 +4,8 @@
  * Clicking a Shooting Stars star is chain click 1 and pays 7x LOC/s;
  * each next chain click pays 10x the previous plus 7x LOC/s (7, 77,
  * 777, 7777). The chain ends when a chain star is missed (UI timer),
- * the next payout would exceed 6 hours of production or half the LOC on
+ * the next payout would exceed 1 hour of production (6 before issue
+ * #170) or half the LOC on
  * hand, or on a 1% roll. Always good. One email per chain, when it
  * ends; no per-click Shooting Stars mail. Rarity unchanged (L5, weight 5).
  */
@@ -41,7 +42,7 @@ test("the chain config matches the issue", () => {
     stepLocPerSecondMultiple: 7,
     spawnDelaySeconds: 3,
     lifetimeSeconds: 6,
-    capHoursOfProduction: 6,
+    capHoursOfProduction: 1,
     capBankFraction: 0.5,
     randomEndChance: 0.01,
   });
@@ -85,16 +86,19 @@ test("the Shooting Stars star is chain click 1: always good, LOC only, no Lucky 
   });
 });
 
-test("the 6-hour cap ends a chain after about 4 clicks with a deep bank", () => {
+test("the 1-hour cap ends a chain after 3 clicks (7, 77, 777) with a deep bank (issue #170)", () => {
   const rate = 100;
   const bank = 1e15;
-  for (const step of [1, 2, 3]) {
+  for (const step of [1, 2]) {
     const v = shootingStarsChainContinues({ step, locPerSecond: rate, linesOfCode: bank, rng: never });
     assert.equal(v.continues, true, `step ${step}`);
   }
-  // Next would be 77777x > 21600x (6 hours).
-  const v = shootingStarsChainContinues({ step: 4, locPerSecond: rate, linesOfCode: bank, rng: never });
-  assert.deepEqual(v, { continues: false, reason: "cap", nextPayout: 7_777_700 });
+  // Next would be 7777x > 3600x (1 hour).
+  const v = shootingStarsChainContinues({ step: 3, locPerSecond: rate, linesOfCode: bank, rng: never });
+  assert.deepEqual(v, { continues: false, reason: "cap", nextPayout: 777_700 });
+  // A full chain now pays 7 + 77 + 777 = 861 seconds of production.
+  const paid = [1, 2, 3].reduce((sum, step) => sum + shootingStarsChainMultiple(step), 0);
+  assert.equal(paid, 861);
 });
 
 test("the chain ends when the next payout would exceed half the LOC on hand", () => {
