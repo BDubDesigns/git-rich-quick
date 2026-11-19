@@ -2,6 +2,7 @@ import { calculateLOCPerClick } from "../context/gameLogic";
 import { useGameContext } from "../context/useGameContext";
 import { HiMiniCodeBracket } from "react-icons/hi2";
 import { KeyPressButton } from "./KeyPressButton";
+import { formatNumber } from "../../../shared/formatNumber.js";
 
 /**
  * ClickButton component that dispatches a WRITE_CODE action when clicked.
@@ -32,7 +33,7 @@ export function ClickButton() {
   return (
     <KeyPressButton
       onClick={handleClick}
-      floatText={`+${locPerClick}`}
+      floatText={`+${formatNumber(locPerClick)}`}
       icon={<HiMiniCodeBracket size={20} />}
       variant="green"
     >
