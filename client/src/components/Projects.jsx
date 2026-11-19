@@ -4,6 +4,7 @@ import {
   isFreelanceProjectUnlocked,
   getUnlockProgressForFreelanceProject,
   hasCrossedUnlockThreshold,
+  getReleaseManagerEconomics,
 } from "../context/gameLogic";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { ProjectCard } from "./ProjectCard.jsx";
@@ -16,6 +17,16 @@ export function Projects() {
     dispatch({
       type: "COMPLETE_PROJECT",
       payload: { projectKey },
+    });
+  };
+
+  // Release Manager assignments (issue #163) live on the project cards.
+  const managersOwned = state.employees.releaseManager?.count ?? 0;
+  const rmEconomics = getReleaseManagerEconomics(state);
+  const setAssignment = (projectKey, count) => {
+    dispatch({
+      type: "SET_RELEASE_MANAGER_ASSIGNMENT",
+      payload: { projectKey, count },
     });
   };
 
@@ -58,6 +69,15 @@ export function Projects() {
               canComplete={canComplete}
               completionCount={
                 state.freelanceProjectsCompleted[projectKey] || 0
+              }
+              releaseManager={
+                managersOwned > 0
+                  ? {
+                      ...rmEconomics.perProject[projectKey],
+                      unassigned: rmEconomics.unassigned,
+                      onChange: (count) => setAssignment(projectKey, count),
+                    }
+                  : null
               }
             />
           );

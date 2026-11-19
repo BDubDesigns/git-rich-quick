@@ -546,3 +546,21 @@ export function getEmployeeBulkCost(employeeType, state, quantity) {
     .employeePurchaseCosts(employeeType, employee.count, quantity)
     .reduce((sum, cost) => sum + cost, 0);
 }
+
+/**
+ * Release Manager shipping economics for the current state (issue
+ * #163): passive LOC/s in (the buffed healthy rate, star buffs
+ * excluded), the managers' intended LOC/s out and cash/s, the net, the
+ * unassigned count, and the per-project breakdown. The math lives in
+ * shared.releaseManagerShippingEconomics; this only gathers the inputs.
+ */
+export function getReleaseManagerEconomics(state) {
+  return shared.releaseManagerShippingEconomics({
+    assignments: state.releaseManagerAssignments ?? {},
+    managersOwned: state.employees?.releaseManager?.count ?? 0,
+    passiveLocPerSecond: getBaseLocPerSecond(state),
+    unlockedProjects: state.unlockedFreelanceProjects ?? {},
+    openSourceLevels: flatOpenSourceLevels(state),
+    permanentStoreRanks: state.permanentStoreRanks ?? {},
+  });
+}
