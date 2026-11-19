@@ -126,10 +126,13 @@ export function SellCompany() {
   // 1"). Empty when nothing is owned.
   const ownedStoreLines = shared.PRESTIGE_STORE_IDS.filter(
     (storeId) => ((state.permanentStoreRanks ?? {})[storeId] ?? 0) > 0
-  ).map(
-    (storeId) =>
-      `${shared.PRESTIGE_STORE_CONFIG[storeId].displayName} rank ${(state.permanentStoreRanks ?? {})[storeId]}`
-  );
+  ).map((storeId) => {
+    const rank = (state.permanentStoreRanks ?? {})[storeId];
+    // Funding Rounds (issue #170) reads as the round, not a rank number.
+    return storeId === "fundingRounds"
+      ? `${shared.PRESTIGE_STORE_CONFIG[storeId].displayName}: ${shared.fundingRoundName(rank)}`
+      : `${shared.PRESTIGE_STORE_CONFIG[storeId].displayName} rank ${rank}`;
+  });
 
   // SUBTRACTERALL framing (issue #150): the reskin's words, never
   // "dose" in the Overtime framing.
@@ -177,6 +180,12 @@ export function SellCompany() {
       } else if (result.error === "SALE") {
         setSaleError(
           "No new Equity to claim yet. Keep building and try again."
+        );
+      } else if (result.error === "WIPE") {
+        // Funding Rounds save wipe (issue #170): the server reset an
+        // old-schema save and the engine already loaded the fresh one.
+        setSaleError(
+          "This save was reset for the Funding Rounds update. A fresh company is ready for you."
         );
       } else if (result.error === "network") {
         setSaleError(

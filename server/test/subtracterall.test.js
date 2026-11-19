@@ -380,7 +380,7 @@ test("clicks through the phase: burst 3x, withdrawal floor(multiplier x click), 
 test("the use count resets on sale: the next company starts at use 1", () => {
   const pre = {
     ...initialSaveState(),
-    totalLinesOfCode: 1_000_000,
+    totalLinesOfCode: 10_000_000,
     linesOfCode: 1_000_000,
     subtracterall: subWith({ uses: 7 }),
   };
@@ -394,7 +394,7 @@ test("the use count resets on sale: the next company starts at use 1", () => {
 test("a sale mid-withdrawal keeps the withdrawal and its terms; the count still resets", () => {
   const pre = {
     ...initialSaveState(),
-    totalLinesOfCode: 1_000_000,
+    totalLinesOfCode: 10_000_000,
     linesOfCode: 1_000_000,
     subtracterall: subWith({ phase: "withdrawal", phaseRemainingSeconds: 200, uses: 4, activeUse: 4 }),
   };
@@ -415,7 +415,7 @@ test("criterion 9 (server): selling during withdrawal returns the surviving phas
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
       subtracterall: subWith({ phase: "withdrawal", phaseRemainingSeconds: 150.5, uses: 2, activeUse: 2 }),
     });
     const res = await sell(srv.base, playerId, pre);
@@ -613,6 +613,7 @@ test("shape: an invalid phase, count, or remaining time is rejected", async () =
 
 test("the store never offers anything that softens SUBTRACTERALL", () => {
   assert.deepEqual(PRESTIGE_STORE_IDS, [
+    "fundingRounds",
     "startingCapital",
     "keyboard",
     "engineeringHandbook",

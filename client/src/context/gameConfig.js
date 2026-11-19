@@ -391,9 +391,9 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     description:
       "Why wait for the sky to gamble for you? Burn 30 seconds of passive LOC and launch a red star on demand. It shares the StarBroker timer, so every cooldown you choose: the safe gold star or the moonshot. Each level halves the wait.",
   },
-  // Doubling upgrades (issue #118): one leveled project per employee
-  // type, 10 levels each. Every level doubles that type's output.
-  // Commitment Issues has 20 levels (issue #151); the rest have 10.
+  // Track upgrades (issue #118, retuned in #170): one leveled project
+  // per employee type. The numbers live in shared BALANCE; higher
+  // levels of five of them are gated by Funding Rounds.
   coffeeScript: {
     // Levels (and unlock conditions) come from shared.
     ...shared.BALANCE.openSource.coffeeScript,
@@ -401,7 +401,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     icon: FaCoffee,
     color: "orange",
     description:
-      "Interns run on coffee. This is not a metaphor, it is a dependency. Each level doubles what your Interns produce, because a caffeinated Intern is a productive Intern.",
+      "Interns run on coffee. This is not a metaphor, it is a dependency. Each level makes your Interns produce 1.4x more, because a caffeinated Intern is a productive Intern.",
   },
   juniorAchievement: {
     // Levels (and unlock conditions) come from shared.
@@ -410,7 +410,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     icon: FaMedal,
     color: "green",
     description:
-      "A trophy case for Juniors who shipped something that actually worked. Each level doubles what your Juniors produce. The trophy is real. The achievement is debatable.",
+      "A trophy case for Juniors who shipped something that actually worked. Each level makes your Juniors produce 1.4x more. The trophy is real. The achievement is debatable.",
   },
   seniorMoment: {
     // Levels (and unlock conditions) come from shared.
@@ -419,7 +419,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     icon: FaHourglassHalf,
     color: "purple",
     description:
-      "Seniors have seen it all, forgotten most of it, and still ship twice as fast. Each level doubles what your Seniors produce. Do not ask them how. They will tell you anyway.",
+      "Seniors have seen it all, forgotten most of it, and still ship twice as fast. Each level makes your Seniors produce 1.4x more. Do not ask them how. They will tell you anyway.",
   },
   scrumMaster: {
     // Levels (and unlock conditions) come from shared.
@@ -428,7 +428,7 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     icon: FaUsers,
     color: "blue",
     description:
-      "A Project Manager who actually removes blockers instead of adding meetings. Each level doubles the passive boost every Project Manager gives.",
+      "A Project Manager who actually removes blockers instead of adding meetings. Each level adds another 1% to the passive boost every Project Manager gives.",
   },
   commitmentIssues: {
     // Levels (and unlock conditions) come from shared.

@@ -366,7 +366,7 @@ test("selling resets Moonshot and Launch Pad but keeps the gold star count", () 
     levels: { constellation: 3, moonshot: 1, launchPad: 4 },
     goldStars: 40,
   });
-  pre.totalLinesOfCode = 4_000_000;
+  pre.totalLinesOfCode = 80_000_000;
   pre.unlockedOpenSourceProjects = {
     ...pre.unlockedOpenSourceProjects,
     constellation: true,

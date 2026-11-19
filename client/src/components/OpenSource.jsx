@@ -2,6 +2,11 @@ import { useGameContext } from "../context/useGameContext";
 import { OPEN_SOURCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import { isOpenSourceProjectUnlocked } from "../context/gameLogic";
 import {
+  fundingRoundName,
+  fundingRoundRankForLevel,
+  openSourceNextLevelNeedsRound,
+} from "../../../shared/game-balance.js";
+import {
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
   sortOpenSourceProjectIds,
@@ -80,7 +85,20 @@ export function OpenSource() {
       const nextLevelConfig = !isMaxed ? config.levels[currentLevel] : null;
       const nextBonus = nextLevelConfig?.bonus;
       const locCost = nextLevelConfig?.locCost;
-      const canContribute = !isMaxed && state.linesOfCode >= locCost;
+      // Funding Rounds (issue #170): the next level may exist but sit
+      // above the owned round's cap; the card shows the round it needs.
+      const needsRound =
+        !isMaxed &&
+        openSourceNextLevelNeedsRound(
+          id,
+          currentLevel,
+          state.permanentStoreRanks
+        );
+      const lockedRoundName = needsRound
+        ? fundingRoundName(fundingRoundRankForLevel(id, currentLevel + 1))
+        : null;
+      const canContribute =
+        !isMaxed && !needsRound && state.linesOfCode >= locCost;
 
       return {
         isMaxed,
@@ -100,6 +118,7 @@ export function OpenSource() {
               id
             )}
             onToggleFavorite={() => handleToggleFavorite(id)}
+            lockedRoundName={lockedRoundName}
           />
         ),
       };

@@ -236,7 +236,7 @@ test("the report mail has no em dash and says how long the shift ran", () => {
 // --- Sale reset and the store rank ---
 
 test("a sale resets Night Shift to 0, like every other upgrade", () => {
-  const pre = company({ nightShiftLevel: 5, totalLinesOfCode: 4_000_000 });
+  const pre = company({ nightShiftLevel: 5, totalLinesOfCode: 80_000_000 });
   const post = applyPrestigeSale(pre, randomUUID());
   assert.equal(post.nightShiftLevel, 0);
   // Without the Night Shift Contract the new company starts at 0.
@@ -253,7 +253,7 @@ test("the Night Shift Contract: one rank, 2 Equity, starts every new company at 
   assert.equal(nightShiftStartLevel(undefined), 0);
   assert.equal(nightShiftStartLevel({ nightShiftContract: Number.NaN }), 0);
 
-  const pre = company({ nightShiftLevel: 4, totalLinesOfCode: 4_000_000 });
+  const pre = company({ nightShiftLevel: 4, totalLinesOfCode: 80_000_000 });
   pre.permanentStoreRanks = { ...pre.permanentStoreRanks, nightShiftContract: 1 };
   const post = applyPrestigeSale(pre, randomUUID());
   // The sale itself resets to 0; the rank applies at company start.
@@ -465,8 +465,8 @@ test("server: sell, buy the Night Shift Contract, start the next company at leve
   const srv = await startTestServer();
   try {
     const playerId = await mint(srv);
-    // Enough lifetime LOC for 4 Equity (16M), so 2 are spendable.
-    const pre = company({ nightShiftLevel: 3, totalLinesOfCode: 16_533_977 });
+    // Enough lifetime LOC for 4 Equity (640M on the cube-root curve), so 2 are spendable.
+    const pre = company({ nightShiftLevel: 3, totalLinesOfCode: 640_000_000 });
     await store(srv, playerId, pre);
     srv.advance(2000);
     let res = await post(srv.base, "/api/save/sell", {

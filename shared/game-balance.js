@@ -278,35 +278,116 @@ export function resolveMoonshotClaim({
 }
 
 /**
- * Doubling levels for one employee type (issue #118): every level
- * doubles that type's output. The bonus is { type: "DOUBLE", value: 2 }
- * at every level: a multiplier, not an additive bonus, so
- * totalBonusByType never sums it (the doubling multiplier is read by
- * doublingMultiplier below, not by the CLICK_BOOST / PASSIVE_BOOST
- * sums).
+ * ===== Funding Rounds (issue #170, design in #169) =====
  *
- * The default is the passive tracks' curve: 10 levels, level i+1
- * costs base x 2^i. The click track (issue #151) passes more levels
- * and a slower cost step: the power still doubles every level, but
- * the cost grows by less than 2x, so a click upgrade comes around
- * more often. A cost that is not already whole is rounded to the
- * nearest `costRounding` LOC so the shop shows clean prices. Costs
- * stay far below the float-precision limit.
+ * The progression gate. The upgrade tracks below are capped by the
+ * Funding Rounds rank (a permanent store track bought with Equity,
+ * PRESTIGE_STORE_CONFIG.fundingRounds): each round raises the caps,
+ * so the game extends to higher numbers behind Equity instead of
+ * inflating one company. The rank survives every sale; the levels it
+ * unlocks still reset on sale like every other upgrade, and each new
+ * company re-buys them.
+ *
+ * - roundNames: locked by Brandon (Nov 19).
+ * - rankCosts: the Equity price of each round, locked (5 / 20 / 60 /
+ *   150 / 300). With the 87-Equity store the whole store is 622.
+ * - passiveTrackMultiplier / passiveTrackCostGrowth: the Intern,
+ *   Junior and Senior tracks give 1.4x per level (was 2x) and cost
+ *   2.5x the previous level (was 2x). 21 levels at 1.4x is 1,171x,
+ *   about where the old 10-level track ended (1,024x), spread over
+ *   five gates. A round adds 3 levels (1.4^3 = 2.7x), and three cost
+ *   steps (2.5^3 = 15.6x) outrun the whole round's growth, so each new
+ *   level costs a little more time than the last.
+ * - scrumMasterBoostPerLevel: Scrum Master is LINEAR now, not a
+ *   doubler: the per-manager boost is 1% x (1 + level). It used to
+ *   double a term that already multiplied the whole passive rate.
+ * - levelCaps: the highest level each gated track can reach, indexed
+ *   by Funding Rounds rank (0 = Bootstrapped, no round bought). The
+ *   last cap is the track's full length. Ship Happens, Blocker,
+ *   OverReact and the star projects are not gated.
+ *
+ * Price as time: in the balanced-player simulation the new levels of
+ * a round cost 2 to 5 minutes of production early and up to about an
+ * hour at IPO; owned-before levels re-buy in seconds.
  */
-function doublingLevels(
+export const FUNDING_ROUNDS_CONFIG = Object.freeze({
+  roundNames: Object.freeze(["Seed", "Series A", "Series B", "Series C", "IPO"]),
+  rankCosts: Object.freeze([5, 20, 60, 150, 300]),
+  /** Name of the round before any is bought. */
+  bootstrappedName: "Bootstrapped",
+  passiveTrackMultiplier: 1.4,
+  passiveTrackCostGrowth: 2.5,
+  /** Cost rounding for the 2.5x tracks, so the shop shows clean prices. */
+  passiveTrackCostSignificantFigures: 3,
+  scrumMasterBoostPerLevel: 1,
+  levelCaps: Object.freeze({
+    coffeeScript: Object.freeze([6, 9, 12, 15, 18, 21]),
+    juniorAchievement: Object.freeze([6, 9, 12, 15, 18, 21]),
+    seniorMoment: Object.freeze([6, 9, 12, 15, 18, 21]),
+    scrumMaster: Object.freeze([5, 8, 11, 14, 17, 20]),
+    commitmentIssues: Object.freeze([6, 8, 10, 12, 14, 16]),
+  }),
+});
+
+/** Full track length of a gated project: its top cap. */
+function gatedTrackLength(projectId) {
+  const caps = FUNDING_ROUNDS_CONFIG.levelCaps[projectId];
+  return caps[caps.length - 1];
+}
+
+/** Round to `figures` significant figures (48,828,125 -> 48,800,000). */
+function roundToSignificant(value, figures) {
+  if (!(value > 0)) return 0;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)) - figures + 1);
+  return Math.round(value / magnitude) * magnitude;
+}
+
+/**
+ * Track levels for one employee type (issue #118, retuned in #170).
+ * `bonus` is the per-level effect, read by doublingTrackMultiplier,
+ * never by the CLICK_BOOST / PASSIVE_BOOST sums:
+ * - { type: "MULTIPLY", value: f }: each level multiplies the output
+ *   by f (1.4 for the passive tracks, 2 for Commitment Issues and
+ *   Ship Happens).
+ * - { type: "LINEAR", value: s }: each level adds s to a (1 + sum)
+ *   factor (Scrum Master: 1 + level).
+ *
+ * Level i+1 costs base x costGrowth^i. A cost that is not already
+ * whole is rounded to `significantFigures` (when given) so the shop
+ * shows clean prices; otherwise to the nearest LOC.
+ */
+function trackLevels(
   baseCost,
-  { count = 10, costGrowth = 2, costRounding = 1 } = {}
+  {
+    count = 10,
+    costGrowth = 2,
+    significantFigures = null,
+    bonus = { type: "MULTIPLY", value: 2 },
+  } = {}
 ) {
+  const frozenBonus = Object.freeze({ ...bonus });
   return Object.freeze(
-    Array.from({ length: count }, (_, i) =>
-      Object.freeze({
+    Array.from({ length: count }, (_, i) => {
+      const raw = baseCost * Math.pow(costGrowth, i);
+      return Object.freeze({
         locCost:
-          Math.round((baseCost * Math.pow(costGrowth, i)) / costRounding) *
-          costRounding,
-        bonus: Object.freeze({ type: "DOUBLE", value: 2 }),
-      })
-    )
+          significantFigures === null
+            ? Math.round(raw)
+            : roundToSignificant(raw, significantFigures),
+        bonus: frozenBonus,
+      });
+    })
   );
+}
+
+/** A passive (Intern / Junior / Senior) track: 1.4x per level, 2.5x cost. */
+function passiveTrackLevels(projectId, baseCost) {
+  return trackLevels(baseCost, {
+    count: gatedTrackLength(projectId),
+    costGrowth: FUNDING_ROUNDS_CONFIG.passiveTrackCostGrowth,
+    significantFigures: FUNDING_ROUNDS_CONFIG.passiveTrackCostSignificantFigures,
+    bonus: { type: "MULTIPLY", value: FUNDING_ROUNDS_CONFIG.passiveTrackMultiplier },
+  });
 }
 
 /**
@@ -335,25 +416,30 @@ function doublingLevels(
  * are larger early because the Commit Specialist count also grows
  * fastest early. The power per level is unchanged, so an existing
  * player keeps exactly what each owned level gives.
+ *
+ * Funding Rounds (issue #170): the track is 16 levels now (levels 17
+ * to 20 are dropped), gated 6 / 8 / 10 / 12 / 14 / 16 by round. Click
+ * still doubles per level while passive grows 1.4x per level, so the
+ * round caps are what keep click at 10 clicks/s between 0.8x and 1.3x
+ * passive at every round's plateau (pinned in click-balance.test.js).
  */
 export const COMMITMENT_ISSUES_LEVELS = Object.freeze({
-  count: 20,
+  count: 16,
   costs: Object.freeze([
     460_000, 1_300_000, 3_300_000, 8_000_000, 19_000_000, 43_000_000,
     96_000_000, 210_000_000, 470_000_000, 1_000_000_000, 2_200_000_000,
     4_700_000_000, 10_000_000_000, 21_000_000_000, 45_000_000_000,
-    95_000_000_000, 200_000_000_000, 420_000_000_000, 880_000_000_000,
-    1_800_000_000_000,
+    95_000_000_000,
   ]),
 });
 
-/** Doubling levels at explicit costs (each level is still 2x power). */
+/** Commitment Issues levels at explicit costs (each level is 2x power). */
 function doublingLevelsAtCosts(costs) {
   return Object.freeze(
     costs.map((locCost) =>
       Object.freeze({
         locCost,
-        bonus: Object.freeze({ type: "DOUBLE", value: 2 }),
+        bonus: Object.freeze({ type: "MULTIPLY", value: 2 }),
       })
     )
   );
@@ -811,15 +897,18 @@ export const BALANCE = Object.freeze({
         }),
       ]),
     }),
-    // Doubling upgrades (issue #118): one leveled GitNub project per
-    // employee type, 10 levels each. Every level doubles that type's
-    // output. Cost curve is 2x per level (Brandon, Nov 15): 10x makes
-    // the high click levels unreachable (Commitment Issues L5 would
-    // cost 10B, over a month of passive at 3,660 LOC/s) and 1.15x
-    // maxes everything in about 1.5 hours. At 2x, maxing one track
-    // costs about 1B LOC (around 3 days at 3,660/s) and maxing all six
-    // is about 16 days of passive. Unlock: own 10 of that type.
-    // Base costs are tuning values.
+    // Track upgrades (issue #118, retuned in #170): one leveled GitNub
+    // project per employee type. Unlock: own 10 of that type. Base
+    // costs are unchanged tuning values. Funding Rounds (#170):
+    // - CoffeeScript / Junior Achievement / Senior Moment: 21 levels,
+    //   1.4x output per level, cost x2.5 per level (500K at L1 to
+    //   45.5T at L21 for Senior Moment).
+    // - Scrum Master: 20 levels, LINEAR, cost x2 per level: the
+    //   per-manager boost is 1% x (1 + level).
+    // - Commitment Issues: 16 levels, 2x per level (#160 prices).
+    // - Ship Happens: unchanged and ungated, 10 levels at 2x.
+    // The first five are capped by Funding Rounds rank
+    // (FUNDING_ROUNDS_CONFIG.levelCaps).
     coffeeScript: Object.freeze({
       unlockConditions: Object.freeze([
         Object.freeze({
@@ -828,7 +917,7 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      levels: doublingLevels(100000),
+      levels: passiveTrackLevels("coffeeScript", 100_000),
     }),
     juniorAchievement: Object.freeze({
       unlockConditions: Object.freeze([
@@ -838,7 +927,7 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      levels: doublingLevels(250000),
+      levels: passiveTrackLevels("juniorAchievement", 250_000),
     }),
     seniorMoment: Object.freeze({
       unlockConditions: Object.freeze([
@@ -848,7 +937,7 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      levels: doublingLevels(500000),
+      levels: passiveTrackLevels("seniorMoment", 500_000),
     }),
     scrumMaster: Object.freeze({
       unlockConditions: Object.freeze([
@@ -858,7 +947,14 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      levels: doublingLevels(1000000),
+      levels: trackLevels(1_000_000, {
+        count: gatedTrackLength("scrumMaster"),
+        costGrowth: 2,
+        bonus: {
+          type: "LINEAR",
+          value: FUNDING_ROUNDS_CONFIG.scrumMasterBoostPerLevel,
+        },
+      }),
     }),
     commitmentIssues: Object.freeze({
       unlockConditions: Object.freeze([
@@ -868,8 +964,7 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      // Issue #160: 20 levels at the derived costs (see
-      // COMMITMENT_ISSUES_LEVELS); the other five tracks stay 10 at 2x.
+      // Issue #160 prices, 16 levels (#170, see COMMITMENT_ISSUES_LEVELS).
       levels: doublingLevelsAtCosts(COMMITMENT_ISSUES_LEVELS.costs),
     }),
     shipHappens: Object.freeze({
@@ -880,7 +975,7 @@ export const BALANCE = Object.freeze({
           target: 10,
         }),
       ]),
-      levels: doublingLevels(2000000),
+      levels: trackLevels(2_000_000),
     }),
   }),
 });
@@ -956,19 +1051,105 @@ export function isDoublingProject(projectId) {
   return DOUBLING_PROJECT_IDS.includes(projectId);
 }
 
+/** A guarded whole level: missing, negative or NaN reads 0. */
+function safeLevel(level) {
+  const n = Math.floor(Number(level));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /**
- * The output multiplier for an employee type from its doubling
- * project (issue #118): 2^(that project's level), 1 when the project
- * is unowned or at level 0. A missing level defaults to 0, so saves
- * from before the doubling upgrades shipped read as 1x, never NaN.
+ * The multiplier a track project gives at `level` (issue #118,
+ * retuned in #170), read from the project's own level bonuses so
+ * BALANCE stays the one source: MULTIPLY levels multiply (1.4^L for
+ * the passive tracks, 2^L for Commitment Issues and Ship Happens),
+ * LINEAR levels add to a (1 + sum) factor (Scrum Master: 1 + L).
+ * 1 at level 0 or for a project that is not a track. The level is
+ * clamped to the track's length and NaN-guarded.
+ */
+export function doublingTrackMultiplier(projectId, level) {
+  const levels = BALANCE.openSource[projectId]?.levels;
+  if (!levels || !isDoublingProject(projectId)) return 1;
+  const n = Math.min(safeLevel(level), levels.length);
+  let product = 1;
+  let linear = 0;
+  for (let i = 0; i < n; i += 1) {
+    const bonus = levels[i].bonus;
+    if (bonus.type === "MULTIPLY") product *= bonus.value;
+    else if (bonus.type === "LINEAR") linear += bonus.value;
+  }
+  return product * (1 + linear);
+}
+
+/**
+ * The output multiplier for an employee type from its track project:
+ * doublingTrackMultiplier at that project's level, 1 when unowned or
+ * at level 0. A missing level defaults to 0, never NaN.
  */
 export function doublingMultiplier(employeeType, openSourceLevels = {}) {
   const projectId = Object.keys(DOUBLING_PROJECT_EMPLOYEE).find(
     (id) => DOUBLING_PROJECT_EMPLOYEE[id] === employeeType
   );
   if (!projectId) return 1;
-  const level = openSourceLevels?.[projectId] ?? 0;
-  return Math.pow(2, level);
+  return doublingTrackMultiplier(projectId, openSourceLevels?.[projectId]);
+}
+
+/** The Funding Rounds rank owned (0 = Bootstrapped to 5 = IPO), guarded. */
+export function fundingRoundRank(storeRanks = {}) {
+  return Math.min(
+    FUNDING_ROUNDS_CONFIG.rankCosts.length,
+    safeLevel(storeRanks?.fundingRounds)
+  );
+}
+
+/** The name of a Funding Rounds rank: "Bootstrapped" at 0, "Seed" at 1, ... "IPO" at 5. */
+export function fundingRoundName(rank) {
+  const r = safeLevel(rank);
+  if (r < 1) return FUNDING_ROUNDS_CONFIG.bootstrappedName;
+  const names = FUNDING_ROUNDS_CONFIG.roundNames;
+  return names[Math.min(r, names.length) - 1];
+}
+
+/** Whether a project's levels are capped by Funding Rounds. */
+export function isRoundGatedProject(projectId) {
+  return Object.prototype.hasOwnProperty.call(
+    FUNDING_ROUNDS_CONFIG.levelCaps,
+    projectId
+  );
+}
+
+/**
+ * The highest level a project can reach at the owned Funding Rounds
+ * rank: the round's cap for a gated track, the full level count for
+ * everything else. 0 for an unknown project.
+ */
+export function openSourceLevelCap(projectId, storeRanks = {}) {
+  const length = BALANCE.openSource[projectId]?.levels.length ?? 0;
+  if (!isRoundGatedProject(projectId)) return length;
+  const caps = FUNDING_ROUNDS_CONFIG.levelCaps[projectId];
+  return Math.min(length, caps[fundingRoundRank(storeRanks)]);
+}
+
+/**
+ * The Funding Rounds rank that first allows `level` (1-based) of a
+ * gated project: 0 when it is open while Bootstrapped, null for an
+ * ungated project or a level past the track's end.
+ */
+export function fundingRoundRankForLevel(projectId, level) {
+  if (!isRoundGatedProject(projectId)) return null;
+  const caps = FUNDING_ROUNDS_CONFIG.levelCaps[projectId];
+  const rank = caps.findIndex((cap) => cap >= safeLevel(level));
+  return rank === -1 ? null : rank;
+}
+
+/**
+ * Whether the NEXT level of a project is held back by the round cap
+ * (not by the track ending): the card shows it locked with the round
+ * it needs, and the buy is refused.
+ */
+export function openSourceNextLevelNeedsRound(projectId, level, storeRanks = {}) {
+  const next = safeLevel(level) + 1;
+  const length = BALANCE.openSource[projectId]?.levels.length ?? 0;
+  return next <= length && next > openSourceLevelCap(projectId, storeRanks);
 }
 
 /**
@@ -1746,7 +1927,11 @@ export const STAR_CONFIG = Object.freeze({
    * of production or capBankFraction of the LOC on hand, or on a
    * randomEndChance roll after a click. Always good, never a debuff.
    * Tuning: lower the start multiple for longer chains; do NOT raise
-   * either cap.
+   * either cap. The production cap is 1 hour since issue #170 (was 6):
+   * at a plateau the bank brake never bites, so a full 6-hour chain
+   * (7 + 77 + 777 + 7,777 = 8,638 s) made a gold star worth about 480 s
+   * of production on average. At 1 hour the chain stops after 777 and a
+   * gold star averages about 110 s, in line with a red one.
    */
   shootingStarsChain: Object.freeze({
     startLocPerSecondMultiple: 7,
@@ -1754,7 +1939,7 @@ export const STAR_CONFIG = Object.freeze({
     stepLocPerSecondMultiple: 7,
     spawnDelaySeconds: 3,
     lifetimeSeconds: 6,
-    capHoursOfProduction: 6,
+    capHoursOfProduction: 1,
     capBankFraction: 0.5,
     randomEndChance: 0.01,
   }),
@@ -1790,7 +1975,7 @@ export function shootingStarsChainPayout(step, locPerSecond) {
  * After chain click `step` was paid, decide whether the chain goes on.
  * `linesOfCode` is the LOC on hand AFTER that payout. Ends (returns
  * { continues: false, reason }) when the next payout would exceed the
- * 6-hour production cap ("cap"), would exceed half the LOC on hand
+ * 1-hour production cap ("cap"), would exceed half the LOC on hand
  * ("bank"), or on the 1% random roll ("luck"). Pure; `rng` injectable.
  * A missed star ("missed") is decided by the UI timer, not here.
  */
@@ -2081,9 +2266,10 @@ export function starEffectName(effect, good) {
  *   Migration for existing saves uses that counter as-is: do not
  *   infer lifetime earnings from current inventory, and if no
  *   reliable counter exists the save starts at zero.
- * - Entitled Equity = floor(sqrt(Lifetime LOC / 1,000,000)); the
- *   threshold for Equity n is 1,000,000 x n^2. A sale requires at
- *   least one NEW Equity (entitled minus Lifetime Equity earned).
+ * - Entitled Equity = floor(cbrt(Lifetime LOC / 10,000,000)) (cube
+ *   root since issue #170, was a square root over 1M); the threshold
+ *   for Equity n is 10,000,000 x n^3. A sale requires at least one
+ *   NEW Equity (entitled minus Lifetime Equity earned).
  * - Lifetime Equity earned increases ONLY on sale. Spending Equity
  *   (the permanent store, Slice 2) never reduces the Founder bonus,
  *   which is based on Lifetime Equity earned, even if spent.
@@ -2091,28 +2277,53 @@ export function starEffectName(effect, good) {
  *   Slice 1 has no store, so available equals claimed.
  */
 
-/** Equity curve constants. The full permanent store costs exactly
- * 87 Equity in total: the Slice 2 store's 85 plus the 2-Equity Night
- * Shift Contract (issue #149). The curve check for Slice 1 was that
- * 85 total Equity requires 85^2 x 1M = 7.225B lifetime LOC; 87 needs
- * 7.569B. */
+/** Equity curve constants (issue #170). Cube root over a 10M unit:
+ * the total cost of N Equity is N^3 x 10M and the next point at N
+ * costs about 3N^2 x 10M, one degree steeper than the old square
+ * root (the Cookie Clicker shape). Reference points: 1 Equity at 10M
+ * lifetime LOC, 10 at 10B, 25 at 156B, 50 at 1.25T, 87 at 6.59T,
+ * 200 at 80T, 622 (the whole store) at 2.41Qa. The full permanent
+ * store costs 622 Equity: the 87 of the original six tracks plus the
+ * 535 of Funding Rounds. */
 export const PRESTIGE_CONFIG = Object.freeze({
-  /** LOC per unit of the Equity curve (first Equity at 1M lifetime LOC). */
-  equityLocUnit: 1_000_000,
-  /** Total Equity the full permanent store costs (Slice 2). */
-  totalStoreEquityCost: 87,
+  /** LOC per unit of the Equity curve (first Equity at 10M lifetime LOC). */
+  equityLocUnit: 10_000_000,
+  /** The curve's degree: Equity = floor((lifetime / unit)^(1/3)). */
+  equityCurveExponent: 3,
+  /** Total Equity the full permanent store costs. */
+  totalStoreEquityCost: 622,
 });
-
-/** Whole Equity a lifetime LOC total entitles the player to. */
-export function entitledEquity(lifetimeLoc) {
-  const loc = Math.max(0, lifetimeLoc ?? 0);
-  return Math.floor(Math.sqrt(loc / PRESTIGE_CONFIG.equityLocUnit));
-}
 
 /** Lifetime LOC required to be entitled to `equityCount` Equity. */
 export function equityThresholdLoc(equityCount) {
-  const n = Math.max(0, Math.floor(equityCount ?? 0));
-  return PRESTIGE_CONFIG.equityLocUnit * n * n;
+  const raw = Math.floor(Number(equityCount));
+  const n = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  return (
+    PRESTIGE_CONFIG.equityLocUnit *
+    Math.pow(n, PRESTIGE_CONFIG.equityCurveExponent)
+  );
+}
+
+/**
+ * Whole Equity a lifetime LOC total entitles the player to: the
+ * largest n with equityThresholdLoc(n) <= lifetime LOC. The root is
+ * a first guess, then corrected against the exact thresholds, so a
+ * float cube root that lands a hair under a whole number (or over
+ * it) can never grant or withhold a point at the boundary. NaN,
+ * negative and missing read as 0.
+ */
+export function entitledEquity(lifetimeLoc) {
+  const raw = Number(lifetimeLoc);
+  const loc = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  let n = Math.floor(
+    Math.pow(
+      loc / PRESTIGE_CONFIG.equityLocUnit,
+      1 / PRESTIGE_CONFIG.equityCurveExponent
+    )
+  );
+  while (n > 0 && equityThresholdLoc(n) > loc) n -= 1;
+  while (equityThresholdLoc(n + 1) <= loc) n += 1;
+  return n;
 }
 
 /** New Equity a sale would claim right now (entitled minus already earned). */
@@ -2175,7 +2386,7 @@ export function founderNextEquityBoostPercent(lifetimeEquityEarned) {
  * Progress toward the next Equity point, for the bars (issue #131).
  * The bar spans the current bracket: entitlement n runs from
  * equityThresholdLoc(n) to equityThresholdLoc(n + 1) lifetime LOC (the
- * next Equity lands at 1,000,000 x (n + 1)^2). `seconds` is the time
+ * next Equity lands at 10,000,000 x (n + 1)^3). `seconds` is the time
  * left at the healthy rate (null with no production). NaN-guarded.
  * Returns { entitled, nextEquity, bracketLowLoc, nextThresholdLoc,
  * remainingLoc, fraction, seconds }.
@@ -2230,14 +2441,17 @@ export function formatBoostPercent(percent) {
 
 /** ===== Prestige — permanent store (Slice 2) =====
  *
- * Six upgrade tracks: the five of the v2 prestige design section 3,
- * plus the Night Shift Contract (issue #149). Ranks
- * are purchased in order; prices are PER RANK, not cumulative; no
- * prerequisites between tracks. Purchases are available ONLY in the
- * post-sale intermission (after selling, before starting the next
- * company). The full store costs exactly 87 Equity in total.
+ * Seven upgrade tracks: Funding Rounds (issue #170, the progression
+ * gate), the five of the v2 prestige design section 3, and the Night
+ * Shift Contract (issue #149). Ranks are purchased in order; prices
+ * are PER RANK, not cumulative; no prerequisites between tracks.
+ * Purchases are available ONLY in the post-sale intermission (after
+ * selling, before starting the next company). The full store costs
+ * exactly 622 Equity in total (87 for the original six, 535 for
+ * Funding Rounds).
  *
- * Equity prices are FIXED (1/3/8, 2/5/10, 3/8/20, 2/6/15, 2, 2). Do
+ * Equity prices are FIXED (5/20/60/150/300, 1/3/8, 2/5/10, 3/8/20,
+ * 2/6/15, 2, 2). Do
  * NOT multiply them by LOC/s: that would penalize hiring, create
  * expensive quotes at high rates and cheap quotes after a reset, and
  * duplicate the progression already priced by the lifetime curve.
@@ -2251,8 +2465,9 @@ export function formatBoostPercent(percent) {
  * Copy rules: no em dashes in any player-facing description.
  */
 
-/** The five permanent store tracks, in display order. */
+/** The permanent store tracks, in display order (Funding Rounds first: it is the gate). */
 export const PRESTIGE_STORE_IDS = Object.freeze([
+  "fundingRounds",
   "startingCapital",
   "keyboard",
   "engineeringHandbook",
@@ -2270,6 +2485,16 @@ export const PRESTIGE_STORE_IDS = Object.freeze([
  * compounded 1.05x purchases.
  */
 export const PRESTIGE_STORE_CONFIG = Object.freeze({
+  // Funding Rounds (issue #170): each rank is a round (Seed, Series
+  // A, Series B, Series C, IPO) and raises the level caps of the
+  // gated tracks (FUNDING_ROUNDS_CONFIG.levelCaps). Prices and names
+  // live in FUNDING_ROUNDS_CONFIG.
+  fundingRounds: Object.freeze({
+    displayName: "Funding Rounds",
+    description:
+      "Trade Equity for a bigger round. Every round raises the level caps on CoffeeScript, Junior Achievement, Senior Moment, Scrum Master and Commitment Issues for every company after.",
+    rankCosts: FUNDING_ROUNDS_CONFIG.rankCosts,
+  }),
   startingCapital: Object.freeze({
     displayName: "Starting Capital",
     description:
@@ -2352,8 +2577,8 @@ export function storeNextRankCost(storeId, currentRank) {
   return storeRankCost(storeId, Math.max(0, currentRank ?? 0) + 1);
 }
 
-/** Total Equity for every rank of every track: exactly 87 (85 plus
- * the Night Shift Contract's 2, issue #149). */
+/** Total Equity for every rank of every track: exactly 622 (87 for
+ * the original six tracks plus 535 for Funding Rounds, issue #170). */
 export function storeTotalEquityCost() {
   let total = 0;
   for (const storeId of PRESTIGE_STORE_IDS) {
@@ -3471,8 +3696,8 @@ export function baseLocPerSecond(employeeCounts, openSourceLevels = {}) {
  * employee passive LOC. `pmSprintMultiplier` is a live Sprint on Project
  * Managers (default 1, i.e. no Sprint); a 5x Sprint makes each manager
  * give +5% while it is live, a Meeting halves it to +0.5% per manager.
- * Scrum Master (issue #118) doubles the per-manager boost each level:
- * +2% at L1, +4% at L2, +1024% at L10.
+ * Scrum Master (linear since issue #170) raises the per-manager boost
+ * to 1% x (1 + level): +2% at L1, +6% at L5, +21% at L20.
  */
 export function projectManagerBoostFraction(
   employeeCounts,
@@ -3516,7 +3741,8 @@ export function projectManagerBoostRate(
  * Commit Specialists (default 1); a 5x Sprint makes each specialist
  * give +1.0 per click, so floor(1.0 x N) once the total is floored.
  * Commitment Issues (issue #118) doubles the per-specialist bonus
- * each level: +0.4 at L1, +0.8 at L2, +204.8 at L10.
+ * each level: +0.4 at L1, +0.8 at L2, +204.8 at L10 (16 levels, capped
+ * by Funding Rounds since #170).
  */
 export function commitSpecialistClickBonus(
   employeeCounts,

@@ -134,6 +134,69 @@ function rowToSnapshot(row) {
 }
 
 /**
+ * Save schema version (issue #170, Funding Rounds). A row stored
+ * under an older version is wiped to a fresh initialSaveState the
+ * first time it is touched: the cube-root Equity curve, the 1.4x
+ * tracks and the round caps make old-scale lifetime LOC, levels and
+ * achievement peaks meaningless (Brandon confirmed the wipe; there is
+ * no migration). Every row written from here on carries this version.
+ * Bump it for the next deliberate wipe.
+ */
+export const SAVE_SCHEMA_VERSION = 2;
+
+/**
+ * Lock a player's save row for the rest of the transaction
+ * (`SELECT ... FOR UPDATE`) and wipe it when it predates
+ * SAVE_SCHEMA_VERSION. Returns null for an unknown player, else
+ * `{ snapshot, wiped }`: `wiped` is true when the row was reset in
+ * this transaction (the snapshot is then the fresh state at nowMs).
+ * The caller commits, so the wipe and whatever follows are atomic.
+ */
+async function lockSaveRow(client, playerId, nowMs) {
+  const res = await client.query(
+    `SELECT player_id, state, saved_at, created_at, schema_version
+     FROM git_saves WHERE player_id = $1 FOR UPDATE`,
+    [playerId]
+  );
+  if (res.rowCount === 0) return null;
+  const row = res.rows[0];
+  const version = Number(row.schema_version);
+  if (Number.isFinite(version) && version >= SAVE_SCHEMA_VERSION) {
+    return { snapshot: rowToSnapshot(row), wiped: false };
+  }
+  const state = initialSaveState();
+  await client.query(
+    `UPDATE git_saves SET state = $1, saved_at = $2, schema_version = $3
+     WHERE player_id = $4`,
+    [
+      JSON.stringify(state),
+      new Date(nowMs).toISOString(),
+      SAVE_SCHEMA_VERSION,
+      playerId,
+    ]
+  );
+  return {
+    snapshot: {
+      playerId: row.player_id,
+      state,
+      savedAtMs: nowMs,
+      createdAtMs: toMs(row.created_at),
+    },
+    wiped: true,
+  };
+}
+
+/** The rejection a write path returns when lockSaveRow just wiped the row. */
+function wipedRejection(snapshot) {
+  return {
+    status: "rejected",
+    rule: "WIPE",
+    detail: `save predates schema ${SAVE_SCHEMA_VERSION} and was reset to a fresh company`,
+    lastGood: snapshot,
+  };
+}
+
+/**
  * Progress telemetry (issue #152): record a derived snapshot (see
  * store.recordMetricsSnapshot). A plain function so the save and sale
  * paths call it without relying on `this`.
@@ -253,8 +316,13 @@ export function createStore(pool) {
         try {
           await pool.query(
             `INSERT INTO git_saves (player_id, schema_version, state, saved_at, created_at)
-             VALUES ($1, 1, $2, $3, $3)`,
-            [playerId, JSON.stringify(state), new Date(nowMs).toISOString()]
+             VALUES ($1, $4, $2, $3, $3)`,
+            [
+              playerId,
+              JSON.stringify(state),
+              new Date(nowMs).toISOString(),
+              SAVE_SCHEMA_VERSION,
+            ]
           );
           return { playerId, state, savedAtMs: nowMs, createdAtMs: nowMs };
         } catch (err) {
@@ -296,16 +364,15 @@ export function createStore(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        const res = await client.query(
-          `SELECT player_id, state, saved_at, created_at
-           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
-          [playerId]
-        );
-        if (res.rowCount === 0) {
+        // A row from before the current save schema is wiped to a
+        // fresh state in this same transaction (issue #170); a load
+        // then simply returns the fresh company.
+        const locked = await lockSaveRow(client, playerId, nowMs);
+        if (!locked) {
           await client.query("ROLLBACK");
           return null;
         }
-        const snapshot = rowToSnapshot(res.rows[0]);
+        const snapshot = locked.snapshot;
         const awaySeconds = (nowMs - snapshot.savedAtMs) / 1000;
         const settled = Number.isFinite(awaySeconds)
           ? settleNightShift(snapshot.state, awaySeconds, {
@@ -516,16 +583,20 @@ export function createStore(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        const res = await client.query(
-          `SELECT player_id, state, saved_at, created_at
-           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
-          [playerId]
-        );
-        if (res.rowCount === 0) {
+        const locked = await lockSaveRow(client, playerId, nowMs);
+        if (!locked) {
           await client.query("ROLLBACK");
           return { status: "unknown-player" };
         }
-        const prev = rowToSnapshot(res.rows[0]);
+        if (locked.wiped) {
+          // Funding Rounds save wipe (issue #170): the row predated
+          // the current schema and was just reset. Commit the reset
+          // and reject what the client sent: it was built on the old
+          // state, so the client reverts to the fresh lastGoodState.
+          await client.query("COMMIT");
+          return wipedRejection(locked.snapshot);
+        }
+        const prev = locked.snapshot;
         // The server no longer issues or matches star/farm outcomes
         // (they are rolled client-side now): a save is validated
         // against the previous snapshot only (shape, rate limit,
@@ -605,16 +676,20 @@ export function createStore(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        const res = await client.query(
-          `SELECT player_id, state, saved_at, created_at
-           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
-          [playerId]
-        );
-        if (res.rowCount === 0) {
+        const locked = await lockSaveRow(client, playerId, nowMs);
+        if (!locked) {
           await client.query("ROLLBACK");
           return { status: "unknown-player" };
         }
-        const prev = rowToSnapshot(res.rows[0]);
+        if (locked.wiped) {
+          // Funding Rounds save wipe (issue #170): the row predated
+          // the current schema and was just reset. Commit the reset
+          // and reject what the client sent: it was built on the old
+          // state, so the client reverts to the fresh lastGoodState.
+          await client.query("COMMIT");
+          return wipedRejection(locked.snapshot);
+        }
+        const prev = locked.snapshot;
         const prevState = normalizeSaveState(prev.state);
         const sentState = normalizeSaveState(body.state);
         // Idempotency first: a retry of an already-applied sale
@@ -751,16 +826,20 @@ export function createStore(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        const res = await client.query(
-          `SELECT player_id, state, saved_at, created_at
-           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
-          [playerId]
-        );
-        if (res.rowCount === 0) {
+        const locked = await lockSaveRow(client, playerId, nowMs);
+        if (!locked) {
           await client.query("ROLLBACK");
           return { status: "unknown-player" };
         }
-        const prev = rowToSnapshot(res.rows[0]);
+        if (locked.wiped) {
+          // Funding Rounds save wipe (issue #170): the row predated
+          // the current schema and was just reset. Commit the reset
+          // and reject what the client sent: it was built on the old
+          // state, so the client reverts to the fresh lastGoodState.
+          await client.query("COMMIT");
+          return wipedRejection(locked.snapshot);
+        }
+        const prev = locked.snapshot;
         const prevState = normalizeSaveState(prev.state);
         const sentState = normalizeSaveState(body.state);
         const buyVerdict = validateStoreBuy(
@@ -891,16 +970,20 @@ export function createStore(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        const res = await client.query(
-          `SELECT player_id, state, saved_at, created_at
-           FROM git_saves WHERE player_id = $1 FOR UPDATE`,
-          [playerId]
-        );
-        if (res.rowCount === 0) {
+        const locked = await lockSaveRow(client, playerId, nowMs);
+        if (!locked) {
           await client.query("ROLLBACK");
           return { status: "unknown-player" };
         }
-        const prev = rowToSnapshot(res.rows[0]);
+        if (locked.wiped) {
+          // Funding Rounds save wipe (issue #170): the row predated
+          // the current schema and was just reset. Commit the reset
+          // and reject what the client sent: it was built on the old
+          // state, so the client reverts to the fresh lastGoodState.
+          await client.query("COMMIT");
+          return wipedRejection(locked.snapshot);
+        }
+        const prev = locked.snapshot;
         const prevState = normalizeSaveState(prev.state);
         const sentState = normalizeSaveState(body.state);
         const completeVerdict = validateCompleteIntermission(
@@ -1007,9 +1090,14 @@ export function createStore(pool) {
         const state = initialSaveState();
         await client.query(
           `UPDATE git_saves
-           SET state = $1, saved_at = $2
+           SET state = $1, saved_at = $2, schema_version = $4
            WHERE player_id = $3`,
-          [JSON.stringify(state), new Date(nowMs).toISOString(), playerId]
+          [
+            JSON.stringify(state),
+            new Date(nowMs).toISOString(),
+            playerId,
+            SAVE_SCHEMA_VERSION,
+          ]
         );
         await client.query("COMMIT");
         return { status: "ok", state, savedAtMs: nowMs };
@@ -1063,12 +1151,16 @@ export function createStore(pool) {
           await client.query("ROLLBACK");
           return { status: "not-test-player" };
         }
+        // A seeded state is shape-checked against the current rules,
+        // so it carries the current schema version (no wipe on load).
         await client.query(
-          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          `UPDATE git_saves SET state = $1, saved_at = $2, schema_version = $4
+           WHERE player_id = $3`,
           [
             JSON.stringify(state),
             new Date(nowMs).toISOString(),
             playerId,
+            SAVE_SCHEMA_VERSION,
           ]
         );
         await client.query("COMMIT");

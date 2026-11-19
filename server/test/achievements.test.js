@@ -318,7 +318,7 @@ test("a sale keeps every achievement and counter (permanent buffs survive)", () 
   };
   const pre = {
     ...base,
-    totalLinesOfCode: 4_000_000,
+    totalLinesOfCode: 80_000_000,
     linesOfCode: 10,
     employees: { ...base.employees, intern: 40 },
     achievements,

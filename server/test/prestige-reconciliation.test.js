@@ -63,6 +63,7 @@ import {
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
   advanceSubtracterall,
+  entitledEquity,
   equityThresholdLoc,
   founderMultiplier,
   initialSaveState,
@@ -302,7 +303,7 @@ test("criterion 9 (server): selling during a burst keeps the burst and resets th
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
-      totalLinesOfCode: 1_000_000,
+      totalLinesOfCode: 10_000_000,
       money: 2000000,
       subtracterall: subWith({
         phase: "burst",
@@ -354,21 +355,26 @@ test("balance evidence: Founder multiplier at P=51 and P=85 (log branch)", () =>
   assert.equal(at85.toFixed(4), "6.3828");
 });
 
-test("balance evidence: full-store arc times from the engine thresholds", () => {
-  // 85 Equity needs 85^2 x 1M = 7.225B lifetime LOC (criterion 17,
-  // already covered in prestige.test.js). The times below are
-  // arithmetic on that engine threshold at constant rates.
-  assert.equal(equityThresholdLoc(85), 7_225_000_000);
-  const fullAt3660 = equityThresholdLoc(85) / 3660 / 3600;
-  assert.ok(Math.abs(fullAt3660 - 548.35) < 0.01);
-  // CORRECTION: the Slice 4 brief attached 6,944.44h at 100 LOC/s
-  // to the full store. That figure is the 50-Equity arc (2.5B LOC),
-  // not the store. The full store at 100 LOC/s is 20,069.44h, which
-  // is what the design doc section 4 says (20,069.44h / 836.23 days).
-  const fullAt100 = equityThresholdLoc(85) / 100 / 3600;
-  assert.ok(Math.abs(fullAt100 - 20069.44) < 0.01);
-  const arc50At100 = equityThresholdLoc(50) / 100 / 3600;
-  assert.ok(Math.abs(arc50At100 - 6944.44) < 0.01);
-  const arc50At3660 = equityThresholdLoc(50) / 3660 / 3600;
-  assert.ok(Math.abs(arc50At3660 - 189.74) < 0.01);
+test("balance evidence (issue #170): cube-root reference points and full-store arc times", () => {
+  // The Funding Rounds curve: N Equity needs N^3 x 10M lifetime LOC.
+  // The reference points the build spec lists (issue #170 section 1).
+  assert.equal(equityThresholdLoc(1), 10_000_000);
+  assert.equal(equityThresholdLoc(10), 10_000_000_000);
+  assert.equal(equityThresholdLoc(25), 156_250_000_000);
+  assert.equal(equityThresholdLoc(50), 1_250_000_000_000);
+  assert.equal(equityThresholdLoc(87), 6_585_030_000_000);
+  assert.equal(equityThresholdLoc(200), 80_000_000_000_000);
+  // 622 is the whole store (87 + the 535 of Funding Rounds): 2.41Qa.
+  assert.equal(equityThresholdLoc(622), 2_406_418_480_000_000);
+  // The proposal's arc times are arithmetic on those thresholds at the
+  // plateau rate of the round before: the whole store at the Series C
+  // plateau (about 5.7B LOC/s) is about 4.9 days of production, and
+  // 87 Equity at the Series A plateau (213M LOC/s) about 8.6 hours.
+  const storeAtSeriesC = equityThresholdLoc(622) / 5.7e9 / 86_400;
+  assert.ok(Math.abs(storeAtSeriesC - 4.89) < 0.01);
+  const old87AtSeriesA = equityThresholdLoc(87) / 213e6 / 3600;
+  assert.ok(Math.abs(old87AtSeriesA - 8.59) < 0.01);
+  // Brandon's Nov 18 save (353.5B lifetime) is worth 32 Equity on the
+  // new curve (594 on the old square root).
+  assert.equal(entitledEquity(353_500_000_000), 32);
 });

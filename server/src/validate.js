@@ -80,7 +80,6 @@
  */
 
 import {
-  BALANCE,
   COSMETIC_SLOTS,
   EMAIL_CONFIG,
   EMPLOYEE_TYPES,
@@ -101,6 +100,7 @@ import {
   NIGHT_SHIFT_CONFIG,
   normalizeSaveState,
   normalizeActions,
+  openSourceLevelCap,
   releaseManagerAssignedCount,
   storeMaxRank,
   storeRankCost,
@@ -143,8 +143,8 @@ function isCountMap(obj, keys) {
 
 /**
  * Rule 1 — shape. Only known keys, right types, no negatives, levels
- * 0 to each project's own max (5 for the original four projects, 10
- * for the doubling upgrades), NoPilot frozen at 0 (no buy action
+ * 0 to each project's own max (its level count, or for a track gated
+ * by Funding Rounds the owned round's cap), NoPilot frozen at 0 (no buy action
  * exists for it in v1). Star-era fields (activeStarEffects, the star
  * timers) are validated here too.
  */
@@ -235,8 +235,15 @@ function checkStateShape(state) {
   if (!isCountMap(state.openSourceProjects, OPEN_SOURCE_IDS)) {
     return "openSourceProjects must be non-negative integer levels";
   }
+  // Funding Rounds (issue #170): a gated track can only reach the cap
+  // of the round the state owns. The rank is read guarded here (the
+  // store ranks are shape-checked below), and it only moves through
+  // the store-buy endpoint, so a normal save cannot raise its own cap.
   for (const projectId of OPEN_SOURCE_IDS) {
-    const maxLevel = BALANCE.openSource[projectId].levels.length;
+    const maxLevel = openSourceLevelCap(
+      projectId,
+      state.permanentStoreRanks
+    );
     if (state.openSourceProjects[projectId] > maxLevel) {
       return `open-source level must be 0-${maxLevel}`;
     }

@@ -120,7 +120,7 @@ test("a sale re-locks the farm: the next company earns it again", () => {
   const save = initialSaveState();
   const pre = {
     ...save,
-    totalLinesOfCode: 4_000_000,
+    totalLinesOfCode: 80_000_000,
     employees: { ...save.employees, senior: 25 },
     farm: initialFarmState(),
   };
