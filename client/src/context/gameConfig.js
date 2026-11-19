@@ -117,7 +117,10 @@ export const SECTIONS_CONFIG = Object.freeze({
   projects: {
     id: "projects",
     displayName: "Freelance Projects",
-    description: "Convert LOC to Money by completing projects",
+    // Issue #176: explains the system, not just the verb. The rate line
+    // on every card (@rate) shows the per-LOC math this describes.
+    description:
+      "This is where LOC becomes money. Shipping a project spends its LOC and pays out on the spot. Small gigs pay the best rate per LOC; big ones pay less per line but much more per ship, because scope creep is billable. Ship enough of the small stuff and bigger clients start returning your calls. Hire Release Managers, then assign them on a project's card to ship it automatically, forever, without anyone reading the requirements.",
   },
   openSource: {
     id: "openSource",
