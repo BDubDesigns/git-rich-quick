@@ -10,6 +10,7 @@ import { SectionLayout } from "./SectionLayout.jsx";
 import { ProjectCard } from "./ProjectCard.jsx";
 import { LockedFreelanceProjectCard } from "./LockedFreelanceProjectCard.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
+import { projectPayoutLines } from "../utils/projectPayout.js";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -36,6 +37,12 @@ export function Projects() {
       {Object.entries(FREELANCE_PROJECTS_CONFIG).map(
         ([projectKey, project]) => {
           const isUnlocked = isFreelanceProjectUnlocked(projectKey, state);
+          // Payout and rate (issue #176), at the player's Client
+          // Network rank: the same numbers a ship pays.
+          const payout = projectPayoutLines(
+            projectKey,
+            state.permanentStoreRanks ?? {}
+          );
 
           if (!isUnlocked) {
             // Locked and not yet visible (under 10% progress toward
@@ -58,6 +65,7 @@ export function Projects() {
                 <LockedFreelanceProjectCard
                   project={project}
                   progress={progress}
+                  payout={payout}
                 />
               </HighlightAnchor>
             );
@@ -69,6 +77,7 @@ export function Projects() {
             <HighlightAnchor key={projectKey} tab="projects" itemId={projectKey}>
               <ProjectCard
                 project={project}
+                payout={payout}
                 onComplete={() => handleCompleteProject(projectKey)}
                 canComplete={canComplete}
                 completionCount={

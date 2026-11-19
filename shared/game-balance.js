@@ -1230,9 +1230,6 @@ export function releaseManagerShippingEconomics({
   const shipsPerSecond =
     releaseManagerShipsPerInterval(openSourceLevels ?? {}) /
     RELEASE_MANAGER_CONFIG.shipIntervalSeconds;
-  const payoutMultiplier = clientNetworkPayoutMultiplier(
-    permanentStoreRanks ?? {}
-  );
   const perProject = {};
   let assignedCount = 0;
   let rmOut = 0;
@@ -1243,7 +1240,8 @@ export function releaseManagerShippingEconomics({
     const project = BALANCE.freelanceProjects[key];
     const ships = unlockedProjects?.[key] ? assigned * shipsPerSecond : 0;
     const locPerSecond = ships * project.loc;
-    const cash = ships * Math.round(project.reward * payoutMultiplier);
+    const cash =
+      ships * freelanceShipPayoutCents(key, permanentStoreRanks ?? {});
     perProject[key] = { assigned, locPerSecond, cashPerSecond: cash };
     rmOut += locPerSecond;
     cashPerSecond += cash;
@@ -2620,6 +2618,51 @@ export function clientNetworkPayoutMultiplier(storeRanks = {}) {
       Math.min(rank, storeMaxRank("clientNetwork")) - 1
     ] ?? 0;
   return 1 + bonus;
+}
+
+/**
+ * What ONE ship of a freelance project pays, in integer cents (issue
+ * #176): the base reward times the Client Network multiplier, rounded
+ * to whole cents per ship. This is the payout logic itself: the manual
+ * Ship button and the Release Manager auto-ship both pay exactly this,
+ * and the project cards display it, so the number on the card is the
+ * number that lands. An unknown project key pays 0.
+ */
+export function freelanceShipPayoutCents(projectKey, storeRanks = {}) {
+  const project = BALANCE.freelanceProjects[projectKey];
+  if (!project) return 0;
+  return Math.round(
+    project.reward * clientNetworkPayoutMultiplier(storeRanks ?? {})
+  );
+}
+
+/**
+ * The payout readout a project card shows (issue #176), derived from
+ * the config and freelanceShipPayoutCents, never hand-written:
+ *
+ * - payoutCents: what one ship pays (Client Network included).
+ * - centsPerLoc: the EFFECTIVE rate, payoutCents / loc. Fractional
+ *   once Client Network applies (Hobby Website at rank 1: 50.4).
+ * - baseCentsPerLoc: the same rate with no Client Network ranks.
+ * - payoutBonus: the Client Network bonus applied (0.05 is +5%, 0 when
+ *   unowned), so the card can say where the extra came from.
+ *
+ * The rate falls as the LOC cost rises, on purpose: small gigs pay the
+ * best per LOC, big ones pay the most per ship. An unknown key returns
+ * null.
+ */
+export function freelancePayoutQuote(projectKey, storeRanks = {}) {
+  const project = BALANCE.freelanceProjects[projectKey];
+  if (!project) return null;
+  const payoutCents = freelanceShipPayoutCents(projectKey, storeRanks);
+  const multiplier = clientNetworkPayoutMultiplier(storeRanks ?? {});
+  return {
+    loc: project.loc,
+    payoutCents,
+    centsPerLoc: payoutCents / project.loc,
+    baseCentsPerLoc: project.reward / project.loc,
+    payoutBonus: Math.round((multiplier - 1) * 100) / 100,
+  };
 }
 
 /**

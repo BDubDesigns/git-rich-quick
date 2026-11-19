@@ -698,12 +698,11 @@ function gameReducer(state, action) {
         // (money is always whole cents). It never changes LOC costs
         // and does not affect Airdrops, investments, or other cash
         // sources — only the freelance ship reward, here and in the
-        // Release Manager auto-ship below.
-        const payout = Math.round(
-          project.reward *
-            shared.clientNetworkPayoutMultiplier(
-              state.permanentStoreRanks ?? {}
-            )
+        // Release Manager auto-ship below. One shared function
+        // (issue #176), the same one the project cards display.
+        const payout = shared.freelanceShipPayoutCents(
+          projectKey,
+          state.permanentStoreRanks ?? {}
         );
         const newState = {
           ...state,
@@ -820,12 +819,6 @@ function gameReducer(state, action) {
       const shipsPerManager = shared.releaseManagerShipsPerInterval(
         flatOpenSourceLevels(state)
       );
-      // Permanent store (Slice 2): the Client Network rank
-      // multiplies freelance cash payouts, including auto-ships.
-      // Rounded to integer cents per ship (money is whole cents).
-      const payoutMultiplier = shared.clientNetworkPayoutMultiplier(
-        state.permanentStoreRanks ?? {}
-      );
       if (
         shipTicks >= shared.RELEASE_MANAGER_CONFIG.shipIntervalSeconds
       ) {
@@ -836,10 +829,18 @@ function gameReducer(state, action) {
           if (assigned <= 0) continue;
           if (!isFreelanceProjectUnlocked(projectKey, state)) continue;
           const project = FREELANCE_PROJECTS_CONFIG[projectKey];
+          // Permanent store (Slice 2): the Client Network rank
+          // multiplies freelance cash payouts, including auto-ships.
+          // Integer cents per ship, from the same shared function the
+          // manual Ship button and the project cards use (issue #176).
+          const shipPayout = shared.freelanceShipPayoutCents(
+            projectKey,
+            state.permanentStoreRanks ?? {}
+          );
           for (let i = 0; i < assigned * shipsPerManager; i++) {
             if (shipLinesOfCode < project.loc) break;
             shipLinesOfCode -= project.loc;
-            shipMoney += Math.round(project.reward * payoutMultiplier);
+            shipMoney += shipPayout;
             shipCompleted[projectKey] =
               (shipCompleted[projectKey] ?? 0) + 1;
             shipAuto[projectKey] = (shipAuto[projectKey] ?? 0) + 1;

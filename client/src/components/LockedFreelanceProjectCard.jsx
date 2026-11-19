@@ -10,8 +10,12 @@ import {
   JsDocUnlockRequirements,
 } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
+import { ProjectRateLine } from "./ProjectRateLine.jsx";
 
-export function LockedFreelanceProjectCard({ project, progress }) {
+export function LockedFreelanceProjectCard({ project, progress, payout = null }) {
+  // Payout readout (issue #176): the teaser shows the rate too, so a
+  // player can plan around a project before it unlocks.
+  const payoutText = payout?.payout ?? formatMoney(project.reward);
   return (
     <Panel className="locked px-3 pb-1 flex flex-col gap-1 m-0">
       <div className="flex items-center gap-4">
@@ -26,9 +30,10 @@ export function LockedFreelanceProjectCard({ project, progress }) {
             <JsDocLine
               tag="@returns"
               type="Currency"
-              value={formatMoney(project.reward)}
+              value={payoutText}
               valueClassName="text-green-400"
             />
+            <ProjectRateLine payout={payout} />
             <JsDocUnlockRequirements progress={progress} />
           </JsDocBlock>
         </div>

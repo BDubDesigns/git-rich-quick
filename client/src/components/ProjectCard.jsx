@@ -11,6 +11,7 @@ import { HiOutlineBanknotes } from "react-icons/hi2";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
+import { ProjectRateLine } from "./ProjectRateLine.jsx";
 
 /**
  * Release Manager assignment row (issue #163), inside the project's
@@ -66,7 +67,12 @@ export function ProjectCard({
   canComplete,
   completionCount,
   releaseManager = null,
+  payout = null,
 }) {
+  // Payout readout (issue #176): what a ship actually pays and the
+  // effective rate, Client Network included (projectPayoutLines). A
+  // card with no readout falls back to the base reward and no rate.
+  const payoutText = payout?.payout ?? formatMoney(project.reward);
   return (
     <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
       <div className="flex items-center gap-4">
@@ -81,9 +87,10 @@ export function ProjectCard({
             <JsDocLine
               tag="@returns"
               type="Currency"
-              value={formatMoney(project.reward)}
+              value={payoutText}
               valueClassName="text-green-400"
             />
+            <ProjectRateLine payout={payout} />
           </JsDocBlock>
         </div>
 
@@ -97,7 +104,7 @@ export function ProjectCard({
           <ActionButton
             onClick={onComplete}
             disabled={!canComplete}
-            floatText={`+${formatMoney(project.reward)}`}
+            floatText={`+${payoutText}`}
             icon={<HiOutlineBanknotes size={20} />}
             fullWidth={false}
           >
