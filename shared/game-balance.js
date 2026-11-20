@@ -3778,8 +3778,14 @@ export function totalEmployees(employeeCounts) {
 export function totalBonusByType(openSourceLevels, bonusType) {
   let total = 0;
   for (const projectId of OPEN_SOURCE_IDS) {
-    const level = openSourceLevels[projectId] ?? 0;
     const config = BALANCE.openSource[projectId];
+    // Clamped to the levels this build defines (issue #179): a save
+    // from a newer client can hold a higher level, and reading past
+    // the end would throw in the production math.
+    const level = Math.min(
+      safeLevel(openSourceLevels?.[projectId] ?? 0),
+      config.levels.length
+    );
     for (let i = 0; i < level; i += 1) {
       const bonus = config.levels[i].bonus;
       if (bonus.type === bonusType) total += bonus.value;
@@ -4052,6 +4058,37 @@ export function employeePurchaseCosts(employeeType, fromCount, n, effects = {}) 
     costs.push(employeeCost(employeeType, fromCount + i, effects));
   }
   return costs;
+}
+
+/**
+ * LOC cost of a project's NEXT level when it sits at `level` (issue
+ * #180): level 0 (a locked or unstarted project) is level 1's cost.
+ * The number the card shows, the contribute action charges and the
+ * Cheapest sort orders by. Null when the track has no next level
+ * (maxed, or a level past what this client defines) or the id is
+ * unknown.
+ */
+export function openSourceNextLevelCost(projectId, level) {
+  const levels = BALANCE.openSource[projectId]?.levels;
+  if (!levels) return null;
+  const index = Number.isInteger(level) && level > 0 ? level : 0;
+  return levels[index]?.locCost ?? null;
+}
+
+/**
+ * Total cost in cents of buying `n` hires of a type starting from
+ * `fromCount` owned (issue #181): the sum of employeePurchaseCosts.
+ * The ONE number the Hire card shows, the hire action charges, and the
+ * Hire tab's Cheapest sort orders by. n = 1 is exactly employeeCost.
+ */
+export function employeeBulkCost(employeeType, fromCount, n = 1, effects = {}) {
+  if (!BALANCE.employees[employeeType]) return 0;
+  const count = Number.isInteger(fromCount) && fromCount > 0 ? fromCount : 0;
+  const quantity = Number.isInteger(n) && n > 0 ? n : 1;
+  return employeePurchaseCosts(employeeType, count, quantity, effects).reduce(
+    (sum, cost) => sum + cost,
+    0
+  );
 }
 
 /** Total LOC cost of raising a project from `fromLevel` to `toLevel`. */

@@ -20,12 +20,15 @@
 import {
   BALANCE,
   EMPLOYEE_DISPLAY_NAMES,
+  employeeBulkCost,
   FARM_CONFIG,
   FREELANCE_PROJECT_DISPLAY_NAMES,
   OPEN_SOURCE_DISPLAY_NAMES,
+  openSourceNextLevelCost,
   openSourceNextLevelNeedsRound,
   UNLOCK_VISIBILITY_THRESHOLD,
 } from "../../../shared/game-balance.js";
+import { sortIdsByCost } from "./sortModes.js";
 
 /**
  * Total number of employees across all employee types.
@@ -246,8 +249,18 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
  * Funding Rounds (issue #170): a gated track at its round's cap (but
  * not at the end of the track) has nothing to buy this company
  * either, so it sits between the buyable projects and the maxed ones.
+ *
+ * Sort modes (issue #180): `mode` "default" is all of the above,
+ * unchanged. "cheapest" orders the buyable group by next-level LOC
+ * cost (openSourceNextLevelCost, the number the card shows and the
+ * contribute action charges), ascending, ties in config order, with
+ * NO favorite pinning: it is a pure price scan. Locked teasers sit in
+ * the buyable group at level 1's cost. Round-capped tracks stay
+ * grouped after the buyable list, sorted by cost among themselves,
+ * and maxed projects stay last in config order, untouched. The
+ * ordering is the shared sortIdsByCost (utils/sortModes.js).
  */
-export function sortOpenSourceProjectIds(projectIds, state) {
+export function sortOpenSourceProjectIds(projectIds, state, mode = "default") {
   const maxed = new Set();
   const roundCapped = new Set();
   for (const id of projectIds) {
@@ -265,10 +278,45 @@ export function sortOpenSourceProjectIds(projectIds, state) {
   const active = projectIds.filter(
     (id) => !maxed.has(id) && !roundCapped.has(id)
   );
+  if (mode === "cheapest") {
+    const nextCost = (id) =>
+      openSourceNextLevelCost(id, state.openSourceProjects?.[id]?.level ?? 0);
+    return [
+      ...sortIdsByCost(active, nextCost),
+      ...sortIdsByCost(
+        projectIds.filter((id) => roundCapped.has(id)),
+        nextCost
+      ),
+      ...projectIds.filter((id) => maxed.has(id)),
+    ];
+  }
   return [
     ...active.filter((id) => favorites.has(id)),
     ...active.filter((id) => !favorites.has(id)),
     ...projectIds.filter((id) => roundCapped.has(id)),
     ...projectIds.filter((id) => maxed.has(id)),
   ];
+}
+
+/**
+ * Order the Hire tab's employee types (issue #181), through the same
+ * shared ordering helper as the Open Source tab (sortIdsByCost).
+ *
+ * - "default": the ids exactly as given (config order), today's order.
+ * - "cheapest": by employeeBulkCost for the selected bulk `quantity`
+ *   from the owned count, ascending, ties in config order. That is the
+ *   number each card shows and the hire action charges, so at x1 it is
+ *   the next hire's cost. Locked types own 0, so they sort at their
+ *   base hire cost, unlock conditions still on the card. Buying raises
+ *   the cost, so the order recomputes live.
+ */
+export function sortEmployeeTypes(employeeTypes, state, mode = "default", quantity = 1) {
+  if (mode !== "cheapest") return [...employeeTypes];
+  return sortIdsByCost(employeeTypes, (type) =>
+    BALANCE.employees[type]
+      ? employeeBulkCost(type, state.employees?.[type]?.count ?? 0, quantity, {
+          activeStarEffects: state.activeStarEffects ?? [],
+        })
+      : null
+  );
 }

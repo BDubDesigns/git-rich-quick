@@ -25,6 +25,9 @@ import { LockedEmployeeCard } from "./LockedEmployeeCard.jsx";
 import { ReleaseManagerShippingSummary } from "./ReleaseManagerShippingSummary.jsx";
 import { NightShiftCard } from "./NightShiftCard.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
+import { SortControl } from "./SortControl.jsx";
+import { useSortMode } from "../hooks/useSortMode.js";
+import { sortEmployeeTypes } from "../utils/unlockProgress.js";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -34,6 +37,16 @@ const BULK_QUANTITIES = [1, 5, 10, 25, 100];
 export function Shop() {
   const { state, dispatch } = useGameContext();
   const [quantity, setQuantity] = useState(1);
+  // Sort mode (issue #181): the shared Default / Cheapest control, its
+  // own device preference. Cheapest orders by the card's own cost at
+  // the selected quantity, so it re-sorts as hires raise prices.
+  const [sortMode] = useSortMode("shop");
+  const employeeTypes = sortEmployeeTypes(
+    Object.keys(EMPLOYEE_CONFIGS),
+    state,
+    sortMode,
+    quantity
+  );
 
   // AGI / Union Drive (issue #157): the live hire cost multiplier. The
   // prices themselves already include it (the shared employeeCost); the
@@ -53,22 +66,27 @@ export function Shop() {
       {/* Bulk-buy quantity selector — one selector for the whole list.
           The selected quantity is the plain bright button; the rest are
           the darker inactive members of the group (the nav's convention). */}
-      <div
-        className="flex flex-wrap gap-2"
-        role="group"
-        aria-label="Buy quantity"
-      >
-        {BULK_QUANTITIES.map((q) => (
-          <Button
-            key={q}
-            onClick={() => setQuantity(q)}
-            className={quantity === q ? "" : "game-button--inactive"}
-          >
-            x{q}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="Buy quantity"
+        >
+          {BULK_QUANTITIES.map((q) => (
+            <Button
+              key={q}
+              onClick={() => setQuantity(q)}
+              className={quantity === q ? "" : "game-button--inactive"}
+              ariaPressed={quantity === q}
+            >
+              x{q}
+            </Button>
+          ))}
+        </div>
+        <SortControl tab="shop" />
       </div>
-      {Object.entries(EMPLOYEE_CONFIGS).map(([employeeType, config]) => {
+      {employeeTypes.map((employeeType) => {
+        const config = EMPLOYEE_CONFIGS[employeeType];
         const unlocked = isEmployeeUnlocked(employeeType, state);
 
         if (unlocked) {

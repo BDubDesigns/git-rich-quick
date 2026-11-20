@@ -18,6 +18,8 @@ import "./Button.css";
  * @param {Object} [props.style] - Inline styles forwarded to the button.
  * @param {string} [props.className=""] - Extra classes (layout only, e.g.
  *   shrink-0, or game-button--inactive for an unselected toggle member).
+ * @param {boolean} [props.ariaPressed] - For a toggle-group member: whether
+ *   it is the selected one (aria-pressed). Omitted, no aria-pressed.
  */
 export function Button({
   onClick,
@@ -26,6 +28,7 @@ export function Button({
   type = "button",
   style,
   className = "",
+  ariaPressed,
 }) {
   return (
     <button
@@ -33,6 +36,7 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       style={style}
+      aria-pressed={ariaPressed}
       className={`game-button ${
         disabled ? "game-button--disabled" : ""
       } ${className}`}

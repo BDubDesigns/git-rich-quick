@@ -349,9 +349,11 @@ test("AGI halves and Union Drive raises every hire, single and bulk, in the shar
 test("every hire price path passes the live effects: card, bulk card, reducer, locked card", () => {
   const logic = src("context/gameLogic.js");
   assert.match(logic, /shared\.employeeCost\(employeeType, employee\.count, \{\s*activeStarEffects: state\.activeStarEffects \?\? \[\],?\s*\}\)/);
-  assert.match(logic, /\.employeePurchaseCosts\(employeeType, employee\.count, quantity, \{\s*activeStarEffects: state\.activeStarEffects \?\? \[\],?\s*\}\)/);
+  // Merged shape (#157 + #181): bulk prices go through the shared
+  // employeeBulkCost, which threads the effects into every hire.
+  assert.match(logic, /shared\.employeeBulkCost\(employeeType, employee\.count, quantity, \{\s*activeStarEffects: state\.activeStarEffects \?\? \[\],?\s*\}\)/);
   const context = src("context/GameContext.jsx");
-  assert.match(context, /\.employeePurchaseCosts\(employeeType, employee\.count, quantity, hireEffects\)/);
+  assert.match(context, /shared\.employeeBulkCost\(\s*employeeType,\s*employee\.count,\s*quantity,\s*hireEffects\s*\)/);
   const shop = src("components/Shop.jsx");
   assert.match(shop, /price=\{employeeCost\(employeeType, 0, \{ activeStarEffects \}\)\}/);
   assert.match(shop, /hireCostMultiplier=\{hireCostMultiplier\}/);

@@ -378,13 +378,17 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // Total cost for `quantity` hires, starting from the owned count.
+      // Total cost for `quantity` hires, starting from the owned count:
+      // the shared helper the card shows and the Cheapest sort uses.
       // A live AGI / Union Drive (issue #157) multiplies each hire
-      // inside the shared employeeCost, the same path the card prices.
+      // inside the shared employeeCost, threaded through that helper.
       const hireEffects = { activeStarEffects: state.activeStarEffects ?? [] };
-      const totalCost = shared
-        .employeePurchaseCosts(employeeType, employee.count, quantity, hireEffects)
-        .reduce((sum, cost) => sum + cost, 0);
+      const totalCost = shared.employeeBulkCost(
+        employeeType,
+        employee.count,
+        quantity,
+        hireEffects
+      );
       // Fire Sale, Hire Sale (issue #157): hires made while AGI is live.
       const agiLive = shared.starBuffIsGood({
         effect: "hiring",
@@ -925,9 +929,8 @@ function gameReducer(state, action) {
     case "CONTRIBUTE_TO_PROJECT": {
       // deconstruct projectId from action payload
       const { projectId } = action.payload;
-      // get project state and config
+      // get project state (its costs come from the shared helper below)
       const projectState = state.openSourceProjects[projectId];
-      const projectConfig = OPEN_SOURCE_PROJECTS_CONFIG[projectId];
 
       // check if there is a next level the owned Funding Round allows
       // (issue #170): a gated track stops at the round's cap, and the
@@ -945,9 +948,13 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // get next level config
-      const nextLevelConfig = projectConfig.levels[projectState.level];
-      const cost = nextLevelConfig.locCost;
+      // The next level's LOC cost: the one shared helper the card
+      // displays and the Cheapest sort orders by (issue #180).
+      const cost = shared.openSourceNextLevelCost(
+        projectId,
+        projectState.level
+      );
+      if (cost === null) return state; // no next level defined
       // check if player has enough LOC to contribute
       if (state.linesOfCode < cost) {
         console.warn(`Not enough LOC to contribute to project: ${projectId}`);
