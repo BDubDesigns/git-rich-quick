@@ -143,16 +143,18 @@ test("projectPayoutLines: base cards show the rate alone, boosted cards say why"
     payout: "$30.00",
     rate: "60¢/LOC",
     rateNote: null,
+    rateTone: null,
   });
   assert.deepEqual(projectPayoutLines("toDoListApp", { clientNetwork: 1 }), {
     payout: "$31.50",
     rate: "63¢/LOC",
     rateNote: " (+5% Client Network)",
+    rateTone: "gain",
   });
   assert.equal(projectPayoutLines("hobbyWebsite", { clientNetwork: 1 }).rate, "50.4¢/LOC");
   for (const key of FREELANCE_PROJECT_KEYS) {
     assert.equal(projectPayoutLines(key).rate, `${BASE_RATES[key]}¢/LOC`);
-    for (const text of Object.values(projectPayoutLines(key, { clientNetwork: 3 }))) {
+    for (const text of Object.values(projectPayoutLines(key, { clientNetwork: 3 })).filter(Boolean)) {
       assert.ok(!text.includes("—"), "no em dash");
     }
   }

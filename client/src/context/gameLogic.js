@@ -407,6 +407,8 @@ export function achievementContext(state) {
     farm: state.farm,
     emailCount: (state.emails ?? []).length,
     subtracterall: state.subtracterall,
+    // Issue #157: Ticket to Hype (v6.0) and Singularity Adjacent (v7.0).
+    constellationLevel: state.openSourceProjects?.constellation?.level ?? 0,
   };
 }
 
@@ -528,8 +530,12 @@ export function getEmployeeCost(employeeType, state) {
     return 0;
   }
 
-  // Calculate current cost in cents (increases with each purchase)
-  return shared.employeeCost(employeeType, employee.count);
+  // Calculate current cost in cents (increases with each purchase).
+  // A live AGI / Union Drive (issue #157) multiplies it inside the
+  // shared employeeCost.
+  return shared.employeeCost(employeeType, employee.count, {
+    activeStarEffects: state.activeStarEffects ?? [],
+  });
 }
 
 // Total cost in cents of buying `quantity` hires of a type, starting
@@ -547,7 +553,9 @@ export function getEmployeeBulkCost(employeeType, state, quantity) {
   }
 
   return shared
-    .employeePurchaseCosts(employeeType, employee.count, quantity)
+    .employeePurchaseCosts(employeeType, employee.count, quantity, {
+      activeStarEffects: state.activeStarEffects ?? [],
+    })
     .reduce((sum, cost) => sum + cost, 0);
 }
 
@@ -566,5 +574,7 @@ export function getReleaseManagerEconomics(state) {
     unlockedProjects: state.unlockedFreelanceProjects ?? {},
     openSourceLevels: flatOpenSourceLevels(state),
     permanentStoreRanks: state.permanentStoreRanks ?? {},
+    // Hype Train / Derailment (issue #157) moves the cash/s readout.
+    activeStarEffects: state.activeStarEffects ?? [],
   });
 }

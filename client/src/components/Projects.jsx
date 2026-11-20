@@ -11,6 +11,7 @@ import { ProjectCard } from "./ProjectCard.jsx";
 import { LockedFreelanceProjectCard } from "./LockedFreelanceProjectCard.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import { projectPayoutLines } from "../utils/projectPayout.js";
+import { hypePayoutMultiplier } from "../../../shared/game-balance.js";
 
 export function Projects() {
   const { state, dispatch } = useGameContext();
@@ -32,6 +33,12 @@ export function Projects() {
     });
   };
 
+  // Hype Train / Derailment (issue #157): while one is live the
+  // shippable cards glow green and sparkle (Hype Train) or dim red
+  // (Derailment). The payout and rate lines already show the money.
+  const hype = hypePayoutMultiplier(state.activeStarEffects ?? []);
+  const hypeTone = hype > 1 ? "hype" : hype < 1 ? "derailed" : null;
+
   return (
     <SectionLayout sectionId="projects">
       {Object.entries(FREELANCE_PROJECTS_CONFIG).map(
@@ -41,7 +48,8 @@ export function Projects() {
           // Network rank: the same numbers a ship pays.
           const payout = projectPayoutLines(
             projectKey,
-            state.permanentStoreRanks ?? {}
+            state.permanentStoreRanks ?? {},
+            { activeStarEffects: state.activeStarEffects ?? [] }
           );
 
           if (!isUnlocked) {
@@ -78,6 +86,7 @@ export function Projects() {
               <ProjectCard
                 project={project}
                 payout={payout}
+                hypeTone={hypeTone}
                 onComplete={() => handleCompleteProject(projectKey)}
                 canComplete={canComplete}
                 completionCount={

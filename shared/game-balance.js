@@ -796,6 +796,17 @@ export const BALANCE = Object.freeze({
           locCost: 250000,
           bonus: Object.freeze({ type: "STAR", value: 0 }),
         }),
+        // L6 unlocks Hype Train, L7 unlocks AGI (issue #157). Priced on
+        // the existing ramp (L5 250K, StarBroker and Launch Pad L5 2M):
+        // a few minutes of mid-game production each.
+        Object.freeze({
+          locCost: 750000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
+        Object.freeze({
+          locCost: 2000000,
+          bonus: Object.freeze({ type: "STAR", value: 0 }),
+        }),
       ]),
     }),
     // StarBroker: buy a golden star on demand. Each level halves the
@@ -1225,6 +1236,8 @@ export function releaseManagerShippingEconomics({
   unlockedProjects = {},
   openSourceLevels = {},
   permanentStoreRanks = {},
+  activeStarEffects = [],
+  nowMs = Date.now(),
 } = {}) {
   const safe = (n) => (Number.isFinite(n) && n > 0 ? n : 0);
   const shipsPerSecond =
@@ -1241,7 +1254,11 @@ export function releaseManagerShippingEconomics({
     const ships = unlockedProjects?.[key] ? assigned * shipsPerSecond : 0;
     const locPerSecond = ships * project.loc;
     const cash =
-      ships * freelanceShipPayoutCents(key, permanentStoreRanks ?? {});
+      ships *
+      freelanceShipPayoutCents(key, permanentStoreRanks ?? {}, {
+        activeStarEffects,
+        nowMs,
+      });
     perProject[key] = { assigned, locPerSecond, cashPerSecond: cash };
     rmOut += locPerSecond;
     cashPerSecond += cash;
@@ -1846,6 +1863,8 @@ export const STAR_CONFIG = Object.freeze({
     Object.freeze({ min: 60, max: 120 }), // L3 (faster)
     Object.freeze({ min: 60, max: 120 }), // L4 (same)
     Object.freeze({ min: 45, max: 90 }), // L5 (faster)
+    Object.freeze({ min: 45, max: 90 }), // L6 (same, issue #157)
+    Object.freeze({ min: 30, max: 60 }), // L7 (faster)
   ]),
   /** Effect definitions: weight, the level that unlocks it, and the locked pun names. */
   effects: Object.freeze({
@@ -1873,6 +1892,32 @@ export const STAR_CONFIG = Object.freeze({
       weight: 5,
       unlockLevel: 5,
       names: Object.freeze({ good: "Shooting Stars", bad: "Shooting Stars" }),
+    }),
+    // Issue #157. The good side rolls on golden stars; the bad side
+    // exists only as a red-star crash (moonshotCrashEffects derives the
+    // crash pool from this list). Names locked; the email flavor is the
+    // inbox body for a claim of that side.
+    hype: Object.freeze({
+      weight: 10,
+      unlockLevel: 6,
+      names: Object.freeze({ good: "Hype Train", bad: "Derailment" }),
+      flavor: Object.freeze({
+        good:
+          "A rando on X with a cartoon frog avatar posted a screenshot of your app with the caption \"this changes everything.\" It has 40K reposts. Nobody knows what it changes. Every client wants one anyway, and they will pay double to get it this week. All aboard.",
+        bad:
+          "The same rando on X posted a thread about your app. It starts with \"I have some concerns.\" Clients are quietly renegotiating, and every invoice now comes back at half. The hype train has left the rails. Mind the gap.",
+      }),
+    }),
+    hiring: Object.freeze({
+      weight: 5,
+      unlockLevel: 7,
+      names: Object.freeze({ good: "AGI", bad: "Union Drive" }),
+      flavor: Object.freeze({
+        good:
+          "A lab announced AGI on a livestream with no questions taken. The board did the math: an LLM costs less than a human, so humans are now priced like one. Every hire is half off while the market panics. Nobody asked the humans.",
+        bad:
+          "The humans read the AGI memo too. They have a group chat, a logo, and a list of demands, and the first demand is not being priced like a chatbot. Every hire costs 50% more until the drive cools off. Solidarity is expensive.",
+      }),
     }),
   }),
   /** Lucky: instant chunk. Good = 20-50x LOC/sec OR 1-75% of cash
@@ -1914,6 +1959,18 @@ export const STAR_CONFIG = Object.freeze({
     bad: 0.5,
   }),
   employeeDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
+  /** Hype (issue #157): freelance cash payouts x2 for 60s (Hype Train,
+   * golden); a red-star crash is x0.5 for 30s (Derailment). The first
+   * star effect on payouts; applied inside freelanceShipPayoutCents. */
+  hypePayoutMultiplier: Object.freeze({ good: 2, bad: 0.5 }),
+  hypeDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
+  /** Hiring (issue #157): every employee hire cost x0.5 for 60s (AGI,
+   * golden); a red-star crash is x1.5 for 30s (Union Drive). The first
+   * star effect on hire costs; applied inside employeeCost, so every
+   * single and bulk price path agrees. Note the direction: for this
+   * effect a multiplier BELOW 1 is the good one (starBuffIsGood). */
+  hiringCostMultiplier: Object.freeze({ good: 0.5, bad: 1.5 }),
+  hiringDurationSeconds: Object.freeze({ good: 60, bad: 30 }),
   /**
    * Shooting Stars is a Cookie Chain (issue #138). Clicking a Shooting
    * Stars star is chain click 1 and pays startLocPerSecondMultiple x
@@ -2235,6 +2292,23 @@ export function resolveStarClaim({
       // click 1 (7x LOC/s). The UI runs the rest of the chain with
       // shootingStarsChainClaim / shootingStarsChainContinues.
       return shootingStarsChainClaim(1, locPerSecond);
+    // Issue #157: fixed multipliers both ways, nothing to roll.
+    case "hype": {
+      const key = good ? "good" : "bad";
+      return {
+        ...base,
+        multiplier: STAR_CONFIG.hypePayoutMultiplier[key],
+        durationSeconds: STAR_CONFIG.hypeDurationSeconds[key],
+      };
+    }
+    case "hiring": {
+      const key = good ? "good" : "bad";
+      return {
+        ...base,
+        multiplier: STAR_CONFIG.hiringCostMultiplier[key],
+        durationSeconds: STAR_CONFIG.hiringDurationSeconds[key],
+      };
+    }
     default:
       return base;
   }
@@ -2246,6 +2320,52 @@ export function starEffectName(effect, good) {
   const names = STAR_CONFIG.effects[effect]?.names;
   if (!names) return "Golden Star";
   return good ? names.good : names.bad;
+}
+
+/** The inbox flavor for a star outcome, or null (the generic sign-off). */
+export function starEffectFlavor(effect, good) {
+  const flavor = STAR_CONFIG.effects[effect]?.flavor;
+  if (!flavor) return null;
+  return (good ? flavor.good : flavor.bad) ?? null;
+}
+
+/**
+ * Whether a live timed buff is the good side of its effect. For every
+ * effect a multiplier above 1 is good, except hiring (issue #157): it
+ * multiplies a COST, so AGI's 0.5x is the good one and Union Drive's
+ * 1.5x the bad one. The duration bar, its color and its name read this,
+ * never `multiplier > 1` directly.
+ */
+export function starBuffIsGood(buff) {
+  const multiplier = Number(buff?.multiplier);
+  if (!Number.isFinite(multiplier)) return false;
+  return buff.effect === "hiring" ? multiplier < 1 : multiplier > 1;
+}
+
+/**
+ * The live multiplier of one timed star effect (issue #157), or 1 when
+ * none is live. A buff is live until its expiresAtMs. Only one buff per
+ * effect is ever live (a new claim replaces the old), so the first live
+ * match wins. NaN-safe: a malformed entry reads as no buff.
+ */
+export function liveStarEffectMultiplier(activeStarEffects, effect, nowMs = Date.now()) {
+  for (const buff of Array.isArray(activeStarEffects) ? activeStarEffects : []) {
+    if (buff?.effect !== effect) continue;
+    if (!(Number(buff.expiresAtMs) > nowMs)) continue;
+    const multiplier = Number(buff.multiplier);
+    return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  }
+  return 1;
+}
+
+/** Hype Train / Derailment: the live freelance payout multiplier (1 when none). */
+export function hypePayoutMultiplier(activeStarEffects, nowMs = Date.now()) {
+  return liveStarEffectMultiplier(activeStarEffects, "hype", nowMs);
+}
+
+/** AGI / Union Drive: the live hire cost multiplier (1 when none). */
+export function hiringCostMultiplier(activeStarEffects, nowMs = Date.now()) {
+  return liveStarEffectMultiplier(activeStarEffects, "hiring", nowMs);
 }
 
 /**
@@ -2628,11 +2748,20 @@ export function clientNetworkPayoutMultiplier(storeRanks = {}) {
  * and the project cards display it, so the number on the card is the
  * number that lands. An unknown project key pays 0.
  */
-export function freelanceShipPayoutCents(projectKey, storeRanks = {}) {
+export function freelanceShipPayoutCents(
+  projectKey,
+  storeRanks = {},
+  { activeStarEffects = [], nowMs = Date.now() } = {}
+) {
   const project = BALANCE.freelanceProjects[projectKey];
   if (!project) return 0;
+  // Hype Train / Derailment (issue #157) multiplies here too, so the
+  // manual Ship, the Release Manager auto-ship, the cash readout and
+  // the card all pay and show the same boosted number.
   return Math.round(
-    project.reward * clientNetworkPayoutMultiplier(storeRanks ?? {})
+    project.reward *
+      clientNetworkPayoutMultiplier(storeRanks ?? {}) *
+      hypePayoutMultiplier(activeStarEffects, nowMs)
   );
 }
 
@@ -2646,15 +2775,17 @@ export function freelanceShipPayoutCents(projectKey, storeRanks = {}) {
  * - baseCentsPerLoc: the same rate with no Client Network ranks.
  * - payoutBonus: the Client Network bonus applied (0.05 is +5%, 0 when
  *   unowned), so the card can say where the extra came from.
+ * - hypeMultiplier: the live Hype Train (2) or Derailment (0.5)
+ *   multiplier, 1 when neither is live (issue #157).
  *
  * The rate falls as the LOC cost rises, on purpose: small gigs pay the
  * best per LOC, big ones pay the most per ship. An unknown key returns
  * null.
  */
-export function freelancePayoutQuote(projectKey, storeRanks = {}) {
+export function freelancePayoutQuote(projectKey, storeRanks = {}, effects = {}) {
   const project = BALANCE.freelanceProjects[projectKey];
   if (!project) return null;
-  const payoutCents = freelanceShipPayoutCents(projectKey, storeRanks);
+  const payoutCents = freelanceShipPayoutCents(projectKey, storeRanks, effects);
   const multiplier = clientNetworkPayoutMultiplier(storeRanks ?? {});
   return {
     loc: project.loc,
@@ -2662,6 +2793,7 @@ export function freelancePayoutQuote(projectKey, storeRanks = {}) {
     centsPerLoc: payoutCents / project.loc,
     baseCentsPerLoc: project.reward / project.loc,
     payoutBonus: Math.round((multiplier - 1) * 100) / 100,
+    hypeMultiplier: hypePayoutMultiplier(effects?.activeStarEffects, effects?.nowMs ?? Date.now()),
   };
 }
 
@@ -3894,19 +4026,30 @@ export function locPerSecond(
 /**
  * Cost in cents of the next hire of a type, when `count` are already owned.
  * Mirrors `getEmployeeCost` in the client: round(base * multiplier ^ count).
+ *
+ * AGI / Union Drive (issue #157): a live hiring star effect multiplies
+ * every hire here, the ONE per-hire cost every price path reads (the
+ * single hire, each hire of a bulk buy via employeePurchaseCosts, the
+ * card and the reducer). With no effects passed the cost is unchanged.
  */
-export function employeeCost(employeeType, count) {
+export function employeeCost(
+  employeeType,
+  count,
+  { activeStarEffects = [], nowMs = Date.now() } = {}
+) {
   const config = BALANCE.employees[employeeType];
   return Math.round(
-    config.baseCost * Math.pow(config.costMultiplier, count)
+    config.baseCost *
+      Math.pow(config.costMultiplier, count) *
+      hiringCostMultiplier(activeStarEffects, nowMs)
   );
 }
 
 /** Cost in cents of buying `n` hires of a type, starting from `fromCount`. */
-export function employeePurchaseCosts(employeeType, fromCount, n) {
+export function employeePurchaseCosts(employeeType, fromCount, n, effects = {}) {
   const costs = [];
   for (let i = 0; i < n; i += 1) {
-    costs.push(employeeCost(employeeType, fromCount + i));
+    costs.push(employeeCost(employeeType, fromCount + i, effects));
   }
   return costs;
 }
@@ -4147,6 +4290,13 @@ export function canEquipCosmetic(slot, cosmeticId, unlockedCosmetics) {
  *   llamasBought / llamasSold: { [llamaType]: lifetime count }
  *     (written by the llama economy, issue #129, through
  *     recordLlamaBought / recordLlamaSold; totals are the sums)
+ *   starStats (issue #157): lifetime Hype Train / AGI counters, through
+ *     recordStarStat: hypeTrains (Hype Trains claimed), hypeShips
+ *     (projects shipped while a Hype Train is live, manual and auto),
+ *     hypeCashCents (cash those ships paid, boost included), agiTriggers
+ *     (AGIs claimed), agiHires (employees hired while AGI is live),
+ *     unionDrives (red-star crashes into a Union Drive). Fresh 0s for
+ *     old saves, no backfill.
  * Total hires, LOC in a run (totalLinesOfCode - lifetimeLocAtLastSale),
  * lifetime LOC (totalLinesOfCode), and the achievements-unlocked count
  * (achievementTiersEarned) are derived from persisted fields, never
@@ -4158,6 +4308,16 @@ export function canEquipCosmetic(slot, cosmeticId, unlockedCosmetics) {
  *
  * Copy rules: punny, sarcastic dev satire; no em dashes anywhere.
  */
+
+/** The Hype Train / AGI lifetime counters (issue #157), achievements.starStats. */
+export const STAR_STAT_KEYS = Object.freeze([
+  "hypeTrains",
+  "hypeShips",
+  "hypeCashCents",
+  "agiTriggers",
+  "agiHires",
+  "unionDrives",
+]);
 
 /** Percent of extra LOC per tier: index 0 is tier 1. Tier 4+ is 5%. */
 export const ACHIEVEMENT_TIER_BUFF_PERCENTS = Object.freeze([1, 2, 3, 5]);
@@ -4359,6 +4519,78 @@ export const ACHIEVEMENTS = Object.freeze(
       thresholds: [1, 3, 10],
       describe: (n) => `Sell the company ${countNoun(n, "time")}.`,
     },
+    // Issue #157: Hype Train and AGI, and the Constellation tiers that
+    // unlock them. Star stats are lifetime; the Constellation level is
+    // this company's (it resets on sale), latched once reached.
+    {
+      id: "hypeSpringsEternal",
+      name: "Hype Springs Eternal",
+      flavor:
+        "One stranger with a cartoon avatar posted about you, and now you have a waitlist.",
+      metric: "hypeTrains",
+      thresholds: [1, 5, 25],
+      describe: (n) => `Catch ${countNoun(n, "Hype Train")}.`,
+    },
+    {
+      id: "shipWhileItsHot",
+      name: "Ship While It's Hot",
+      flavor: "Nobody reads the spec during a hype cycle. Least of all the client.",
+      metric: "hypeShips",
+      thresholds: [10, 100, 1000],
+      describe: (n) =>
+        `Ship ${countNoun(n, "freelance project")} while a Hype Train is running. Release Manager ships count.`,
+    },
+    {
+      id: "viralLoad",
+      name: "Viral Load",
+      flavor: "Engagement is up. Nobody can say what was engaged.",
+      metric: "hypeCashCents",
+      thresholds: [1_000_000, 100_000_000, 10_000_000_000],
+      describe: (n) =>
+        `Earn ${formatMoney(n)} from projects shipped during Hype Trains.`,
+    },
+    {
+      id: "ticketToHype",
+      name: "Ticket to Hype",
+      flavor: "The sky has a marketing department now. It is also the sky.",
+      metric: "constellationLevel",
+      thresholds: [6],
+      describe: () => "Raise GitNub Constellation to v6.0.",
+    },
+    {
+      id: "artificialGeneralDiscount",
+      name: "Artificial General Discount",
+      flavor:
+        "The board asked if the AI could replace the board. The AI said yes. The meeting ended early.",
+      metric: "agiTriggers",
+      thresholds: [1, 5, 25],
+      describe: (n) => `Catch ${countNoun(n, "AGI star", "AGI stars")}.`,
+    },
+    {
+      id: "fireSaleHireSale",
+      name: "Fire Sale, Hire Sale",
+      flavor: "Every hire comes with a model card and a severance package, in that order.",
+      metric: "agiHires",
+      thresholds: [10, 100, 1000],
+      describe: (n) => `Hire ${countNoun(n, "employee")} while AGI has them half off.`,
+    },
+    {
+      id: "collectiveBargainingChip",
+      name: "Collective Bargaining Chip",
+      flavor: "Turns out the humans read the AGI memo too. They printed it on a banner.",
+      metric: "unionDrives",
+      thresholds: [1, 3, 10],
+      describe: (n) =>
+        `Survive ${countNoun(n, "Union Drive")}. Only a red star crash calls one.`,
+    },
+    {
+      id: "singularityAdjacent",
+      name: "Singularity Adjacent",
+      flavor: "Close enough to the singularity to put it on the pitch deck.",
+      metric: "constellationLevel",
+      thresholds: [7],
+      describe: () => "Raise GitNub Constellation to v7.0.",
+    },
     {
       id: "metaData",
       name: "Meta Data",
@@ -4478,6 +4710,7 @@ export function zeroAchievementsState() {
     goldStarsClicked: 0,
     llamasBought: zeroCountMap(LLAMA_TYPES),
     llamasSold: zeroCountMap(LLAMA_TYPES),
+    starStats: zeroCountMap(STAR_STAT_KEYS),
   };
 }
 
@@ -4490,6 +4723,7 @@ export const ACHIEVEMENTS_STATE_KEYS = Object.freeze([
   "goldStarsClicked",
   "llamasBought",
   "llamasSold",
+  "starStats",
 ]);
 
 /**
@@ -4528,6 +4762,8 @@ export function normalizeAchievementsState(achievements) {
   fillMap("hires", EMPLOYEE_TYPES);
   fillMap("llamasBought", LLAMA_TYPES);
   fillMap("llamasSold", LLAMA_TYPES);
+  // Issue #157: fresh 0s, no backfill.
+  fillMap("starStats", STAR_STAT_KEYS);
   if (next.clicks === undefined) next.clicks = 0;
   if (next.peakLocPerSecond === undefined) next.peakLocPerSecond = 0;
   // Moonshot (issue #165): fresh default, no backfill. Nothing counted
@@ -4570,6 +4806,7 @@ export function sanitizeAchievementsState(achievements) {
     goldStarsClicked: Math.floor(safeCount(source.goldStarsClicked)),
     llamasBought: intMap(source.llamasBought, LLAMA_TYPES),
     llamasSold: intMap(source.llamasSold, LLAMA_TYPES),
+    starStats: intMap(source.starStats, STAR_STAT_KEYS),
   };
 }
 
@@ -4634,6 +4871,12 @@ export function achievementsStateError(achievements) {
     "llamasSold"
   );
   if (soldError) return soldError;
+  const starStatsError = countMapError(
+    achievements.starStats,
+    STAR_STAT_KEYS,
+    "starStats"
+  );
+  if (starStatsError) return starStatsError;
   if (!Number.isInteger(achievements.clicks) || achievements.clicks < 0) {
     return "achievements.clicks must be a non-negative integer";
   }
@@ -4679,6 +4922,11 @@ export function achievementsDecreased(prev, next) {
       return `llamasSold.${type}`;
     }
   }
+  for (const key of STAR_STAT_KEYS) {
+    if ((next.starStats?.[key] ?? 0) < (prev.starStats?.[key] ?? 0)) {
+      return `starStats.${key}`;
+    }
+  }
   if ((next.clicks ?? 0) < (prev.clicks ?? 0)) return "clicks";
   if ((next.peakLocPerSecond ?? 0) < (prev.peakLocPerSecond ?? 0)) {
     return "peakLocPerSecond";
@@ -4718,6 +4966,38 @@ export function recordGoldStarClicks(achievements, n = 1) {
     ...base,
     goldStarsClicked: base.goldStarsClicked + Math.floor(safeCount(n)),
   };
+}
+
+/**
+ * Add `n` to one Hype Train / AGI counter (issue #157, pure). Unknown
+ * keys and junk amounts change nothing (a NaN never reaches a counter).
+ */
+export function recordStarStat(achievements, key, n = 1) {
+  const base = sanitizeAchievementsState(achievements);
+  if (!STAR_STAT_KEYS.includes(key)) return base;
+  const amount = Math.floor(safeCount(n));
+  if (amount === 0) return base;
+  return {
+    ...base,
+    starStats: { ...base.starStats, [key]: base.starStats[key] + amount },
+  };
+}
+
+/**
+ * The achievement counters one star claim moves (issue #157): a golden
+ * Hype Train counts toward hypeTrains, a golden AGI toward agiTriggers,
+ * and a red-star crash into a Union Drive toward unionDrives. Every
+ * other claim returns the record unchanged.
+ */
+export function recordStarClaimStats(achievements, claim) {
+  if (!claim) return achievements;
+  if (claim.effect === "hype" && claim.good) {
+    return recordStarStat(achievements, "hypeTrains", 1);
+  }
+  if (claim.effect === "hiring") {
+    return recordStarStat(achievements, claim.good ? "agiTriggers" : "unionDrives", 1);
+  }
+  return achievements;
 }
 
 /** Record `n` manual commits on an achievements record (pure). */
@@ -4849,7 +5129,7 @@ export function buffedLocPerSecond(state) {
  * The live number an achievement metric reads. `ctx` is save-shaped
  * (flat counts): { achievements, totalLinesOfCode,
  * lifetimeLocAtLastSale, employees, freelanceProjectsCompleted, money,
- * saleCount, farm, emailCount, subtracterall }. Every value is guarded
+ * saleCount, farm, emailCount, subtracterall, constellationLevel }. Every value is guarded
  * against NaN and missing fields (a missing count reads 0).
  */
 export function achievementMetricValue(metric, ctx = {}) {
@@ -4886,6 +5166,16 @@ export function achievementMetricValue(metric, ctx = {}) {
         : 0;
     case "saleCount":
       return safeCount(ctx.saleCount);
+    // Issue #157.
+    case "hypeTrains":
+    case "hypeShips":
+    case "hypeCashCents":
+    case "agiTriggers":
+    case "agiHires":
+    case "unionDrives":
+      return safeCount(achievements.starStats?.[metric]);
+    case "constellationLevel":
+      return safeCount(ctx.constellationLevel);
     case "achievementTiers":
       return achievementTiersEarned(achievements, { excludeId: "metaData" });
     case "inboxZero":
@@ -6107,6 +6397,10 @@ export function starBuffDurationSeconds(effect, good) {
       return STAR_CONFIG.employeeDurationSeconds[key];
     case "moonshot":
       return MOONSHOT_CONFIG.jackpotDurationSeconds;
+    case "hype":
+      return STAR_CONFIG.hypeDurationSeconds[key];
+    case "hiring":
+      return STAR_CONFIG.hiringDurationSeconds[key];
     default:
       return null;
   }
@@ -6217,6 +6511,17 @@ export function starRewardDetail(claim, employeeTypeName) {
       const typeName = employeeTypeName ?? claim.employeeType;
       return `${typeName}s ${claim.multiplier}x productivity`;
     }
+    // Issue #157. "{n}x" colors in the inbox (green above 1x, red
+    // below), which reads right for payouts. Hire costs run the other
+    // way (0.5x is the good one), so they are worded as a percent.
+    case "hype":
+      return `Freelance payouts ${claim.multiplier}x`;
+    case "hiring": {
+      const percent = Math.round(Math.abs(1 - claim.multiplier) * 100);
+      return claim.multiplier < 1
+        ? `Hires ${percent}% off`
+        : `Hires cost ${percent}% more`;
+    }
     default:
       return "";
   }
@@ -6323,13 +6628,18 @@ export function buildOpenSourceLevelEmail({ projectName, level, projectId = null
  * locked pun name (Airdrop, Rug Pull, ...), `rewardText` is the
  * starRewardDetail string, and `good` picks the sign-off.
  */
-export function buildStarRewardEmail({ effectName, rewardText, good }) {
+export function buildStarRewardEmail({ effectName, rewardText, good, flavor = null }) {
+  // An effect with its own story (Hype Train, AGI and their crashes,
+  // issue #157) tells it; the rest keep the generic sign-off.
   return {
     sender: "GitNub",
     subject: `${effectName}: ${rewardText}`,
-    body: good
-      ? "The GitNub sky provides. Mostly."
-      : "The GitNub sky giveth, and the GitNub sky taketh away.",
+    body:
+      typeof flavor === "string" && flavor.length > 0
+        ? flavor
+        : good
+          ? "The GitNub sky provides. Mostly."
+          : "The GitNub sky giveth, and the GitNub sky taketh away.",
   };
 }
 
