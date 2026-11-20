@@ -1,12 +1,8 @@
 import { useGameContext } from "../context/useGameContext";
 import { OPEN_SOURCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import { isOpenSourceProjectUnlocked } from "../context/gameLogic";
-import {
-  fundingRoundName,
-  fundingRoundRankForLevel,
-  openSourceNextLevelCost,
-  openSourceNextLevelNeedsRound,
-} from "../../../shared/game-balance.js";
+import { openSourceNextLevelCost } from "../../../shared/game-balance.js";
+import { openSourceCardModel } from "../utils/openSourceCard.js";
 import {
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
@@ -58,7 +54,6 @@ export function OpenSource() {
   const cards = sortedIds
     .map((id) => {
       const config = OPEN_SOURCE_PROJECTS_CONFIG[id];
-      const projectState = state.openSourceProjects[id];
       const isUnlocked = isOpenSourceProjectUnlocked(id, state);
 
       if (!isUnlocked) {
@@ -87,29 +82,18 @@ export function OpenSource() {
         };
       }
 
-      const currentLevel = projectState.level;
-      const isMaxed = currentLevel >= config.levels.length;
-      const currentBonus =
-        currentLevel > 0 ? config.levels[currentLevel - 1].bonus : null;
-      const nextLevelConfig = !isMaxed ? config.levels[currentLevel] : null;
-      const nextBonus = nextLevelConfig?.bonus;
-      // The shared next-level cost (issue #180): what this card shows,
-      // what contributing charges, and what Cheapest sorts by.
-      const locCost = openSourceNextLevelCost(id, currentLevel) ?? undefined;
-      // Funding Rounds (issue #170): the next level may exist but sit
-      // above the owned round's cap; the card shows the round it needs.
-      const needsRound =
-        !isMaxed &&
-        openSourceNextLevelNeedsRound(
-          id,
-          currentLevel,
-          state.permanentStoreRanks
-        );
-      const lockedRoundName = needsRound
-        ? fundingRoundName(fundingRoundRankForLevel(id, currentLevel + 1))
-        : null;
-      const canContribute =
-        !isMaxed && !needsRound && state.linesOfCode >= locCost;
+      // Everything the card renders from, with the save level clamped
+      // to the levels this client defines (issue #179): a save from a
+      // newer client renders as this client's max, never a crash.
+      const {
+        currentLevel,
+        currentBonus,
+        nextBonus,
+        locCost,
+        isMaxed,
+        lockedRoundName,
+        canContribute,
+      } = openSourceCardModel(id, state);
 
       return {
         isMaxed,

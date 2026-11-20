@@ -311,7 +311,9 @@ test("Open Source renders the shared SortControl and sorts by its mode, costs fr
   // The card's cost, the locked teaser's cost and the reducer's charge
   // all come from openSourceNextLevelCost.
   assert.match(os, /locCost=\{openSourceNextLevelCost\(id, 0\)\}/);
-  assert.match(os, /openSourceNextLevelCost\(id, currentLevel\)/);
+  // The unlocked card's cost comes from its model (issue #179).
+  assert.match(os, /openSourceCardModel\(id, state\)/);
+  assert.match(src("utils/openSourceCard.js"), /openSourceNextLevelCost\(projectId, currentLevel\)/);
   assert.ok(!/\.locCost\b/.test(os), "no hand-read level cost in the tab");
   const context = src("context/GameContext.jsx");
   assert.match(context, /const cost = shared\.openSourceNextLevelCost\(\s*projectId,\s*projectState\.level\s*\)/);
