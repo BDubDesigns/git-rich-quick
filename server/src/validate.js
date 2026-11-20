@@ -242,10 +242,14 @@ function checkStateShape(state) {
   // of the round the state owns. The rank is read guarded here (the
   // store ranks are shape-checked below), and it only moves through
   // the store-buy endpoint, so a normal save cannot raise its own cap.
+  // Bridge Rounds (issue #192): a company that owns its Bridge Round
+  // reaches the next round's caps, and the Bridge Round itself caps at
+  // 0 from Series B on, both read from the same shared helper.
   for (const projectId of OPEN_SOURCE_IDS) {
     const maxLevel = openSourceLevelCap(
       projectId,
-      state.permanentStoreRanks
+      state.permanentStoreRanks,
+      state.openSourceProjects
     );
     if (state.openSourceProjects[projectId] > maxLevel) {
       return `open-source level must be 0-${maxLevel}`;

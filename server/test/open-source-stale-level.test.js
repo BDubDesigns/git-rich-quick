@@ -116,9 +116,19 @@ test("in-range levels model exactly as before (no behavior change)", () => {
       assert.equal(model.isMaxed, isMaxed);
       assert.deepEqual(model.currentBonus, level > 0 ? levels[level - 1].bonus : null);
       assert.deepEqual(model.nextBonus, isMaxed ? undefined : levels[level].bonus);
-      assert.equal(model.locCost, isMaxed ? undefined : levels[level].locCost);
+      // The Bridge Round (issue #192) is priced by the owned round, and
+      // stateAt owns every round, where no bridge is offered: no price.
+      const expectedCost =
+        isMaxed || id === "bridgeRound" ? undefined : levels[level].locCost;
+      assert.equal(model.locCost, expectedCost);
     }
   }
+  // At Bootstrapped the bridge model reads its Bootstrapped price.
+  const bridge = openSourceCardModel(
+    "bridgeRound",
+    stateAt({}, { permanentStoreRanks: { fundingRounds: 0 } })
+  );
+  assert.equal(bridge.locCost, 1_000_000_000);
   // Funding Rounds still gate: Bootstrapped (round 0) Senior Moment at L6.
   const capped = openSourceCardModel("seniorMoment", stateAt({ seniorMoment: 6 }, { permanentStoreRanks: { fundingRounds: 0 } }));
   assert.equal(capped.canContribute, false);

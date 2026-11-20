@@ -50,6 +50,7 @@ import {
   FaUsers,
   FaHeart,
 } from "react-icons/fa"; // doubling upgrades (issue #118)
+import { FaBridge } from "react-icons/fa6"; // bridge round (issue #192)
 
 // Shared balance numbers and formulas — the single source of truth, also
 // imported by the save server (`server/src/validate.js`). This file only
@@ -451,5 +452,17 @@ export const OPEN_SOURCE_PROJECTS_CONFIG = Object.freeze({
     color: "cyan",
     description:
       "Release Managers who ship on a Friday and do not even flinch. Each level doubles how many projects each manager ships per second.",
+  },
+  // Bridge Round (issue #192): rent the next Funding Round's caps for
+  // this company, paid in LOC. The price depends on the owned round
+  // and comes from shared.
+  bridgeRound: {
+    // Levels (and unlock conditions) come from shared.
+    ...shared.BALANCE.openSource.bridgeRound,
+    name: shared.OPEN_SOURCE_DISPLAY_NAMES.bridgeRound,
+    icon: FaBridge,
+    color: "#c5c53f",
+    description:
+      "The investors will not price a real round until you sell, so you take a bridge: money now, strings everywhere. Pay once in LOC and this company gets the next round's level caps on every capped track. The levels still cost their normal price. It is this company only and it resets when you sell. Raise the real round with Equity after a sale and those caps are permanent and free. Until then, you are paying rent.",
   },
 });

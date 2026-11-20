@@ -59,6 +59,8 @@ const GATED = [
   "seniorMoment",
   "scrumMaster",
   "commitmentIssues",
+  // Issue #192 (folds in #186): Ship Happens is gated too.
+  "shipHappens",
 ];
 
 async function startTestServer() {
@@ -185,6 +187,14 @@ test("caps by round match the build spec (issue #170 section 4)", () => {
   }
   assert.deepEqual(capsAt("scrumMaster"), [5, 8, 11, 14, 17, 20]);
   assert.deepEqual(capsAt("commitmentIssues"), [6, 8, 10, 12, 14, 16]);
+  // Issue #192: Ship Happens at 1 / 3 / 6 / 8 / 9 / 10 (replacing the
+  // 3 / 5 / 6 / 8 / 9 / 10 #186 suggested), power unchanged: 2x ships
+  // per level, so 2 / 8 / 64 / 256 / 512 / 1,024 ships per manager.
+  assert.deepEqual(capsAt("shipHappens"), [1, 3, 6, 8, 9, 10]);
+  assert.deepEqual(
+    capsAt("shipHappens").map((l) => doublingTrackMultiplier("shipHappens", l)),
+    [2, 8, 64, 256, 512, 1024]
+  );
   // The multipliers those caps give: 7.5x .. 1,171x, 6% .. 21%, 64x .. 65,536x.
   assert.deepEqual(
     capsAt("seniorMoment").map((l) => doublingTrackMultiplier("seniorMoment", l).toFixed(1)),
@@ -230,13 +240,20 @@ test("round helpers: names, the round a level needs, and NaN guards", () => {
   assert.equal(fundingRoundRankForLevel("seniorMoment", 21), 5);
   assert.equal(fundingRoundRankForLevel("seniorMoment", 22), null);
   assert.equal(fundingRoundRankForLevel("commitmentIssues", 9), 2);
-  assert.equal(fundingRoundRankForLevel("shipHappens", 3), null);
+  // Ship Happens is gated since issue #192: L2 and L3 need Seed.
+  assert.equal(fundingRoundRankForLevel("shipHappens", 1), 0);
+  assert.equal(fundingRoundRankForLevel("shipHappens", 3), 1);
+  assert.equal(fundingRoundRankForLevel("blocker", 3), null);
   // The next level is round-locked only between the cap and the end.
   assert.equal(openSourceNextLevelNeedsRound("seniorMoment", 5, {}), false);
   assert.equal(openSourceNextLevelNeedsRound("seniorMoment", 6, {}), true);
   assert.equal(openSourceNextLevelNeedsRound("seniorMoment", 6, { fundingRounds: 1 }), false);
   assert.equal(openSourceNextLevelNeedsRound("seniorMoment", 21, { fundingRounds: 5 }), false);
-  assert.equal(openSourceNextLevelNeedsRound("shipHappens", 9, {}), false);
+  assert.equal(openSourceNextLevelNeedsRound("shipHappens", 0, {}), false);
+  assert.equal(openSourceNextLevelNeedsRound("shipHappens", 1, {}), true);
+  assert.equal(openSourceNextLevelNeedsRound("shipHappens", 9, { fundingRounds: 5 }), false);
+  // An ungated project is never round-locked.
+  assert.equal(openSourceNextLevelNeedsRound("blocker", 2, {}), false);
 });
 
 test("the GitNub list sinks a round-capped track below buyable ones, above maxed ones", () => {
@@ -416,7 +433,7 @@ test("applyPrestigeSale keeps the round and zeroes every gated level", () => {
 test("wipe: new players are written at the current schema and never wiped", async (t) => {
   const srv = await startTestServer();
   t.after(() => srv.stop());
-  assert.equal(SAVE_SCHEMA_VERSION, 2);
+  assert.equal(SAVE_SCHEMA_VERSION, 3);
   const playerId = await mintPlayer(srv.base);
   assert.equal(await schemaVersionOf(srv, playerId), SAVE_SCHEMA_VERSION);
   const s = initialSaveState();
@@ -438,7 +455,7 @@ function assertFreshWipedState(state, message) {
   assert.deepEqual(freshEmails, [], message);
   assert.deepEqual(rest, fresh, message);
   assert.equal(emails.length, 1, message);
-  assert.equal(emails[0].triggerKey, "save-wipe:v2", message);
+  assert.equal(emails[0].triggerKey, `save-wipe:v${SAVE_SCHEMA_VERSION}`, message);
   assert.equal(emails[0].read, false, message);
 }
 

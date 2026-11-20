@@ -42,7 +42,7 @@ function roundCapsText(rank) {
   const ranks = { fundingRounds: rank };
   const name = (id) => shared.OPEN_SOURCE_DISPLAY_NAMES[id] ?? id;
   const cap = (id) => shared.openSourceLevelCap(id, ranks);
-  return `${name("coffeeScript")}, ${name("juniorAchievement")} and ${name("seniorMoment")} to level ${cap("seniorMoment")}, ${name("scrumMaster")} to ${cap("scrumMaster")}, ${name("commitmentIssues")} to ${cap("commitmentIssues")}`;
+  return `${name("coffeeScript")}, ${name("juniorAchievement")} and ${name("seniorMoment")} to level ${cap("seniorMoment")}, ${name("scrumMaster")} to ${cap("scrumMaster")}, ${name("commitmentIssues")} to ${cap("commitmentIssues")}, ${name("shipHappens")} to ${cap("shipHappens")}`;
 }
 
 /** The effect line for a track at a given total rank. */

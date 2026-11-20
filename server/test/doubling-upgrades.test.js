@@ -426,14 +426,23 @@ test("a track above its Bootstrapped cap is a shape rejection (issue #170)", () 
   assert.equal(r.ok, false);
   assert.equal(r.rule, "SHAPE");
   assert.match(r.detail, /0-6/);
-  // Ship Happens is not gated: its full 10 levels validate.
-  const ship = stateWith({ openSourceProjects: { shipHappens: 10 } });
+  // Ship Happens is gated since issue #192: Bootstrapped caps it at 1.
+  const ship = stateWith({ openSourceProjects: { shipHappens: 1 } });
   const ok = validateSave(
     prev(initialSaveState(), T0),
     body(ship, zeroActions()),
     T0 + 60_000
   );
   assert.equal(ok.ok, true, JSON.stringify(ok));
+  const overShip = stateWith({ openSourceProjects: { shipHappens: 2 } });
+  const over = validateSave(
+    prev(initialSaveState(), T0),
+    body(overShip, zeroActions()),
+    T0 + 60_000
+  );
+  assert.equal(over.ok, false);
+  assert.equal(over.rule, "SHAPE");
+  assert.match(over.detail, /0-1/);
 });
 
 test("old saves and old actions missing the six keys still validate (normalized)", () => {

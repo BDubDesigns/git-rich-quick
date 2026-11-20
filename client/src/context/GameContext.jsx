@@ -935,9 +935,17 @@ function gameReducer(state, action) {
       // check if there is a next level the owned Funding Round allows
       // (issue #170): a gated track stops at the round's cap, and the
       // server rejects a save above it, so the buy is refused here.
+      // Bridge Rounds (issue #192): the same helper lifts the gated
+      // caps one round while this company owns its Bridge Round, caps
+      // the Bridge Round itself at 1 (once per company), and at 0 from
+      // Series B on.
       if (
         projectState.level >=
-        shared.openSourceLevelCap(projectId, state.permanentStoreRanks)
+        shared.openSourceLevelCap(
+          projectId,
+          state.permanentStoreRanks,
+          state.openSourceProjects
+        )
       ) {
         return state; // at the cap, return state unchanged
       }
@@ -950,9 +958,11 @@ function gameReducer(state, action) {
 
       // The next level's LOC cost: the one shared helper the card
       // displays and the Cheapest sort orders by (issue #180).
+      // The Bridge Round is priced by the owned round (issue #192).
       const cost = shared.openSourceNextLevelCost(
         projectId,
-        projectState.level
+        projectState.level,
+        state.permanentStoreRanks
       );
       if (cost === null) return state; // no next level defined
       // check if player has enough LOC to contribute

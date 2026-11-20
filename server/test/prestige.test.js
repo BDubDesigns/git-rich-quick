@@ -340,6 +340,8 @@ test("applyPrestigeSale resets the company and keeps the lifetime books", () => 
     scrumMaster: 0,
     commitmentIssues: 0,
     shipHappens: 0,
+    // A bridged company (issue #192): the sale resets the bridge too.
+    bridgeRound: 1,
   };
   pre.activeStarEffects = [
     {
@@ -435,6 +437,7 @@ test("applyPrestigeSale resets the company and keeps the lifetime books", () => 
     scrumMaster: 0,
     commitmentIssues: 0,
     shipHappens: 0,
+    bridgeRound: 0,
   });
   assert.deepEqual(post.activeStarEffects, []);
   // The farm resets: no llamas, no barn, no types (Brandon, Nov 15).
@@ -758,7 +761,8 @@ test("criterion 13: run automation is actually cleared on sale", async () => {
         metaverseRealEstate: 0,
         quantumToDoList: 0,
       },
-      openSourceProjects: { shipHappens: 2, overReactFramework: 1 },
+      // Ship Happens caps at 1 while Bootstrapped (issue #192).
+      openSourceProjects: { shipHappens: 1, overReactFramework: 1 },
     });
     const res = await sell(srv.base, playerId, pre);
     assert.equal(res.status, 200);

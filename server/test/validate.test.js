@@ -112,6 +112,8 @@ test("shared math matches the client formulas", () => {
     scrumMaster: false,
     commitmentIssues: false,
     shipHappens: false,
+    // Bridge Round (issue #192) unlocks at 100M lifetime LOC.
+    bridgeRound: false,
   });
   // Freelance projects (issue #19): the To Do List App starts
   // unlocked; the Hobby Website and Blockchain Project are gated.

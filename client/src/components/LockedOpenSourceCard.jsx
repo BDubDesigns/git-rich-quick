@@ -11,6 +11,7 @@ import {
   projectManagerBoostFraction,
   starBrokerCooldownSeconds,
 } from "../../../shared/game-balance.js";
+import { bridgeRoundOfferText } from "../utils/bridgeRound.js";
 import { Button } from "./Button.jsx";
 import {
   JsDocBlock,
@@ -25,6 +26,9 @@ export function LockedOpenSourceCard({
   progress,
   nextBonus,
   locCost,
+  // Bridge Round (issue #192): the owned store ranks, which name the
+  // round the bridge rents. Defaults to Bootstrapped.
+  storeRanks = {},
 }) {
   // StarBroker has no numeric bonus — v1.0 buys stars on an 8m
   // cooldown — so the bonus line names the cooldown, not "+0 STAR".
@@ -55,7 +59,9 @@ export function LockedOpenSourceCard({
               tag="@returns"
               type="Bonus"
               value={
-                isStarBroker
+                projectId === "bridgeRound"
+                  ? bridgeRoundOfferText(storeRanks)
+                  : isStarBroker
                   ? `Cooldown ${formatCooldownSeconds(starBrokerCooldownSeconds(1))} between bought stars`
                   : projectId === "moonshot"
                     ? moonshotOddsText()

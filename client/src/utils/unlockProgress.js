@@ -269,7 +269,12 @@ export function sortOpenSourceProjectIds(projectIds, state, mode = "default") {
     if (levelCount > 0 && level >= levelCount) maxed.add(id);
     else if (
       level > 0 &&
-      openSourceNextLevelNeedsRound(id, level, state.permanentStoreRanks)
+      openSourceNextLevelNeedsRound(
+        id,
+        level,
+        state.permanentStoreRanks,
+        state.openSourceProjects
+      )
     ) {
       roundCapped.add(id);
     }
@@ -280,7 +285,11 @@ export function sortOpenSourceProjectIds(projectIds, state, mode = "default") {
   );
   if (mode === "cheapest") {
     const nextCost = (id) =>
-      openSourceNextLevelCost(id, state.openSourceProjects?.[id]?.level ?? 0);
+      openSourceNextLevelCost(
+        id,
+        state.openSourceProjects?.[id]?.level ?? 0,
+        state.permanentStoreRanks
+      );
     return [
       ...sortIdsByCost(active, nextCost),
       ...sortIdsByCost(
