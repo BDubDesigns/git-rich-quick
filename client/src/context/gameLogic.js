@@ -546,9 +546,7 @@ export function getEmployeeBulkCost(employeeType, state, quantity) {
     return 0;
   }
 
-  return shared
-    .employeePurchaseCosts(employeeType, employee.count, quantity)
-    .reduce((sum, cost) => sum + cost, 0);
+  return shared.employeeBulkCost(employeeType, employee.count, quantity);
 }
 
 /**

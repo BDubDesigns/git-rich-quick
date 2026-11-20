@@ -31,7 +31,7 @@ export const SORT_MODE_IDS = Object.freeze(SORT_MODES.map((mode) => mode.id));
 export const DEFAULT_SORT_MODE = "default";
 
 /** The tabs that offer a sort control; each keeps its own mode. */
-export const SORT_TABS = Object.freeze(["openSource"]);
+export const SORT_TABS = Object.freeze(["openSource", "shop"]);
 
 /** localStorage key for one tab's sort mode. */
 export function sortModeStorageKey(tab) {

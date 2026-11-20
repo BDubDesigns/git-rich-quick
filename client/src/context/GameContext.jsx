@@ -357,10 +357,13 @@ function gameReducer(state, action) {
         return state;
       }
 
-      // Total cost for `quantity` hires, starting from the owned count.
-      const totalCost = shared
-        .employeePurchaseCosts(employeeType, employee.count, quantity)
-        .reduce((sum, cost) => sum + cost, 0);
+      // Total cost for `quantity` hires, starting from the owned count:
+      // the shared helper the card shows and the Cheapest sort uses.
+      const totalCost = shared.employeeBulkCost(
+        employeeType,
+        employee.count,
+        quantity
+      );
 
       // Check if player has enough money, if so run the purchase
       if (state.money >= totalCost) {
