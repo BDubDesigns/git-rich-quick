@@ -3926,6 +3926,22 @@ export function openSourceNextLevelCost(projectId, level) {
   return levels[index]?.locCost ?? null;
 }
 
+/**
+ * Total cost in cents of buying `n` hires of a type starting from
+ * `fromCount` owned (issue #181): the sum of employeePurchaseCosts.
+ * The ONE number the Hire card shows, the hire action charges, and the
+ * Hire tab's Cheapest sort orders by. n = 1 is exactly employeeCost.
+ */
+export function employeeBulkCost(employeeType, fromCount, n = 1) {
+  if (!BALANCE.employees[employeeType]) return 0;
+  const count = Number.isInteger(fromCount) && fromCount > 0 ? fromCount : 0;
+  const quantity = Number.isInteger(n) && n > 0 ? n : 1;
+  return employeePurchaseCosts(employeeType, count, quantity).reduce(
+    (sum, cost) => sum + cost,
+    0
+  );
+}
+
 /** Total LOC cost of raising a project from `fromLevel` to `toLevel`. */
 export function openSourceLevelCosts(projectId, fromLevel, toLevel) {
   const config = BALANCE.openSource[projectId];

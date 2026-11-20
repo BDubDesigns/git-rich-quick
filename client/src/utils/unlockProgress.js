@@ -20,6 +20,7 @@
 import {
   BALANCE,
   EMPLOYEE_DISPLAY_NAMES,
+  employeeBulkCost,
   FARM_CONFIG,
   FREELANCE_PROJECT_DISPLAY_NAMES,
   OPEN_SOURCE_DISPLAY_NAMES,
@@ -295,4 +296,25 @@ export function sortOpenSourceProjectIds(projectIds, state, mode = "default") {
     ...projectIds.filter((id) => roundCapped.has(id)),
     ...projectIds.filter((id) => maxed.has(id)),
   ];
+}
+
+/**
+ * Order the Hire tab's employee types (issue #181), through the same
+ * shared ordering helper as the Open Source tab (sortIdsByCost).
+ *
+ * - "default": the ids exactly as given (config order), today's order.
+ * - "cheapest": by employeeBulkCost for the selected bulk `quantity`
+ *   from the owned count, ascending, ties in config order. That is the
+ *   number each card shows and the hire action charges, so at x1 it is
+ *   the next hire's cost. Locked types own 0, so they sort at their
+ *   base hire cost, unlock conditions still on the card. Buying raises
+ *   the cost, so the order recomputes live.
+ */
+export function sortEmployeeTypes(employeeTypes, state, mode = "default", quantity = 1) {
+  if (mode !== "cheapest") return [...employeeTypes];
+  return sortIdsByCost(employeeTypes, (type) =>
+    BALANCE.employees[type]
+      ? employeeBulkCost(type, state.employees?.[type]?.count ?? 0, quantity)
+      : null
+  );
 }
