@@ -3646,8 +3646,14 @@ export function totalEmployees(employeeCounts) {
 export function totalBonusByType(openSourceLevels, bonusType) {
   let total = 0;
   for (const projectId of OPEN_SOURCE_IDS) {
-    const level = openSourceLevels[projectId] ?? 0;
     const config = BALANCE.openSource[projectId];
+    // Clamped to the levels this build defines (issue #179): a save
+    // from a newer client can hold a higher level, and reading past
+    // the end would throw in the production math.
+    const level = Math.min(
+      safeLevel(openSourceLevels?.[projectId] ?? 0),
+      config.levels.length
+    );
     for (let i = 0; i < level; i += 1) {
       const bonus = config.levels[i].bonus;
       if (bonus.type === bonusType) total += bonus.value;
