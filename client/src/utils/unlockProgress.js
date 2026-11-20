@@ -314,7 +314,9 @@ export function sortEmployeeTypes(employeeTypes, state, mode = "default", quanti
   if (mode !== "cheapest") return [...employeeTypes];
   return sortIdsByCost(employeeTypes, (type) =>
     BALANCE.employees[type]
-      ? employeeBulkCost(type, state.employees?.[type]?.count ?? 0, quantity)
+      ? employeeBulkCost(type, state.employees?.[type]?.count ?? 0, quantity, {
+          activeStarEffects: state.activeStarEffects ?? [],
+        })
       : null
   );
 }

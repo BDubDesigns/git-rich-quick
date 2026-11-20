@@ -290,6 +290,74 @@ body {
   }
 }
 
+/* Hype Train (issue #157): while freelance payouts are doubled, the
+   shippable project cards glow green (the money) and sparkle (the
+   hype). The glow is a pulsing box shadow; the sparkles are a layer of
+   tiny radial dots over the card that twinkle, never catching clicks.
+   Derailment (the red-star crash, payouts halved) dims the card red
+   with no sparkle. With reduced motion the glow holds steady and the
+   sparkles stay still. */
+.hype-train {
+  position: relative;
+  border-color: rgba(74, 222, 128, 0.85);
+  animation: grq-hype-glow 1.4s ease-in-out infinite alternate;
+}
+
+.hype-train::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgba(187, 247, 208, 0.95) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle, rgba(250, 250, 210, 0.9) 0 1px, transparent 2px),
+    radial-gradient(circle, rgba(134, 239, 172, 0.9) 0 1.5px, transparent 2.5px);
+  background-size: 61px 47px, 89px 71px, 37px 53px;
+  background-position: 0 0, 23px 31px, 11px 7px;
+  animation: grq-hype-sparkle 2.2s steps(4, end) infinite;
+}
+
+@keyframes grq-hype-glow {
+  from {
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.35);
+  }
+  to {
+    box-shadow: 0 0 20px rgba(74, 222, 128, 0.75);
+  }
+}
+
+@keyframes grq-hype-sparkle {
+  0% {
+    opacity: 0.25;
+    background-position: 0 0, 23px 31px, 11px 7px;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0.25;
+    background-position: 13px -9px, 5px 17px, 29px -13px;
+  }
+}
+
+.hype-derailed {
+  border-color: rgba(248, 113, 113, 0.7);
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.35);
+  filter: saturate(0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hype-train {
+    animation: none;
+    box-shadow: 0 0 14px rgba(74, 222, 128, 0.6);
+  }
+  .hype-train::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* Splash screen (issue #141): the blinking block cursor at the end of
    the `npm start` button, terminal-style. A hard on/off blink (steps),
    and no blink at all when the player prefers reduced motion. */

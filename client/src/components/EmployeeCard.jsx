@@ -7,6 +7,29 @@ import { BouncyButton } from "./BouncyButton.jsx";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
 import { employeeReturnsLine } from "../context/gameLogic.js";
+import {
+  starEffectName,
+  starRewardDetail,
+} from "../../../shared/game-balance.js";
+
+/**
+ * The AGI / Union Drive price line (issue #157), or null when neither
+ * is live: `@deprecated {Price} was $50.00 (AGI: Hires 50% off)`. The
+ * old price is the price without the effect; the button already shows
+ * the live one. Green for AGI, red for Union Drive.
+ */
+function hireDealLine(hireCostMultiplier, listCost) {
+  if (hireCostMultiplier === 1 || !Number.isFinite(listCost)) return null;
+  const good = hireCostMultiplier < 1;
+  return {
+    value: `was ${formatMoney(listCost)}`,
+    suffix: ` (${starEffectName("hiring", good)}: ${starRewardDetail({
+      effect: "hiring",
+      multiplier: hireCostMultiplier,
+    })})`,
+    suffixClassName: good ? "text-green-400" : "text-red-400",
+  };
+}
 
 export function EmployeeCard({
   config,
@@ -25,6 +48,11 @@ export function EmployeeCard({
   // unchanged here. For the boost types (Project Manager, Commit
   // Specialist) this is the type's own Sprint/Meeting multiplier.
   effectMultiplier = 1,
+  // AGI / Union Drive (issue #157): the live hire cost multiplier (1
+  // when neither is live) and the price without it, so the card can
+  // show the old price next to the one the Hire button charges.
+  hireCostMultiplier = 1,
+  listCost = null,
 }) {
   const tintClass =
     effectMultiplier > 1
@@ -41,6 +69,7 @@ export function EmployeeCard({
   // see employeeReturnsLine (gameLogic.js), shared with the locked
   // card so both cards agree.
   const returnsLine = employeeReturnsLine(config, effectMultiplier);
+  const hireDeal = hireDealLine(hireCostMultiplier, listCost);
   return (
     <Panel className={`px-3 pb-1 flex flex-col gap-1 m-0 ${tintClass}`}>
       <div className="flex items-center gap-4">
@@ -63,6 +92,15 @@ export function EmployeeCard({
               suffix={returnsLine.suffix || null}
               suffixClassName={returnsLine.suffixClassName}
             />
+            {hireDeal && (
+              <JsDocLine
+                tag="@deprecated"
+                type="Price"
+                value={hireDeal.value}
+                suffix={hireDeal.suffix}
+                suffixClassName={hireDeal.suffixClassName}
+              />
+            )}
           </JsDocBlock>
         </div>
 

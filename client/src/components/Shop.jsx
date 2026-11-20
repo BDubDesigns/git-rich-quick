@@ -14,6 +14,9 @@ import {
 import {
   doublingMultiplier,
   effectiveEmployeeMultiplier,
+  employeeCost,
+  employeePurchaseCosts,
+  hiringCostMultiplier,
 } from "../../../shared/game-balance.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
@@ -44,6 +47,12 @@ export function Shop() {
     sortMode,
     quantity
   );
+
+  // AGI / Union Drive (issue #157): the live hire cost multiplier. The
+  // prices themselves already include it (the shared employeeCost); the
+  // cards also show the price without it while one is live.
+  const activeStarEffects = state.activeStarEffects ?? [];
+  const hireCostMultiplier = hiringCostMultiplier(activeStarEffects);
 
   const handleBuyEmployee = (employeeType) => {
     dispatch({
@@ -91,6 +100,14 @@ export function Shop() {
           );
           const canAfford = state.money >= currentCost;
           const ownedCount = state.employees[employeeType].count;
+          // The same hires with no star effect: the "was" price.
+          const listCost =
+            hireCostMultiplier === 1
+              ? null
+              : employeePurchaseCosts(employeeType, ownedCount, quantity).reduce(
+                  (sum, cost) => sum + cost,
+                  0
+                );
 
           // Cosmetics (issue #11): the card renders the equipped
           // cosmetic's icon instead of the config default. The
@@ -155,6 +172,8 @@ export function Shop() {
                 onPurchase={() => handleBuyEmployee(employeeType)}
                 quantity={quantity}
                 effectMultiplier={effectMultiplier}
+                hireCostMultiplier={hireCostMultiplier}
+                listCost={listCost}
               />
               {/* Release Manager shipping summary (issue #163): the
                   in / out / net readout and the unassigned count. The
@@ -182,7 +201,11 @@ export function Shop() {
             {/* Email links (issue #173): a teaser lands here, on the
                 unlock progress bars. */}
             <HighlightAnchor tab="shop" itemId={employeeType}>
-              <LockedEmployeeCard config={config} progress={progress} />
+              <LockedEmployeeCard
+                config={config}
+                progress={progress}
+                price={employeeCost(employeeType, 0, { activeStarEffects })}
+              />
             </HighlightAnchor>
           </div>
         );

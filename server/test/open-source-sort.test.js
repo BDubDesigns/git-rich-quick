@@ -25,17 +25,17 @@ function stateWithLevels(levels) {
 }
 
 test("maxed projects sink to the bottom, stable within each group", () => {
-  // OverReact has 10 levels (issue #160), Blocker 5, Constellation 5
-  // (from BALANCE).
+  // OverReact has 10 levels (issue #160), Blocker 5, Constellation 7
+  // (issue #157 added L6 and L7; from BALANCE).
   assert.equal(BALANCE.openSource.overReactFramework.levels.length, 10);
   assert.equal(BALANCE.openSource.blocker.levels.length, 5);
-  assert.equal(BALANCE.openSource.constellation.levels.length, 5);
+  assert.equal(BALANCE.openSource.constellation.levels.length, 7);
 
   // Only OverReact maxed: it drops below Blocker and Constellation.
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 10, blocker: 4, constellation: 5 - 1 })
+      stateWithLevels({ overReactFramework: 10, blocker: 4, constellation: 7 - 1 })
     ),
     ["blocker", "constellation", "overReactFramework"]
   );
@@ -45,7 +45,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 10, blocker: 4, constellation: 5 })
+      stateWithLevels({ overReactFramework: 10, blocker: 4, constellation: 7 })
     ),
     ["blocker", "overReactFramework", "constellation"]
   );
@@ -54,7 +54,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 10 - 1, blocker: 4, constellation: 5 })
+      stateWithLevels({ overReactFramework: 10 - 1, blocker: 4, constellation: 7 })
     ),
     ["overReactFramework", "blocker", "constellation"]
   );
@@ -72,7 +72,7 @@ test("maxed projects sink to the bottom, stable within each group", () => {
   assert.deepEqual(
     sortOpenSourceProjectIds(
       IDS,
-      stateWithLevels({ overReactFramework: 10, blocker: 5, constellation: 5 })
+      stateWithLevels({ overReactFramework: 10, blocker: 5, constellation: 7 })
     ),
     ["overReactFramework", "blocker", "constellation"]
   );

@@ -22,7 +22,7 @@ import {
 import { Panel } from "./Panel.jsx";
 import { employeeReturnsLine } from "../context/gameLogic.js";
 
-export function LockedEmployeeCard({ config, progress }) {
+export function LockedEmployeeCard({ config, progress, price = null }) {
   // The @returns line: the base bonus for this type. A Project Manager
   // shows "+1% passive per Manager" and a Commit Specialist "+0.2 LOC
   // per Click" instead of a LOC/s rate — see employeeReturnsLine
@@ -56,7 +56,9 @@ export function LockedEmployeeCard({ config, progress }) {
             Button's grey disabled state is the LOCKED look. */}
         <Button disabled className="shrink-0">
           <div>LOCKED</div>
-          <div>({formatMoney(config.baseCost)})</div>
+          {/* The first hire's price through the shared cost (issue
+              #157: AGI / Union Drive move it too); base cost if absent. */}
+          <div>({formatMoney(price ?? config.baseCost)})</div>
         </Button>
       </div>
     </Panel>

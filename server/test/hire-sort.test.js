@@ -187,7 +187,12 @@ test("the Hire tab drives the shared SortControl, hook and helper; its own prefe
   );
   assert.deepEqual(controls, ["SortControl.jsx"]);
   // The card's cost and the reducer's charge use the same shared helper.
-  assert.match(src("context/gameLogic.js"), /return shared\.employeeBulkCost\(employeeType, employee\.count, quantity\)/);
+  // Merged shape (#181 + #157): the bulk helper also carries the live
+  // star effects, so the assertion pins both at once.
+  assert.match(
+    src("context/gameLogic.js"),
+    /return shared\.employeeBulkCost\(employeeType, employee\.count, quantity, \{\s*activeStarEffects: state\.activeStarEffects \?\? \[\],?\s*\}\)/
+  );
   assert.match(src("context/GameContext.jsx"), /const totalCost = shared\.employeeBulkCost\(/);
 });
 

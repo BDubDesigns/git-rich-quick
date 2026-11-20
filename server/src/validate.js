@@ -91,6 +91,7 @@ import {
   LLAMA_TYPES,
   OPEN_SOURCE_IDS,
   MOONSHOT_CONFIG,
+  STAR_CONFIG,
   PRESTIGE_STORE_IDS,
   achievementsDecreased,
   achievementsStateError,
@@ -669,10 +670,32 @@ function starBuffMultiplierValid(effect, multiplier) {
     // multiplier, never a range, so any other value is tampered.
     case "moonshot":
       return multiplier === MOONSHOT_CONFIG.jackpotMultiplier;
+    // Hype Train / Derailment and AGI / Union Drive (issue #157):
+    // fixed config values both ways.
+    case "hype":
+      return (
+        multiplier === STAR_CONFIG.hypePayoutMultiplier.good ||
+        multiplier === STAR_CONFIG.hypePayoutMultiplier.bad
+      );
+    case "hiring":
+      return (
+        multiplier === STAR_CONFIG.hiringCostMultiplier.good ||
+        multiplier === STAR_CONFIG.hiringCostMultiplier.bad
+      );
     default:
       return false;
   }
 }
+
+/** The star effects that leave a timed buff in activeStarEffects. */
+const TIMED_STAR_EFFECTS = Object.freeze([
+  "frenzy",
+  "click",
+  "employee",
+  "moonshot",
+  "hype",
+  "hiring",
+]);
 
 /** One activeStarEffects entry (a timed buff in the save state). */
 function activeStarEffectError(entry) {
@@ -684,8 +707,8 @@ function activeStarEffectError(entry) {
   ) {
     return "activeStarEffects entries have unknown or missing keys";
   }
-  if (!["frenzy", "click", "employee", "moonshot"].includes(entry.effect)) {
-    return "activeStarEffects effect must be a timed buff (frenzy, click, employee, moonshot)";
+  if (!TIMED_STAR_EFFECTS.includes(entry.effect)) {
+    return `activeStarEffects effect must be a timed buff (${TIMED_STAR_EFFECTS.join(", ")})`;
   }
   if (!starBuffMultiplierValid(entry.effect, entry.multiplier)) {
     return `activeStarEffects multiplier ${entry.multiplier} is not valid for ${entry.effect}`;

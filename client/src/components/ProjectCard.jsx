@@ -68,13 +68,25 @@ export function ProjectCard({
   completionCount,
   releaseManager = null,
   payout = null,
+  // "hype" (Hype Train live: green glow and sparkles), "derailed"
+  // (Derailment: a red dim), or null (issue #157).
+  hypeTone = null,
 }) {
   // Payout readout (issue #176): what a ship actually pays and the
   // effective rate, Client Network included (projectPayoutLines). A
   // card with no readout falls back to the base reward and no rate.
   const payoutText = payout?.payout ?? formatMoney(project.reward);
   return (
-    <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
+    <Panel
+      className={`px-3 pb-1 flex flex-col gap-1 m-0 ${
+        hypeTone === "hype"
+          ? "hype-train"
+          : hypeTone === "derailed"
+            ? "hype-derailed"
+            : ""
+      }`}
+      data-hype={hypeTone ?? undefined}
+    >
       <div className="flex items-center gap-4">
         {/* Left: Content */}
         <div className="flex-1">

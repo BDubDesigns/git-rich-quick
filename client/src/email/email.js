@@ -49,6 +49,7 @@ import {
   buildOpenSourceUnlockedEmail,
   buildOpenSourceVisibleEmail,
   buildStarRewardEmail,
+  starEffectFlavor,
   findAchievement,
   sanitizeEmailTarget,
   sanitizeEmailTrophies,
@@ -449,6 +450,8 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
         effectName: starEffectName(starClaim.effect, starClaim.good),
         rewardText: starRewardDetail(starClaim, employeeTypeName),
         good: starClaim.good,
+        // Hype Train, AGI and their crashes tell their own story (#157).
+        flavor: starEffectFlavor(starClaim.effect, starClaim.good),
       }),
       // A claim without an id still gets its own key: each claim is a
       // separate trigger event, never deduped against an older one.

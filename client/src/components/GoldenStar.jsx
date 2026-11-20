@@ -29,6 +29,7 @@ import {
   starBuffDurationSeconds,
   starEffectName,
   starRewardDetail,
+  starBuffIsGood,
 } from "../../../shared/game-balance.js";
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
@@ -91,7 +92,9 @@ function formatCountdown(seconds) {
  * for a debuff.
  */
 function StarEffectBar({ buff, nowMs }) {
-  const good = buff.multiplier > 1;
+  // Good or bad from the shared rule: a multiplier above 1x is good,
+  // except AGI / Union Drive (issue #157), where it multiplies a cost.
+  const good = starBuffIsGood(buff);
   // To the Moon (Moonshot jackpot, issue #165) gets its own red and
   // gold fill so it reads as the jackpot, not a plain Overclock.
   const isMoonshot = buff.effect === "moonshot";
@@ -110,7 +113,14 @@ function StarEffectBar({ buff, nowMs }) {
       ? EMPLOYEE_CONFIGS[buff.employeeType]?.name
       : null;
   const label = employeeTypeName ? `${name} (${employeeTypeName})` : name;
-  const text = `${label} · ${buff.multiplier}x · ${formatCountdown(remainingSeconds)}`;
+  // Hype and hiring read as what they change ("Freelance payouts 2x",
+  // "Hires 50% off"), the same words as the star's email; the rest
+  // keep the bare production multiplier.
+  const amount =
+    buff.effect === "hype" || buff.effect === "hiring"
+      ? starRewardDetail({ effect: buff.effect, multiplier: buff.multiplier })
+      : `${buff.multiplier}x`;
+  const text = `${label} · ${amount} · ${formatCountdown(remainingSeconds)}`;
   return (
     <div
       className="star-effect-bar"
@@ -118,7 +128,7 @@ function StarEffectBar({ buff, nowMs }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(fillPct)}
-      aria-label={`${label} ${buff.multiplier}x, ${formatCountdown(remainingSeconds)} left`}
+      aria-label={`${label} ${amount}, ${formatCountdown(remainingSeconds)} left`}
     >
       <div
         className={`star-effect-bar-fill ${

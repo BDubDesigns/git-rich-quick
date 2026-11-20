@@ -263,6 +263,27 @@ const initialState = {
   },
 };
 
+/**
+ * Ship While It's Hot and Viral Load (issue #157): projects shipped
+ * while a Hype Train (the GOOD hype buff) is live count toward
+ * hypeShips, and what they paid (the boost included) toward
+ * hypeCashCents. A Derailment ship counts toward neither. Manual ships
+ * and Release Manager auto-ships both come through here. Nothing
+ * shipped returns the record untouched.
+ */
+function recordHypeShips(state, ships, cashCents) {
+  if (!(ships > 0)) return state.achievements;
+  const hype = shared.hypePayoutMultiplier(state.activeStarEffects ?? []);
+  if (!shared.starBuffIsGood({ effect: "hype", multiplier: hype })) {
+    return state.achievements;
+  }
+  return shared.recordStarStat(
+    shared.recordStarStat(state.achievements, "hypeShips", ships),
+    "hypeCashCents",
+    cashCents
+  );
+}
+
 function gameReducer(state, action) {
   switch (action.type) {
     // Player changes active tab (shop, projects, or openSource)
@@ -359,11 +380,20 @@ function gameReducer(state, action) {
 
       // Total cost for `quantity` hires, starting from the owned count:
       // the shared helper the card shows and the Cheapest sort uses.
+      // A live AGI / Union Drive (issue #157) multiplies each hire
+      // inside the shared employeeCost, threaded through that helper.
+      const hireEffects = { activeStarEffects: state.activeStarEffects ?? [] };
       const totalCost = shared.employeeBulkCost(
         employeeType,
         employee.count,
-        quantity
+        quantity,
+        hireEffects
       );
+      // Fire Sale, Hire Sale (issue #157): hires made while AGI is live.
+      const agiLive = shared.starBuffIsGood({
+        effect: "hiring",
+        multiplier: shared.hiringCostMultiplier(hireEffects.activeStarEffects),
+      });
 
       // Check if player has enough money, if so run the purchase
       if (state.money >= totalCost) {
@@ -380,10 +410,10 @@ function gameReducer(state, action) {
           },
           // Achievements (issue #132): lifetime hires per type. A bulk
           // buy counts every hire in it.
-          achievements: shared.recordHires(
-            state.achievements,
-            employeeType,
-            quantity
+          achievements: shared.recordStarStat(
+            shared.recordHires(state.achievements, employeeType, quantity),
+            "agiHires",
+            agiLive ? quantity : 0
           ),
           // Cosmetics (issue #11): a hire can cross a cosmetic's
           // hire-count trigger — threshold-crossing, so a bulk buy
@@ -703,14 +733,18 @@ function gameReducer(state, action) {
         // sources — only the freelance ship reward, here and in the
         // Release Manager auto-ship below. One shared function
         // (issue #176), the same one the project cards display.
+        // Hype Train / Derailment (issue #157) multiplies it too.
         const payout = shared.freelanceShipPayoutCents(
           projectKey,
-          state.permanentStoreRanks ?? {}
+          state.permanentStoreRanks ?? {},
+          { activeStarEffects: state.activeStarEffects ?? [] }
         );
         const newState = {
           ...state,
           linesOfCode: state.linesOfCode - project.loc,
           money: state.money + payout,
+          // Ship While It's Hot / Viral Load (issue #157).
+          achievements: recordHypeShips(state, 1, payout),
           freelanceProjectsCompleted: {
             ...state.freelanceProjectsCompleted,
             // A save from before PR #78 shipped the four new projects
@@ -819,6 +853,9 @@ function gameReducer(state, action) {
       let shipMoney = state.money;
       let shipCompleted = { ...state.freelanceProjectsCompleted };
       let shipAuto = { ...(state.autoShipsCompleted ?? {}) };
+      // Hype stats (issue #157): auto-ships during a Hype Train count.
+      let autoShipCount = 0;
+      let autoShipCash = 0;
       const shipsPerManager = shared.releaseManagerShipsPerInterval(
         flatOpenSourceLevels(state)
       );
@@ -838,12 +875,15 @@ function gameReducer(state, action) {
           // manual Ship button and the project cards use (issue #176).
           const shipPayout = shared.freelanceShipPayoutCents(
             projectKey,
-            state.permanentStoreRanks ?? {}
+            state.permanentStoreRanks ?? {},
+            { activeStarEffects: state.activeStarEffects ?? [] }
           );
           for (let i = 0; i < assigned * shipsPerManager; i++) {
             if (shipLinesOfCode < project.loc) break;
             shipLinesOfCode -= project.loc;
             shipMoney += shipPayout;
+            autoShipCount += 1;
+            autoShipCash += shipPayout;
             shipCompleted[projectKey] =
               (shipCompleted[projectKey] ?? 0) + 1;
             shipAuto[projectKey] = (shipAuto[projectKey] ?? 0) + 1;
@@ -859,6 +899,7 @@ function gameReducer(state, action) {
         money: shipMoney,
         freelanceProjectsCompleted: shipCompleted,
         autoShipsCompleted: shipAuto,
+        achievements: recordHypeShips(state, autoShipCount, autoShipCash),
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
         activeStarEffects,
@@ -1152,9 +1193,14 @@ function gameReducer(state, action) {
         totalLinesOfCode: newTotalLinesOfCode,
         money: newMoney,
         activeStarEffects,
-        achievements: isGoldStarClick
-          ? shared.recordGoldStarClicks(state.achievements, 1)
-          : state.achievements,
+        // Hype Springs Eternal, Artificial General Discount and
+        // Collective Bargaining Chip count claims (issue #157).
+        achievements: shared.recordStarClaimStats(
+          isGoldStarClick
+            ? shared.recordGoldStarClicks(state.achievements, 1)
+            : state.achievements,
+          claim
+        ),
       };
       // A star reward can push total LOC past an unlock threshold, and
       // the reward itself sends mail (issue #31).
