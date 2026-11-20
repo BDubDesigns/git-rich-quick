@@ -142,8 +142,13 @@ function rowToSnapshot(row) {
  * achievement peaks meaningless (Brandon confirmed the wipe; there is
  * no migration). Every row written from here on carries this version.
  * Bump it for the next deliberate wipe.
+ *
+ * Version 3 (issue #192, Bridge Rounds): Ship Happens joined the gated
+ * tracks, so a save holding it above its new cap would fail the cap
+ * check on its next save. Clamping would be migration code, so every
+ * row below 3 is wiped the same way (Brandon approved the wipe).
  */
-export const SAVE_SCHEMA_VERSION = 2;
+export const SAVE_SCHEMA_VERSION = 3;
 
 /**
  * Lock a player's save row for the rest of the transaction

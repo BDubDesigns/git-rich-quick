@@ -238,6 +238,76 @@ test("invariant (issue #170): at every Funding Round's plateau, click at 10 clic
   assert.ok(Math.abs(ratio - ratios[round]) < 1e-3, `${ratio} vs ${ratios[round]}`);
 });
 
+test("invariant (issue #170): the six round plateaus have not moved", () => {
+  // Pinned to three places: Bridge Rounds (issue #192) and the Ship
+  // Happens gate must leave every existing plateau exactly where it was.
+  const ratios = ROUND_PLATEAUS.map((employees, round) => {
+    const ranks = { fundingRounds: round };
+    const levels = plateauLevels(round);
+    return (
+      (10 * locPerClick(levels, employees, 1, 1, ranks)) /
+      locPerSecond(employees, levels, 1, ranks)
+    ).toFixed(3);
+  });
+  assert.deepEqual(ratios, ["0.919", "0.825", "0.832", "0.930", "1.078", "1.300"]);
+});
+
+/**
+ * Bridge Rounds (issue #192): a company at `round` that owns its Bridge
+ * Round, every gated track at the BRIDGED cap (the next round's), on the
+ * pinned headcount of the round it actually owns. The levels come from
+ * openSourceLevelCap with the bridge owned, the same helper the game
+ * enforces, so this is the state a bridged player can really reach.
+ */
+function bridgedPlateauLevels(round) {
+  const ranks = { fundingRounds: round };
+  const owned = { bridgeRound: 1 };
+  const levels = { overReactFramework: 10, blocker: 5, shipHappens: 10, bridgeRound: 1 };
+  for (const id of ["coffeeScript", "juniorAchievement", "seniorMoment", "scrumMaster", "commitmentIssues"]) {
+    levels[id] = openSourceLevelCap(id, ranks, owned);
+  }
+  return levels;
+}
+
+test("invariant (issue #192): the three bridged plateaus sit at 0.970 / 0.934 / 0.988, inside 0.8x to 1.3x", () => {
+  const expected = [0.970, 0.934, 0.988];
+  [0, 1, 2].forEach((round) => {
+    const ranks = { fundingRounds: round };
+    const levels = bridgedPlateauLevels(round);
+    // The bridged levels are the next round's caps, exactly.
+    assert.deepEqual(
+      { ...levels, bridgeRound: undefined },
+      { ...plateauLevels(round + 1), bridgeRound: undefined },
+      `${fundingRoundName(round)} + bridge = ${fundingRoundName(round + 1)} caps`
+    );
+    const employees = ROUND_PLATEAUS[round];
+    const passive = locPerSecond(employees, levels, 1, ranks);
+    const click = locPerClick(levels, employees, 1, 1, ranks);
+    const ratio = (10 * click) / passive;
+    assert.ok(
+      ratio >= 0.8 && ratio <= 1.3,
+      `${fundingRoundName(round)} + bridge: ${ratio.toFixed(3)}`
+    );
+    assert.equal(ratio.toFixed(3), expected[round].toFixed(3), `${fundingRoundName(round)} + bridge`);
+  });
+});
+
+test("invariant (issue #192): no Series C bridge, because Series C plus a bridge would leave the band", () => {
+  // The bridge stops at Series A: from Series B on, owning one lifts nothing.
+  for (const round of [3, 4]) {
+    assert.deepEqual(
+      bridgedPlateauLevels(round),
+      { ...plateauLevels(round), bridgeRound: 1 }
+    );
+  }
+  // Why: Series C headcount at IPO caps reads 1.358, out of band.
+  const employees = ROUND_PLATEAUS[4];
+  const levels = plateauLevels(5);
+  const ratio = (10 * locPerClick(levels, employees)) / locPerSecond(employees, levels);
+  assert.equal(ratio.toFixed(3), "1.358");
+  assert.ok(ratio > 1.3);
+});
+
 test("invariant (issue #170): without the round caps, click would run away from passive", () => {
   // The caps are what hold the band: the Series A plateau with
   // Commitment Issues at L16 instead of its round cap (L10) clicks far

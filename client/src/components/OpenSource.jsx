@@ -1,7 +1,11 @@
 import { useGameContext } from "../context/useGameContext";
 import { OPEN_SOURCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import { isOpenSourceProjectUnlocked } from "../context/gameLogic";
-import { openSourceNextLevelCost } from "../../../shared/game-balance.js";
+import {
+  BRIDGE_ROUND_PROJECT_ID,
+  bridgeRoundAvailable,
+  openSourceNextLevelCost,
+} from "../../../shared/game-balance.js";
 import { openSourceCardModel } from "../utils/openSourceCard.js";
 import {
   getUnlockProgressForOpenSource,
@@ -54,6 +58,16 @@ export function OpenSource() {
   const cards = sortedIds
     .map((id) => {
       const config = OPEN_SOURCE_PROJECTS_CONFIG[id];
+      // Bridge Round (issue #192): from Series B on there is no bridge
+      // to buy, so the card is not shown at all (a sale resets the
+      // level, so an owned bridge never meets a higher rank).
+      if (
+        id === BRIDGE_ROUND_PROJECT_ID &&
+        !bridgeRoundAvailable(state.permanentStoreRanks) &&
+        (state.openSourceProjects?.[id]?.level ?? 0) === 0
+      ) {
+        return null;
+      }
       const isUnlocked = isOpenSourceProjectUnlocked(id, state);
 
       if (!isUnlocked) {
@@ -75,7 +89,12 @@ export function OpenSource() {
                 project={config}
                 progress={progress}
                 nextBonus={config.levels[0]?.bonus}
-                locCost={openSourceNextLevelCost(id, 0)}
+                locCost={openSourceNextLevelCost(
+                  id,
+                  0,
+                  state.permanentStoreRanks
+                )}
+                storeRanks={state.permanentStoreRanks}
               />
             </HighlightAnchor>
           ),
@@ -114,6 +133,7 @@ export function OpenSource() {
               )}
               onToggleFavorite={() => handleToggleFavorite(id)}
               lockedRoundName={lockedRoundName}
+              storeRanks={state.permanentStoreRanks}
             />
           </HighlightAnchor>
         ),

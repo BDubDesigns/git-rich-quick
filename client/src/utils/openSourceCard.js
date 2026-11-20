@@ -46,15 +46,19 @@ export function openSourceCardModel(projectId, state) {
   const nextBonus = isMaxed ? undefined : levels[currentLevel]?.bonus;
   // The shared next-level cost (issue #180): what this card shows,
   // what contributing charges, and what Cheapest sorts by.
-  const locCost = openSourceNextLevelCost(projectId, currentLevel) ?? undefined;
+  const locCost =
+    openSourceNextLevelCost(projectId, currentLevel, state.permanentStoreRanks) ??
+    undefined;
   // Funding Rounds (issue #170): the next level may exist but sit
   // above the owned round's cap; the card shows the round it needs.
+  // A Bridge Round (issue #192) raises that cap for this company.
   const needsRound =
     !isMaxed &&
     openSourceNextLevelNeedsRound(
       projectId,
       currentLevel,
-      state.permanentStoreRanks
+      state.permanentStoreRanks,
+      state.openSourceProjects
     );
   const lockedRoundName = needsRound
     ? fundingRoundName(fundingRoundRankForLevel(projectId, currentLevel + 1))

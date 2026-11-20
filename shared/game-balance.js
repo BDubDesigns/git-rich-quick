@@ -303,8 +303,21 @@ export function resolveMoonshotClaim({
  *   double a term that already multiplied the whole passive rate.
  * - levelCaps: the highest level each gated track can reach, indexed
  *   by Funding Rounds rank (0 = Bootstrapped, no round bought). The
- *   last cap is the track's full length. Ship Happens, Blocker,
- *   OverReact and the star projects are not gated.
+ *   last cap is the track's full length. Blocker, OverReact and the
+ *   star projects are not gated. Ship Happens joined the gated tracks
+ *   in issue #192 (folding in #186 with revised caps): 1 / 3 / 6 / 8 /
+ *   9 / 10, power unchanged (2x ships per level, whole ships). At
+ *   level 5 with 10 managers it shipped 320 projects a second in
+ *   Brandon's first company, which deleted the money gate on hiring.
+ * - bridgeRoundPrices: the LOC price of a Bridge Round (issue #192,
+ *   design in #187) at Funding Rounds rank 0 / 1 / 2 (Bootstrapped,
+ *   Seed, Series A): 1B / 14B / 200B, about 40% of the base cost of
+ *   the tier each one opens (2.553B / 34.85B / 515.0B), rounded to
+ *   clean shop numbers. Playtest starting values: if the save-up feels
+ *   like a second wall, price is the first knob. No bridge past
+ *   Series A: Series C plus a bridge breaks the click invariant (1.358
+ *   at the pinned Series C headcount), and a Series B bridge would
+ *   move the toll-booth weakness onto Series C.
  *
  * Price as time: in the balanced-player simulation the new levels of
  * a round cost 2 to 5 minutes of production early and up to about an
@@ -326,8 +339,25 @@ export const FUNDING_ROUNDS_CONFIG = Object.freeze({
     seniorMoment: Object.freeze([6, 9, 12, 15, 18, 21]),
     scrumMaster: Object.freeze([5, 8, 11, 14, 17, 20]),
     commitmentIssues: Object.freeze([6, 8, 10, 12, 14, 16]),
+    shipHappens: Object.freeze([1, 3, 6, 8, 9, 10]),
   }),
+  bridgeRoundPrices: Object.freeze([1_000_000_000, 14_000_000_000, 200_000_000_000]),
 });
+
+/**
+ * Bridge Round (issue #192): the Open Source id of the one-level LOC
+ * purchase that rents the next Funding Round's caps for the current
+ * company. See bridgeRoundOwned / effectiveFundingRoundRank below.
+ */
+export const BRIDGE_ROUND_PROJECT_ID = "bridgeRound";
+
+/**
+ * Lifetime LOC at which the Bridge Round card unlocks (visible at 10%,
+ * the first Equity). A tuning value: about a fifth of the way to the
+ * Bootstrapped wall (the playtest walled at 589M), so the bridge is
+ * on the board as a goal before the caps bite.
+ */
+export const BRIDGE_ROUND_UNLOCK_TOTAL_LOC = 100_000_000;
 
 /** Full track length of a gated project: its top cap. */
 function gatedTrackLength(projectId) {
@@ -988,6 +1018,28 @@ export const BALANCE = Object.freeze({
       ]),
       levels: trackLevels(2_000_000),
     }),
+    // Bridge Round (issue #192): one level, bought with LOC. Its price
+    // depends on the Funding Rounds rank (FUNDING_ROUNDS_CONFIG.
+    // bridgeRoundPrices, read through openSourceNextLevelCost); the
+    // locCost here is the Bootstrapped price, the one a fresh player
+    // sees. No numeric bonus (type BRIDGE, value 0): no LOC formula
+    // reads it. Owning it lifts every gated track to the next round's
+    // cap for this company (openSourceLevelCap). Resets on sale like
+    // every Open Source level.
+    bridgeRound: Object.freeze({
+      unlockConditions: Object.freeze([
+        Object.freeze({
+          type: "TOTAL_LOC",
+          target: BRIDGE_ROUND_UNLOCK_TOTAL_LOC,
+        }),
+      ]),
+      levels: Object.freeze([
+        Object.freeze({
+          locCost: FUNDING_ROUNDS_CONFIG.bridgeRoundPrices[0],
+          bonus: Object.freeze({ type: "BRIDGE", value: 0 }),
+        }),
+      ]),
+    }),
   }),
 });
 
@@ -1021,6 +1073,7 @@ export const OPEN_SOURCE_IDS = Object.freeze([
   "scrumMaster",
   "commitmentIssues",
   "shipHappens",
+  "bridgeRound",
 ]);
 
 /** The six doubling-upgrade projects (issue #118). */
@@ -1055,6 +1108,7 @@ export const MOONSHOT_PROJECT_IDS = Object.freeze(["moonshot", "launchPad"]);
 const LATER_OPEN_SOURCE_IDS = Object.freeze([
   ...DOUBLING_PROJECT_IDS,
   ...MOONSHOT_PROJECT_IDS,
+  BRIDGE_ROUND_PROJECT_ID,
 ]);
 
 /** Whether a project id is one of the six doubling upgrades. */
@@ -1129,15 +1183,66 @@ export function isRoundGatedProject(projectId) {
 }
 
 /**
- * The highest level a project can reach at the owned Funding Rounds
- * rank: the round's cap for a gated track, the full level count for
- * everything else. 0 for an unknown project.
+ * Whether a Bridge Round can be bought at the owned Funding Rounds
+ * rank (issue #192): Bootstrapped, Seed and Series A only.
  */
-export function openSourceLevelCap(projectId, storeRanks = {}) {
+export function bridgeRoundAvailable(storeRanks = {}) {
+  return fundingRoundRank(storeRanks) < FUNDING_ROUNDS_CONFIG.bridgeRoundPrices.length;
+}
+
+/** The Bridge Round's LOC price at the owned rank, or null when none is offered (Series B and up). */
+export function bridgeRoundPrice(storeRanks = {}) {
+  if (!bridgeRoundAvailable(storeRanks)) return null;
+  return FUNDING_ROUNDS_CONFIG.bridgeRoundPrices[fundingRoundRank(storeRanks)];
+}
+
+/**
+ * Whether this company owns its Bridge Round. Reads the Bridge Round
+ * level from an Open Source level map in either shape the game uses:
+ * the save's flat levels ({ bridgeRound: 1 }) or the client reducer's
+ * ({ bridgeRound: { level: 1 } }), so every caller passes the map it
+ * already holds. A missing, NaN or negative level reads as not owned.
+ */
+export function bridgeRoundOwned(openSourceLevels = {}) {
+  const raw = openSourceLevels?.[BRIDGE_ROUND_PROJECT_ID];
+  const level = raw !== null && typeof raw === "object" ? raw.level : raw;
+  return safeLevel(level) >= 1;
+}
+
+/**
+ * The rank whose caps the gated tracks follow this company: the owned
+ * Funding Rounds rank, plus one while a Bridge Round is owned (only
+ * where a bridge is offered, so a stray level at Series B or later
+ * never reaches past the next round).
+ */
+export function effectiveFundingRoundRank(storeRanks = {}, openSourceLevels = {}) {
+  const rank = fundingRoundRank(storeRanks);
+  return bridgeRoundOwned(openSourceLevels) && bridgeRoundAvailable(storeRanks)
+    ? rank + 1
+    : rank;
+}
+
+/**
+ * The highest level a project can reach: for a gated track, the cap of
+ * the effective rank (the owned Funding Round, one higher while this
+ * company owns a Bridge Round, issue #192); for the Bridge Round
+ * itself, 1 where a bridge is offered and 0 from Series B on; the full
+ * level count for everything else. 0 for an unknown project.
+ * `openSourceLevels` is the company's level map (either shape, see
+ * bridgeRoundOwned); omitted, no bridge is owned. The client reducer,
+ * the card UI and the server validator all read the cap here.
+ */
+export function openSourceLevelCap(projectId, storeRanks = {}, openSourceLevels = {}) {
   const length = BALANCE.openSource[projectId]?.levels.length ?? 0;
+  if (projectId === BRIDGE_ROUND_PROJECT_ID) {
+    return bridgeRoundAvailable(storeRanks) ? length : 0;
+  }
   if (!isRoundGatedProject(projectId)) return length;
   const caps = FUNDING_ROUNDS_CONFIG.levelCaps[projectId];
-  return Math.min(length, caps[fundingRoundRank(storeRanks)]);
+  return Math.min(
+    length,
+    caps[effectiveFundingRoundRank(storeRanks, openSourceLevels)]
+  );
 }
 
 /**
@@ -1153,14 +1258,26 @@ export function fundingRoundRankForLevel(projectId, level) {
 }
 
 /**
- * Whether the NEXT level of a project is held back by the round cap
- * (not by the track ending): the card shows it locked with the round
- * it needs, and the buy is refused.
+ * Whether the NEXT level of a gated track is held back by the round
+ * cap (not by the track ending): the card shows it locked with the
+ * round it needs, and the buy is refused. A Bridge Round (passed in
+ * `openSourceLevels`) raises the cap first. Only gated tracks are ever
+ * round-locked: the Bridge Round is simply not offered from Series B
+ * on (the card is hidden), it never reads as "needs a round".
  */
-export function openSourceNextLevelNeedsRound(projectId, level, storeRanks = {}) {
+export function openSourceNextLevelNeedsRound(
+  projectId,
+  level,
+  storeRanks = {},
+  openSourceLevels = {}
+) {
+  if (!isRoundGatedProject(projectId)) return false;
   const next = safeLevel(level) + 1;
   const length = BALANCE.openSource[projectId]?.levels.length ?? 0;
-  return next <= length && next > openSourceLevelCap(projectId, storeRanks);
+  return (
+    next <= length &&
+    next > openSourceLevelCap(projectId, storeRanks, openSourceLevels)
+  );
 }
 
 /**
@@ -2610,7 +2727,7 @@ export const PRESTIGE_STORE_CONFIG = Object.freeze({
   fundingRounds: Object.freeze({
     displayName: "Funding Rounds",
     description:
-      "Trade Equity for a bigger round. Every round raises the level caps on CoffeeScript, Junior Achievement, Senior Moment, Scrum Master and Commitment Issues for every company after.",
+      "Trade Equity for a bigger round. Every round raises the level caps on CoffeeScript, Junior Achievement, Senior Moment, Scrum Master, Commitment Issues and Ship Happens for every company after.",
     rankCosts: FUNDING_ROUNDS_CONFIG.rankCosts,
   }),
   startingCapital: Object.freeze({
@@ -4066,12 +4183,17 @@ export function employeePurchaseCosts(employeeType, fromCount, n, effects = {}) 
  * The number the card shows, the contribute action charges and the
  * Cheapest sort orders by. Null when the track has no next level
  * (maxed, or a level past what this client defines) or the id is
- * unknown.
+ * unknown. The Bridge Round (issue #192) is priced by the owned
+ * Funding Rounds rank (`storeRanks`; omitted reads Bootstrapped), and
+ * has no next level where no bridge is offered.
  */
-export function openSourceNextLevelCost(projectId, level) {
+export function openSourceNextLevelCost(projectId, level, storeRanks = {}) {
   const levels = BALANCE.openSource[projectId]?.levels;
   if (!levels) return null;
   const index = Number.isInteger(level) && level > 0 ? level : 0;
+  if (projectId === BRIDGE_ROUND_PROJECT_ID) {
+    return index < levels.length ? bridgeRoundPrice(storeRanks) : null;
+  }
   return levels[index]?.locCost ?? null;
 }
 
@@ -6156,6 +6278,7 @@ export const OPEN_SOURCE_DISPLAY_NAMES = Object.freeze({
   scrumMaster: "Scrum Master",
   commitmentIssues: "Commitment Issues",
   shipHappens: "Ship Happens",
+  bridgeRound: "Bridge Round",
 });
 
 export const FREELANCE_PROJECT_DISPLAY_NAMES = Object.freeze({
@@ -6323,6 +6446,25 @@ const SAVE_WIPE_EMAILS = Object.freeze({
       `higher versions open as you raise Funding Rounds (Seed, Series A, ` +
       `Series B, Series C, IPO) in the permanent store after a sale.\n\n` +
       `Think of it as a pivot. Investors love a pivot. Start typing.`,
+  }),
+  // Issue #192: Bridge Rounds and the Ship Happens gate. A save holding
+  // Ship Happens above its new cap would fail the cap check, and
+  // clamping is migration code, so schema 3 starts everyone fresh.
+  3: Object.freeze({
+    sender: "GitNub",
+    subject: "Your company was reset again (so was everyone's)",
+    body:
+      `Git Rich Quick just rewired the Funding Rounds wall, and the old ` +
+      `companies could not make the trip. Every save was reset at the ` +
+      `same time. Not a bug, not your fault, and not just you: the ` +
+      `whole leaderboard of nobody is back at zero.\n\n` +
+      `What changed: when the caps stop you, a Bridge Round on the Open ` +
+      `Source tab rents the next round's caps for one company, paid in ` +
+      `LOC. Ship Happens now opens up round by round like the other ` +
+      `tracks, so your Release Managers stop printing money in the ` +
+      `first company. Raise the real round with Equity after a sale and ` +
+      `the caps are yours for good.\n\n` +
+      `Call it a down round. Everyone survives those. Start typing.`,
   }),
 });
 

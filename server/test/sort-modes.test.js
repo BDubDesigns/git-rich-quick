@@ -40,7 +40,12 @@ import {
 const src = (path) =>
   readFileSync(new URL(`../../client/src/${path}`, import.meta.url), "utf8");
 
-/** The pre-#180 sortOpenSourceProjectIds, verbatim: the Default oracle. */
+/**
+ * The pre-#180 sortOpenSourceProjectIds, verbatim: the Default oracle.
+ * One change since: the round-cap check reads the company's Open Source
+ * levels too, so a Bridge Round (issue #192) lifts the cap here exactly
+ * as it does in the game.
+ */
 function legacyOrder(projectIds, state) {
   const maxed = new Set();
   const roundCapped = new Set();
@@ -50,7 +55,12 @@ function legacyOrder(projectIds, state) {
     if (levelCount > 0 && level >= levelCount) maxed.add(id);
     else if (
       level > 0 &&
-      openSourceNextLevelNeedsRound(id, level, state.permanentStoreRanks)
+      openSourceNextLevelNeedsRound(
+        id,
+        level,
+        state.permanentStoreRanks,
+        state.openSourceProjects
+      )
     ) {
       roundCapped.add(id);
     }
@@ -99,12 +109,19 @@ function randomState(rand) {
 }
 
 const levelOf = (state, id) => state.openSourceProjects[id].level;
+const storeRankOf = (state) => state.permanentStoreRanks.fundingRounds;
 const isMaxed = (state, id) => levelOf(state, id) >= BALANCE.openSource[id].levels.length;
 const isRoundCapped = (state, id) =>
   !isMaxed(state, id) &&
   levelOf(state, id) > 0 &&
-  openSourceNextLevelNeedsRound(id, levelOf(state, id), state.permanentStoreRanks);
-const costOf = (state, id) => openSourceNextLevelCost(id, levelOf(state, id));
+  openSourceNextLevelNeedsRound(
+    id,
+    levelOf(state, id),
+    state.permanentStoreRanks,
+    state.openSourceProjects
+  );
+const costOf = (state, id) =>
+  openSourceNextLevelCost(id, levelOf(state, id), state.permanentStoreRanks);
 
 // --- The shared ordering helper ---
 
@@ -122,6 +139,8 @@ test("sortIdsByCost: ascending, stable ties, non-finite costs sink (stable)", ()
 });
 
 test("openSourceNextLevelCost: level 0 is level 1's cost; maxed, stale or unknown is null", () => {
+  // With no ranks passed the Bridge Round reads its Bootstrapped price,
+  // which is its level 1 cost, so every id follows the same rule here.
   for (const id of OPEN_SOURCE_IDS) {
     const levels = BALANCE.openSource[id].levels;
     assert.equal(openSourceNextLevelCost(id, 0), levels[0].locCost);
@@ -159,7 +178,18 @@ test("Cheapest: buyable by cost ascending, then round-capped by cost, then maxed
     const capped = sorted.filter((id) => isRoundCapped(state, id));
     const maxed = sorted.filter((id) => isMaxed(state, id));
     assert.deepEqual(sorted, [...buyable, ...capped, ...maxed], "groups in order");
-    for (const group of [buyable, capped]) {
+    for (const all of [buyable, capped]) {
+      // A next level with no price sinks to the end of its group, the
+      // sortIdsByCost rule. The only one: a Bridge Round from Series B
+      // on (issue #192), where none is offered and the tab hides it.
+      const priced = (id) => Number.isFinite(costOf(state, id));
+      const firstUnpriced = all.findIndex((id) => !priced(id));
+      const group = firstUnpriced === -1 ? all : all.slice(0, firstUnpriced);
+      assert.ok(all.slice(group.length).every((id) => !priced(id)), "unpriced sink last");
+      for (const id of all.slice(group.length)) {
+        assert.equal(id, "bridgeRound");
+        assert.ok(storeRankOf(state) >= 3);
+      }
       for (let j = 1; j < group.length; j += 1) {
         const prev = costOf(state, group[j - 1]);
         const cur = costOf(state, group[j]);
@@ -218,7 +248,9 @@ test("Cheapest: round-capped tracks group after buyable ones, by cost; maxed sta
     coffeeScript: 6,
     blocker: 5,
     overReactFramework: 9,
-    shipHappens: 9, // next is L10 at 1.024B: buyable, far pricier than CoffeeScript's gated L7
+    // The Bridge Round (issue #192) at level 0: buyable at 1B, far
+    // pricier than CoffeeScript's gated L7. (Ship Happens is gated too
+    // since #192, so it no longer serves as the pricey buyable card.)
   });
   assert.ok(isRoundCapped(state, "seniorMoment") && isRoundCapped(state, "coffeeScript"));
   const sorted = sortOpenSourceProjectIds([...OPEN_SOURCE_IDS], state, "cheapest");
@@ -228,9 +260,9 @@ test("Cheapest: round-capped tracks group after buyable ones, by cost; maxed sta
   assert.ok(costOf(state, "coffeeScript") < costOf(state, "seniorMoment"));
   assert.deepEqual(tail, ["coffeeScript", "seniorMoment", "blocker"]);
   // The round-capped pair sits below every buyable card, even pricier ones.
-  assert.ok(!isRoundCapped(state, "shipHappens") && !isMaxed(state, "shipHappens"));
-  assert.ok(costOf(state, "shipHappens") > costOf(state, "coffeeScript"));
-  assert.ok(sorted.indexOf("shipHappens") < sorted.indexOf("coffeeScript"));
+  assert.ok(!isRoundCapped(state, "bridgeRound") && !isMaxed(state, "bridgeRound"));
+  assert.ok(costOf(state, "bridgeRound") > costOf(state, "coffeeScript"));
+  assert.ok(sorted.indexOf("bridgeRound") < sorted.indexOf("coffeeScript"));
 });
 
 test("an unknown mode falls back to Default", () => {
@@ -310,13 +342,23 @@ test("Open Source renders the shared SortControl and sorts by its mode, costs fr
   assert.match(os, /sortOpenSourceProjectIds\(\s*Object\.keys\(OPEN_SOURCE_PROJECTS_CONFIG\),\s*state,\s*sortMode\s*\)/);
   // The card's cost, the locked teaser's cost and the reducer's charge
   // all come from openSourceNextLevelCost.
-  assert.match(os, /locCost=\{openSourceNextLevelCost\(id, 0\)\}/);
+  // The Bridge Round (issue #192) is priced by round, so the ranks go in.
+  assert.match(
+    os,
+    /locCost=\{openSourceNextLevelCost\(\s*id,\s*0,\s*state\.permanentStoreRanks\s*\)\}/
+  );
   // The unlocked card's cost comes from its model (issue #179).
   assert.match(os, /openSourceCardModel\(id, state\)/);
-  assert.match(src("utils/openSourceCard.js"), /openSourceNextLevelCost\(projectId, currentLevel\)/);
+  assert.match(
+    src("utils/openSourceCard.js"),
+    /openSourceNextLevelCost\(projectId, currentLevel, state\.permanentStoreRanks\)/
+  );
   assert.ok(!/\.locCost\b/.test(os), "no hand-read level cost in the tab");
   const context = src("context/GameContext.jsx");
-  assert.match(context, /const cost = shared\.openSourceNextLevelCost\(\s*projectId,\s*projectState\.level\s*\)/);
+  assert.match(
+    context,
+    /const cost = shared\.openSourceNextLevelCost\(\s*projectId,\s*projectState\.level,\s*state\.permanentStoreRanks\s*\)/
+  );
   // The control is the shared Button toggle group, reading the shared hook.
   const control = src("components/SortControl.jsx");
   assert.match(control, /useSortMode\(tab\)/);

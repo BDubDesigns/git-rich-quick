@@ -19,6 +19,11 @@ import {
   starSpawnIntervalSeconds,
   unlockedStarEffects,
 } from "../../../shared/game-balance.js";
+import {
+  bridgeRoundFloatText,
+  bridgeRoundOfferText,
+  bridgeRoundOwnedText,
+} from "../utils/bridgeRound.js";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
 
@@ -90,8 +95,14 @@ export function OpenSourceCard({
   // the owned round's cap holds it back (null when it is buyable or
   // the track is maxed). The card then shows the level as locked.
   lockedRoundName = null,
+  // Bridge Round (issue #192): the owned store ranks, which name the
+  // round the bridge rents. Defaults to Bootstrapped.
+  storeRanks = {},
 }) {
   const isConstellation = projectId === "constellation";
+  // Bridge Round (issue #192): one level, no numeric bonus. The card
+  // says what it rents, and once owned, that it lasts until the sale.
+  const isBridge = projectId === "bridgeRound";
   const isStarBroker = projectId === "starBroker";
   // Moonshot (issue #165): the opt-in asks for confirmation before
   // the buy (red stars are a gamble and last until the sale). Launch
@@ -146,7 +157,9 @@ export function OpenSourceCard({
   // for a doubling upgrade it names the new multiplier.
   const floatText = isMaxed || needsConfirm || isRoundLocked
     ? ""
-    : isLaunchPad
+    : isBridge
+      ? bridgeRoundFloatText(storeRanks)
+      : isLaunchPad
       ? launchPadLevelUpFloatText(currentLevel + 1)
       : isConstellation
       ? starNext.newEffectName
@@ -180,16 +193,28 @@ export function OpenSourceCard({
             title={`${project.name} v.${currentLevel}.0`}
             description={project.description}
           >
-            <JsDocLine
-              tag="@param"
-              type="LOC"
-              value={`${formatNumber(locCost)} LOC needed for v.${currentLevel + 1}.0`}
-            />
+            {/* An owned Bridge Round has no next version to price. */}
+            {!(isBridge && isMaxed) && (
+              <JsDocLine
+                tag="@param"
+                type="LOC"
+                value={`${formatNumber(locCost)} LOC needed for v.${currentLevel + 1}.0`}
+              />
+            )}
 
             {/* current bonus, if any — for Constellation, the star info;
                 for StarBroker, the cooldown (no numeric bonus); for a
                 doubling upgrade, the output multiplier */}
-            {isConstellation ? (
+            {isBridge ? (
+              currentLevel > 0 && (
+                <JsDocLine
+                  tag="@returns"
+                  type="CAPS"
+                  value={bridgeRoundOwnedText(storeRanks)}
+                  valueClassName="text-green-400"
+                />
+              )
+            ) : isConstellation ? (
               <JsDocLine
                 tag="@returns"
                 type="STAR"
@@ -249,7 +274,14 @@ export function OpenSourceCard({
                 valueClassName="text-[#f48771]"
               />
             ) : !isMaxed ? (
-              isConstellation ? (
+              isBridge ? (
+                <JsDocLine
+                  tag="@returns"
+                  type="CAPS"
+                  value={bridgeRoundOfferText(storeRanks)}
+                  valueClassName="text-green-400"
+                />
+              ) : isConstellation ? (
                 <JsDocLine
                   tag="@returns"
                   type="Bonus"
@@ -293,7 +325,9 @@ export function OpenSourceCard({
                 />
               )
             ) : (
-              <div className="comment-text">// MAXED OUT</div>
+              <div className="comment-text">
+                {isBridge ? "// RENTED UNTIL THE SALE" : "// MAXED OUT"}
+              </div>
             )}
           </JsDocBlock>
         </div>
@@ -323,7 +357,7 @@ export function OpenSourceCard({
                 <div>({formatNumber(locCost)} LOC)</div>
               </>
             ) : (
-              <div>Maxed Out</div>
+              <div>{isBridge ? "Bridged" : "Maxed Out"}</div>
             )}
           </ActionButton>
 

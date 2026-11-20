@@ -9,6 +9,11 @@
  * appears once: loading and saving the wiped save again never adds a
  * second copy. The wipe itself is unchanged (pinned in
  * funding-rounds.test.js).
+ *
+ * Issue #192 (Bridge Rounds, the Ship Happens gate) bumped the schema
+ * to 3 with the same mechanism: every row below 3 is wiped and gets the
+ * v3 mail (save-wipe:v3), whether it was a v2 row or an older one. The
+ * v2 mail stays defined; no live wipe sends it any more.
  */
 
 import test from "node:test";
@@ -33,7 +38,7 @@ import {
 } from "../../client/src/save/serialize.js";
 
 const T0 = 1_700_000_000_000;
-const WIPE_KEY = "save-wipe:v2";
+const WIPE_KEY = "save-wipe:v3";
 
 async function startTestServer() {
   const db = newDb();
@@ -92,14 +97,19 @@ function zeroActions() {
   };
 }
 
-/** Age a player's row to the pre-Funding-Rounds schema, old-scale state. */
-async function ageRow(srv, playerId) {
+/**
+ * Age a player's row to an older schema. Default: a live v2 row (the
+ * deploy case for issue #192), holding Ship Happens above its new
+ * Bootstrapped cap, the exact save the wipe exists to replace.
+ */
+async function ageRow(srv, playerId, version = 2) {
   const old = initialSaveState();
   old.totalLinesOfCode = 353_500_000_000;
   old.linesOfCode = 1_000_000;
+  old.openSourceProjects = { ...old.openSourceProjects, shipHappens: 10 };
   await srv.pool.query(
-    `UPDATE git_saves SET state = $1, schema_version = 1 WHERE player_id = $2`,
-    [JSON.stringify(old), playerId]
+    `UPDATE git_saves SET state = $1, schema_version = $2 WHERE player_id = $3`,
+    [JSON.stringify(old), version, playerId]
   );
   return old;
 }
@@ -110,9 +120,28 @@ function wipeMails(state) {
 
 // --- The mail itself ---
 
+test("the v3 wipe mail (issue #192): GitNub, fixed key, says what happened in plain terms, no dashes", () => {
+  assert.equal(SAVE_SCHEMA_VERSION, 3);
+  assert.equal(saveWipeEmailTriggerKey(3), WIPE_KEY);
+  const mail = buildSaveWipeEmail(3);
+  assert.equal(mail.sender, "GitNub");
+  // Plain terms: everyone was reset, it is not a bug, and what changed.
+  assert.match(mail.body, /Every save was reset at the same time/);
+  assert.match(mail.body, /Not a bug, not your fault, and not just you/);
+  assert.match(mail.body, /Bridge Round/);
+  assert.match(mail.body, /Ship Happens/);
+  assert.match(mail.body, /with Equity after a sale/);
+  for (const text of [mail.sender, mail.subject, mail.body]) {
+    assert.ok(!text.includes("—"), "no em dash");
+    assert.ok(!text.includes("–"), "no en dash");
+  }
+  assert.ok(mail.subject.length <= EMAIL_CONFIG.maxSubjectLength);
+  assert.ok(mail.body.length <= EMAIL_CONFIG.maxBodyLength);
+  assert.notEqual(mail.subject, buildSaveWipeEmail(2).subject);
+});
+
 test("the v2 wipe mail: GitNub, fixed key, says what happened in plain terms, no em dashes", () => {
-  assert.equal(SAVE_SCHEMA_VERSION, 2);
-  assert.equal(saveWipeEmailTriggerKey(2), WIPE_KEY);
+  assert.equal(saveWipeEmailTriggerKey(2), "save-wipe:v2");
   const mail = buildSaveWipeEmail(2);
   assert.equal(mail.sender, "GitNub");
   // The three things the issue says it must say.
@@ -130,13 +159,13 @@ test("the v2 wipe mail: GitNub, fixed key, says what happened in plain terms, no
 
 test("wipedSaveState is the fresh company plus exactly one unread wipe mail", () => {
   const id = "123e4567-e89b-42d3-a456-426614174099";
-  const state = wipedSaveState(2, { emailId: id, nowMs: T0 });
+  const state = wipedSaveState(3, { emailId: id, nowMs: T0 });
   const { emails, ...rest } = state;
   const { emails: freshEmails, ...fresh } = initialSaveState();
   assert.deepEqual(freshEmails, []);
   assert.deepEqual(rest, fresh);
   assert.deepEqual(emails, [
-    { id, triggerKey: WIPE_KEY, ...buildSaveWipeEmail(2), createdAtMs: T0, read: false },
+    { id, triggerKey: WIPE_KEY, ...buildSaveWipeEmail(3), createdAtMs: T0, read: false },
   ]);
 });
 
@@ -148,7 +177,7 @@ test("a schema version without a wipe mail wipes silently (reusable per version)
     initialSaveState()
   );
   // No id, no mail (never a record the shape check would reject).
-  assert.deepEqual(wipedSaveState(2, { nowMs: T0 }), initialSaveState());
+  assert.deepEqual(wipedSaveState(3, { nowMs: T0 }), initialSaveState());
 });
 
 // --- Through the server ---
@@ -184,11 +213,26 @@ test("a wiped save's fresh state holds the explanation mail, unread, on first lo
   assert.equal(mail.triggerKey, WIPE_KEY);
   assert.equal(mail.read, false);
   assert.equal(mail.sender, "GitNub");
-  assert.equal(mail.subject, buildSaveWipeEmail(2).subject);
+  assert.equal(mail.subject, buildSaveWipeEmail(3).subject);
   assert.equal(mail.createdAtMs, T0);
   // The client sees it as one unread mail in the inbox.
   const client = saveStateToGameFields(loaded);
   assert.equal(unreadEmailCount(client.emails), 1);
+  // Wholesale: the over-cap Ship Happens level is gone with the rest.
+  assert.equal(loaded.openSourceProjects.shipHappens, 0);
+});
+
+test("a row older than v2 is wiped to v3 too, with the v3 mail only (one mail, not two)", async (t) => {
+  const srv = await startTestServer();
+  t.after(() => srv.stop());
+  const playerId = await mintPlayer(srv.base);
+  await ageRow(srv, playerId, 1);
+  const loaded = await loadState(srv.base, playerId);
+  assert.equal(loaded.totalLinesOfCode, 0);
+  assert.deepEqual(
+    loaded.emails.map((entry) => entry.triggerKey),
+    [WIPE_KEY]
+  );
 });
 
 test("the wipe mail appears once: repeated loads and saves never duplicate it", async (t) => {
@@ -222,7 +266,7 @@ test("the wipe mail appears once: repeated loads and saves never duplicate it", 
   }
   // The client inbox dedupes by trigger key too: re-filing the same
   // mail is a no-op.
-  const refiled = addEmail(saveState.emails, buildSaveWipeEmail(2), WIPE_KEY, T0);
+  const refiled = addEmail(saveState.emails, buildSaveWipeEmail(3), WIPE_KEY, T0);
   assert.equal(refiled.added, null);
   assert.equal(wipeMails({ emails: refiled.emails }).length, 1);
   // Opening it (read: true) is an ordinary save.
