@@ -126,7 +126,8 @@ test("reduced motion: the focus scroll jumps instead of gliding", () => {
 test("the existing farm wiring is untouched: births, sell prices and selection", () => {
   assert.match(farm, /const births = useBirthPops\(state\.lastBirths\);/);
   assert.match(farm, /className=\{`stall relative flex/);
-  assert.match(farm, /Sells for \{formatMoney\(llamaSellPriceCents\(stall\.llama, pricingRate\)\)\}/);
+  assert.match(farm, /tabular-nums">\s*\{formatMoney\(llamaSellPriceCents\(stall\.llama, pricingRate\)\)\}/);
+  assert.match(farm, /sells for \$\{formatMoney\(\s*llamaSellPriceCents\(stall\.llama, pricingRate\)\s*\)\}/);
   assert.match(farm, /setSelectedStall\(\(current\) => \(current === stallIndex \? null : stallIndex\)\);/);
 });
 

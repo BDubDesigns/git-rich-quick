@@ -431,10 +431,12 @@ test("opening a stall is a big action, so it saves promptly", () => {
 
 // --- The Farm card ---
 
-test("a closed tile reads 'Closed stall' and 'Open for $X' with a door, not the llama lock", () => {
-  assert.match(farmCard, /<FaDoorClosed className="text-2xl text-gray-400" aria-hidden="true" \/>/);
-  assert.match(farmCard, /Closed stall/);
-  assert.match(farmCard, /Open for \{formatMoney\(stallOpenCents\)\}/);
+test("a closed tile shows a door and 'Open $X', not the llama lock; its aria-label says closed", () => {
+  assert.match(farmCard, /<FaDoorClosed className="text-lg text-gray-400" aria-hidden="true" \/>/);
+  // Compact tile (Brandon, Nov 21): the door plus the price; "closed" lives in the aria-label.
+  assert.match(farmCard, /tabular-nums">\s*Open \{formatMoney\(stallOpenCents\)\}/);
+  assert.doesNotMatch(farmCard, /Closed stall|Open for \{formatMoney/);
+  assert.match(farmCard, /, open it for \$\{formatMoney\(stallOpenCents\)\}/);
   assert.match(farmCard, /`Stall \$\{index \+ 1\}: closed\$\{/);
   // The price on the tile is the shared price at the same buffed P the reducer charges.
   assert.match(farmCard, /const stallOpenCents = farmStallOpenPriceCents\(farm\.stalls, pricingRate\);/);

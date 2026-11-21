@@ -385,7 +385,7 @@ export function Farm() {
       </p>
       <div
         ref={gridRef}
-        className="grid grid-cols-3 gap-2"
+        className="grid grid-cols-3 gap-1.5"
         role="group"
         aria-label="Barn stalls"
       >
@@ -407,7 +407,7 @@ export function Farm() {
               aria-expanded={isSelected}
               aria-controls={isSelected ? "farm-stall-chip" : undefined}
               onClick={() => handleStallClick(index)}
-              className={`stall relative flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
+              className={`stall relative flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 min-h-[64px] cursor-pointer${
                 isClosed ? " stall--closed" : ""
               }${
                 isSelected || isMoveTarget
@@ -444,16 +444,30 @@ export function Farm() {
                     }`
               }
             >
+              {/* Brandon, Nov 21: compact tiles so all 9 stalls fit on a
+                  phone. The tile shows the short type name, the price
+                  and a lighting dot; the full sentence ("Blockchain
+                  Llama, sells for $X, Warm Amber lighting") stays in the
+                  aria-label and the chip, and the dot's colors are
+                  spelled out in the Mood lighting legend below. */}
               {isClosed && (
                 <>
-                  <FaDoorClosed className="text-2xl text-gray-400" aria-hidden="true" />
-                  <span className="text-sm text-center">Closed stall</span>
+                  <FaDoorClosed className="text-lg text-gray-400" aria-hidden="true" />
                   {stallOpenCents !== null && (
-                    <span className="text-xs text-gray-400 text-center">
-                      Open for {formatMoney(stallOpenCents)}
+                    <span className="text-xs leading-tight text-gray-400 text-center tabular-nums">
+                      Open {formatMoney(stallOpenCents)}
                     </span>
                   )}
                 </>
+              )}
+              {!isClosed && (
+                <span
+                  className="absolute top-1 left-1.5 text-[10px] leading-none"
+                  style={{ color: lighting.color }}
+                  aria-hidden="true"
+                >
+                  ●
+                </span>
               )}
               {stall.llama && stall.locked && (
                 <FaLock
@@ -466,31 +480,36 @@ export function Farm() {
               {birth?.newType && (
                 <span key={`new-${births.seq}`} className="birth-new-type" aria-hidden="true" />
               )}
-              <span
-                key={birth ? `pop-${births.seq}` : "llama"}
-                className={`text-2xl${birth ? " llama-pop" : ""}`}
-                aria-hidden="true"
-              >
-                {stall.llama ? "🦙" : "·"}
-              </span>
+              {stall.llama && (
+                <span
+                  key={birth ? `pop-${births.seq}` : "llama"}
+                  className={`text-lg leading-none${birth ? " llama-pop" : ""}`}
+                  aria-hidden="true"
+                >
+                  🦙
+                </span>
+              )}
               {birth && (
                 <span key={`chip-${births.seq}`} className="birth-chip" aria-hidden="true">
                   +1
                 </span>
               )}
-              <span className="text-sm text-center">
-                {stall.llama ? LLAMA_TYPE_NAMES[stall.llama] : "Empty stall"}
+              <span className="max-w-full truncate text-sm leading-tight text-center">
+                {stall.llama ? llamaShortName(stall.llama) : "Empty"}
               </span>
               {stall.llama && (
-                <span className="text-xs text-gray-400">
-                  Sells for {formatMoney(llamaSellPriceCents(stall.llama, pricingRate))}
+                <span className="text-xs leading-tight text-gray-400 tabular-nums">
+                  {formatMoney(llamaSellPriceCents(stall.llama, pricingRate))}
                 </span>
               )}
-              <span className="text-xs" style={{ color: lighting.color }}>
-                {lighting.label}
-                {isEligible ? " · can breed" : ""}
-                {isMoveTarget ? " · move here" : ""}
-              </span>
+              {isEligible && (
+                <span className="text-xs leading-tight" style={{ color: lighting.color }}>
+                  can breed
+                </span>
+              )}
+              {isMoveTarget && (
+                <span className="text-xs leading-tight">move here</span>
+              )}
               </>
               )}
             </Panel>
@@ -689,6 +708,15 @@ export function Farm() {
 }
 
 /** How the farm prices: buys and sells are time at the player's buffed LOC/s, right now. */
+/**
+ * The short type name a stall tile shows: "Blockchain Llama" reads
+ * "Blockchain" (every type name ends in " Llama"). The full name stays
+ * in the tile's aria-label, the chip and the shop.
+ */
+function llamaShortName(type) {
+  return LLAMA_TYPE_NAMES[type].replace(/ Llama$/, "");
+}
+
 function PricingNote({ rate }) {
   const floored = rate < LLAMA_ECONOMY.minPricingLocPerSecond;
   return (

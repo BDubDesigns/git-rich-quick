@@ -321,7 +321,8 @@ test("SELL_LLAMA pays the type's current sell price at the buffed P", () => {
   const farmCard = src("components/Farm.jsx");
   assert.match(farmCard, /const selectedSellCents = selectedLlama\s*\?\s*llamaSellPriceCents\(selectedLlama, pricingRate\)/);
   assert.match(farmCard, /Sell \(\{formatMoney\(selectedSellCents \?\? 0\)\}\)/);
-  assert.match(farmCard, /Sells for \{formatMoney\(llamaSellPriceCents\(stall\.llama, pricingRate\)\)\}/);
+  // The compact tile shows the number only; "sells for" lives in the aria-label and the chip.
+  assert.match(farmCard, /tabular-nums">\s*\{formatMoney\(llamaSellPriceCents\(stall\.llama, pricingRate\)\)\}/);
   assert.match(farmCard, /sells for \$\{formatMoney\(\s*llamaSellPriceCents\(stall\.llama, pricingRate\)\s*\)\}/);
   assert.match(farmCard, /The price follows\s+your shipping income/);
   assert.doesNotMatch(farmCard, /stays put|set the day it arrived|half of\s+what you paid/);
