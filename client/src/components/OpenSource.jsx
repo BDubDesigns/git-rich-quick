@@ -1,11 +1,7 @@
 import { useGameContext } from "../context/useGameContext";
 import { OPEN_SOURCE_PROJECTS_CONFIG } from "../context/gameConfig";
 import { isOpenSourceProjectUnlocked } from "../context/gameLogic";
-import {
-  BRIDGE_ROUND_PROJECT_ID,
-  bridgeRoundAvailable,
-  openSourceNextLevelCost,
-} from "../../../shared/game-balance.js";
+import { openSourceNextLevelCost } from "../../../shared/game-balance.js";
 import { openSourceCardModel } from "../utils/openSourceCard.js";
 import {
   getUnlockProgressForOpenSource,
@@ -58,16 +54,9 @@ export function OpenSource() {
   const cards = sortedIds
     .map((id) => {
       const config = OPEN_SOURCE_PROJECTS_CONFIG[id];
-      // Bridge Round (issue #192): from Series B on there is no bridge
-      // to buy, so the card is not shown at all (a sale resets the
-      // level, so an owned bridge never meets a higher rank).
-      if (
-        id === BRIDGE_ROUND_PROJECT_ID &&
-        !bridgeRoundAvailable(state.permanentStoreRanks) &&
-        (state.openSourceProjects?.[id]?.level ?? 0) === 0
-      ) {
-        return null;
-      }
+      // Bridge Round (issue #226): offered at every round with a next
+      // round to rent. At IPO the card is not hidden: the card model
+      // reads it as closed, so it shows in Maxed Out and says why.
       const isUnlocked = isOpenSourceProjectUnlocked(id, state);
 
       if (!isUnlocked) {

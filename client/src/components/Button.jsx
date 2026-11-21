@@ -20,6 +20,9 @@ import "./Button.css";
  *   shrink-0, or game-button--inactive for an unselected toggle member).
  * @param {boolean} [props.ariaPressed] - For a toggle-group member: whether
  *   it is the selected one (aria-pressed). Omitted, no aria-pressed.
+ * @param {string} [props["aria-label"]] - The accessible name, forwarded
+ *   to the button (issue #225: it was dropped before, so the Release
+ *   Manager stepper's labels never reached the page).
  */
 export function Button({
   onClick,
@@ -29,6 +32,7 @@ export function Button({
   style,
   className = "",
   ariaPressed,
+  "aria-label": ariaLabel,
 }) {
   return (
     <button
@@ -37,6 +41,7 @@ export function Button({
       disabled={disabled}
       style={style}
       aria-pressed={ariaPressed}
+      aria-label={ariaLabel}
       className={`game-button ${
         disabled ? "game-button--disabled" : ""
       } ${className}`}

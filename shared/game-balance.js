@@ -310,14 +310,19 @@ export function resolveMoonshotClaim({
  *   level 5 with 10 managers it shipped 320 projects a second in
  *   Brandon's first company, which deleted the money gate on hiring.
  * - bridgeRoundPrices: the LOC price of a Bridge Round (issue #192,
- *   design in #187) at Funding Rounds rank 0 / 1 / 2 (Bootstrapped,
- *   Seed, Series A): 1B / 14B / 200B, about 40% of the base cost of
- *   the tier each one opens (2.553B / 34.85B / 515.0B), rounded to
- *   clean shop numbers. Playtest starting values: if the save-up feels
- *   like a second wall, price is the first knob. No bridge past
- *   Series A: Series C plus a bridge breaks the click invariant (1.358
- *   at the pinned Series C headcount), and a Series B bridge would
- *   move the toll-booth weakness onto Series C.
+ *   design in #187; extended to every round in issue #226) at Funding
+ *   Rounds rank 0 to 4 (Bootstrapped, Seed, Series A, Series B, Series
+ *   C): 1B / 14B / 200B / 3T / 49T, about 40% of the base cost of the
+ *   tier each one opens (2.553B / 34.85B / 515.0B / 7.865T / 121.66T),
+ *   rounded to clean shop numbers. Playtest starting values: if the
+ *   save-up feels like a second wall, price is the first knob. There
+ *   is no bridge at IPO (rank 5): there is no next round to rent.
+ *   Issue #226 corrected the #192 record: a Series B bridge reads
+ *   1.143 on the click invariant (inside the band; the 1.358 cited
+ *   against it measured a different case), and a Series C bridge reads
+ *   1.358, past the 1.3 band edge at one synthetic plateau. Brandon
+ *   accepted that overshoot (Nov 20, 2026), a taste call: IPO is the
+ *   last round, so it cannot compound.
  *
  * Price as time: in the balanced-player simulation the new levels of
  * a round cost 2 to 5 minutes of production early and up to about an
@@ -341,7 +346,13 @@ export const FUNDING_ROUNDS_CONFIG = Object.freeze({
     commitmentIssues: Object.freeze([6, 8, 10, 12, 14, 16]),
     shipHappens: Object.freeze([1, 3, 6, 8, 9, 10]),
   }),
-  bridgeRoundPrices: Object.freeze([1_000_000_000, 14_000_000_000, 200_000_000_000]),
+  bridgeRoundPrices: Object.freeze([
+    1_000_000_000,
+    14_000_000_000,
+    200_000_000_000,
+    3_000_000_000_000,
+    49_000_000_000_000,
+  ]),
 });
 
 /**
@@ -1184,13 +1195,15 @@ export function isRoundGatedProject(projectId) {
 
 /**
  * Whether a Bridge Round can be bought at the owned Funding Rounds
- * rank (issue #192): Bootstrapped, Seed and Series A only.
+ * rank: every rank with a next round to rent, Bootstrapped through
+ * Series C (issue #192, extended to every round in issue #226). Not at
+ * IPO (rank 5): there is no rank 6 caps row, so the line simply ends.
  */
 export function bridgeRoundAvailable(storeRanks = {}) {
   return fundingRoundRank(storeRanks) < FUNDING_ROUNDS_CONFIG.bridgeRoundPrices.length;
 }
 
-/** The Bridge Round's LOC price at the owned rank, or null when none is offered (Series B and up). */
+/** The Bridge Round's LOC price at the owned rank, or null when none is offered (IPO). */
 export function bridgeRoundPrice(storeRanks = {}) {
   if (!bridgeRoundAvailable(storeRanks)) return null;
   return FUNDING_ROUNDS_CONFIG.bridgeRoundPrices[fundingRoundRank(storeRanks)];
@@ -1212,8 +1225,8 @@ export function bridgeRoundOwned(openSourceLevels = {}) {
 /**
  * The rank whose caps the gated tracks follow this company: the owned
  * Funding Rounds rank, plus one while a Bridge Round is owned (only
- * where a bridge is offered, so a stray level at Series B or later
- * never reaches past the next round).
+ * where a bridge is offered, so a stray level at IPO never reaches
+ * past the last round).
  */
 export function effectiveFundingRoundRank(storeRanks = {}, openSourceLevels = {}) {
   const rank = fundingRoundRank(storeRanks);
@@ -1226,7 +1239,7 @@ export function effectiveFundingRoundRank(storeRanks = {}, openSourceLevels = {}
  * The highest level a project can reach: for a gated track, the cap of
  * the effective rank (the owned Funding Round, one higher while this
  * company owns a Bridge Round, issue #192); for the Bridge Round
- * itself, 1 where a bridge is offered and 0 from Series B on; the full
+ * itself, 1 where a bridge is offered and 0 at IPO; the full
  * level count for everything else. 0 for an unknown project.
  * `openSourceLevels` is the company's level map (either shape, see
  * bridgeRoundOwned); omitted, no bridge is owned. The client reducer,
@@ -1262,8 +1275,8 @@ export function fundingRoundRankForLevel(projectId, level) {
  * cap (not by the track ending): the card shows it locked with the
  * round it needs, and the buy is refused. A Bridge Round (passed in
  * `openSourceLevels`) raises the cap first. Only gated tracks are ever
- * round-locked: the Bridge Round is simply not offered from Series B
- * on (the card is hidden), it never reads as "needs a round".
+ * round-locked: the Bridge Round is simply not offered at IPO (the
+ * card shows closed, issue #226), it never reads as "needs a round".
  */
 export function openSourceNextLevelNeedsRound(
   projectId,

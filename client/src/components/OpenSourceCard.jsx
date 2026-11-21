@@ -20,6 +20,8 @@ import {
   unlockedStarEffects,
 } from "../../../shared/game-balance.js";
 import {
+  bridgeRoundClosed,
+  bridgeRoundClosedText,
   bridgeRoundFloatText,
   bridgeRoundOfferText,
   bridgeRoundOwnedText,
@@ -103,6 +105,9 @@ export function OpenSourceCard({
   // Bridge Round (issue #192): one level, no numeric bonus. The card
   // says what it rents, and once owned, that it lasts until the sale.
   const isBridge = projectId === "bridgeRound";
+  // At IPO the bridge line is complete (issue #226): the card shows
+  // closed, in Maxed Out, and its one line says why.
+  const isBridgeClosed = isBridge && bridgeRoundClosed(storeRanks);
   const isStarBroker = projectId === "starBroker";
   // Moonshot (issue #165): the opt-in asks for confirmation before
   // the buy (red stars are a gamble and last until the sale). Launch
@@ -208,7 +213,14 @@ export function OpenSourceCard({
             {/* current bonus, if any: for Constellation, the star info;
                 for StarBroker, the cooldown (no numeric bonus); for a
                 doubling upgrade, the output multiplier */}
-            {isBridge ? (
+            {isBridgeClosed ? (
+              <JsDocLine
+                tag="@returns"
+                type="CLOSED"
+                value={bridgeRoundClosedText(storeRanks)}
+                valueClassName="text-[#c5c53f]"
+              />
+            ) : isBridge ? (
               currentLevel > 0 && (
                 <JsDocLine
                   tag="@returns"
@@ -329,7 +341,11 @@ export function OpenSourceCard({
               )
             ) : (
               <div className="comment-text">
-                {isBridge ? "// RENTED UNTIL THE SALE" : "// MAXED OUT"}
+                {isBridgeClosed
+                  ? "// LINE COMPLETE"
+                  : isBridge
+                    ? "// RENTED UNTIL THE SALE"
+                    : "// MAXED OUT"}
               </div>
             )}
           </JsDocBlock>
@@ -360,7 +376,7 @@ export function OpenSourceCard({
                 <div>({formatNumber(locCost)} LOC)</div>
               </>
             ) : (
-              <div>{isBridge ? "Bridged" : "Maxed Out"}</div>
+              <div>{isBridgeClosed ? "Closed" : isBridge ? "Bridged" : "Maxed Out"}</div>
             )}
           </ActionButton>
 

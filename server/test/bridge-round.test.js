@@ -3,11 +3,14 @@
  * design in #187, folds in #186).
  *
  * - Bridge Round: one Open Source level, bought with LOC, priced
- *   1B / 14B / 200B at Funding Rounds rank 0 / 1 / 2 and not offered
- *   from Series B on. Owning it lifts every gated track's cap to the
- *   next round's for this company. It resets on sale.
+ *   1B / 14B / 200B / 3T / 49T at Funding Rounds rank 0 to 4 (issue
+ *   #226 extended it to Series B and Series C) and not offered at IPO
+ *   (rank 5), where the card shows closed: there is no next round.
+ *   Owning it lifts every gated track's cap to the next round's for
+ *   this company. It resets on sale.
  * - Ship Happens: gated at 1 / 3 / 6 / 8 / 9 / 10 by rank, bridged to
- *   3 / 6 / 8 at ranks 0 / 1 / 2. Power unchanged (2x ships per level).
+ *   3 / 6 / 8 / 9 / 10 at ranks 0 to 4. Power unchanged (2x ships per
+ *   level).
  * - One helper (openSourceLevelCap) gives the reducer, the card and the
  *   validator the same effective cap, so they are pinned here through
  *   the helper and the validator, and the reducer's wiring by source.
@@ -33,6 +36,7 @@ import {
   OPEN_SOURCE_IDS,
   applyPrestigeSale,
   bridgeRoundAvailable,
+  fundingRoundName,
   bridgeRoundOwned,
   bridgeRoundPrice,
   effectiveFundingRoundRank,
@@ -50,6 +54,8 @@ import {
 import { openSourceCardModel } from "../../client/src/utils/openSourceCard.js";
 import {
   bridgeRoundCapsText,
+  bridgeRoundClosed,
+  bridgeRoundClosedText,
   bridgeRoundFloatText,
   bridgeRoundOfferText,
   bridgeRoundOwnedText,
@@ -103,7 +109,7 @@ test("config: one level, the locked prices, a late id that defaults to 0", () =>
   assert.equal(OPEN_SOURCE_DISPLAY_NAMES.bridgeRound, "Bridge Round");
   assert.deepEqual(
     [...FUNDING_ROUNDS_CONFIG.bridgeRoundPrices],
-    [1_000_000_000, 14_000_000_000, 200_000_000_000]
+    [1_000_000_000, 14_000_000_000, 200_000_000_000, 3_000_000_000_000, 49_000_000_000_000]
   );
   const levels = BALANCE.openSource.bridgeRound.levels;
   assert.equal(levels.length, 1);
@@ -111,8 +117,9 @@ test("config: one level, the locked prices, a late id that defaults to 0", () =>
   // Not a gated track itself, and no LOC formula reads it.
   assert.equal(isRoundGatedProject("bridgeRound"), false);
   assert.equal(releaseManagerShipsPerInterval({ bridgeRound: 1 }), 1);
-  // Each price is about 40% of the tier it opens, rounded clean.
-  RANKS.slice(0, 3).forEach((rank) => {
+  // Each price is about 40% of the tier it opens, rounded clean
+  // (Series B to C: 7.865T, so 3T; Series C to IPO: 121.66T, so 49T).
+  RANKS.slice(0, 5).forEach((rank) => {
     let tier = 0;
     for (const id of GATED.filter((x) => x !== "shipHappens")) {
       const caps = FUNDING_ROUNDS_CONFIG.levelCaps[id];
@@ -149,11 +156,11 @@ test("an old save with no bridgeRound key normalizes to 0 and validates (the Moo
 
 // --- Price and the rank gate ---
 
-test("price by rank: 1B / 14B / 200B, none from Series B on, and no second level", () => {
-  const expected = [1_000_000_000, 14_000_000_000, 200_000_000_000, null, null, null];
+test("price by rank: 1B / 14B / 200B / 3T / 49T, none at IPO, and no second level", () => {
+  const expected = [1_000_000_000, 14_000_000_000, 200_000_000_000, 3_000_000_000_000, 49_000_000_000_000, null];
   RANKS.forEach((rank) => {
     const ranks = ranksAt(rank);
-    assert.equal(bridgeRoundAvailable(ranks), rank < 3, `rank ${rank}`);
+    assert.equal(bridgeRoundAvailable(ranks), rank < 5, `rank ${rank}`);
     assert.equal(bridgeRoundPrice(ranks), expected[rank], `rank ${rank}`);
     assert.equal(openSourceNextLevelCost("bridgeRound", 0, ranks), expected[rank], `rank ${rank}`);
     // Once per company: an owned bridge has no next level at any rank.
@@ -164,12 +171,12 @@ test("price by rank: 1B / 14B / 200B, none from Series B on, and no second level
   assert.equal(bridgeRoundPrice({ fundingRounds: Number.NaN }), 1_000_000_000);
 });
 
-test("the Bridge Round's own cap: 1 at Bootstrapped, Seed and Series A, 0 from Series B on", () => {
+test("the Bridge Round's own cap: 1 at every round through Series C, 0 at IPO", () => {
   assert.deepEqual(
     RANKS.map((rank) => openSourceLevelCap("bridgeRound", ranksAt(rank))),
-    [1, 1, 1, 0, 0, 0]
+    [1, 1, 1, 1, 1, 0]
   );
-  // It is never "round-locked": past Series A it is simply not offered.
+  // It is never "round-locked": at IPO it is simply not offered.
   for (const rank of RANKS) {
     assert.equal(openSourceNextLevelNeedsRound("bridgeRound", 0, ranksAt(rank)), false);
   }
@@ -185,8 +192,8 @@ test("bridged, every gated track reads the next round's cap; unbridged, its own"
       assert.equal(openSourceLevelCap(id, ranks), caps[rank], `${id} rank ${rank}`);
       assert.equal(openSourceLevelCap(id, ranks, { bridgeRound: 0 }), caps[rank], `${id} rank ${rank}`);
       // A bridge lifts one round, only where one is offered: a stray
-      // level from Series B on never reaches past the owned round.
-      const bridged = rank < 3 ? caps[rank + 1] : caps[rank];
+      // level at IPO never reaches past the last round.
+      const bridged = rank < 5 ? caps[rank + 1] : caps[rank];
       assert.equal(openSourceLevelCap(id, ranks, { bridgeRound: 1 }), bridged, `${id} rank ${rank} bridged`);
     }
   }
@@ -207,12 +214,12 @@ test("effective rank and ownership read both level shapes and junk safely", () =
   }
   assert.deepEqual(
     RANKS.map((rank) => effectiveFundingRoundRank(ranksAt(rank), { bridgeRound: { level: 1 } })),
-    [1, 2, 3, 3, 4, 5]
+    [1, 2, 3, 4, 5, 5]
   );
   assert.deepEqual(RANKS.map((rank) => effectiveFundingRoundRank(ranksAt(rank))), RANKS);
 });
 
-test("Ship Happens caps at every rank (1 / 3 / 6 / 8 / 9 / 10) and bridged (3 / 6 / 8)", () => {
+test("Ship Happens caps at every rank (1 / 3 / 6 / 8 / 9 / 10) and bridged (3 / 6 / 8 / 9 / 10)", () => {
   assert.ok(isRoundGatedProject("shipHappens"));
   assert.equal(BALANCE.openSource.shipHappens.levels.length, 10);
   assert.deepEqual(
@@ -220,8 +227,8 @@ test("Ship Happens caps at every rank (1 / 3 / 6 / 8 / 9 / 10) and bridged (3 / 
     [1, 3, 6, 8, 9, 10]
   );
   assert.deepEqual(
-    [0, 1, 2].map((rank) => openSourceLevelCap("shipHappens", ranksAt(rank), { bridgeRound: 1 })),
-    [3, 6, 8]
+    [0, 1, 2, 3, 4].map((rank) => openSourceLevelCap("shipHappens", ranksAt(rank), { bridgeRound: 1 })),
+    [3, 6, 8, 9, 10]
   );
   // Power unchanged: 2x whole ships per level.
   assert.deepEqual(
@@ -236,7 +243,7 @@ test("Ship Happens caps at every rank (1 / 3 / 6 / 8 / 9 / 10) and bridged (3 / 
 // --- The validator ---
 
 test("validator: levels up to the bridged cap pass, one above is a SHAPE rejection", () => {
-  for (const rank of [0, 1, 2]) {
+  for (const rank of [0, 1, 2, 3, 4]) {
     for (const id of GATED) {
       const caps = FUNDING_ROUNDS_CONFIG.levelCaps[id];
       const top = caps[rank + 1];
@@ -259,26 +266,26 @@ test("validator: levels up to the bridged cap pass, one above is a SHAPE rejecti
 });
 
 test("validator: once per company and the rank gate", () => {
-  // Bought at Bootstrapped, Seed or Series A.
-  for (const rank of [0, 1, 2]) {
+  // Bought at any round through Series C.
+  for (const rank of [0, 1, 2, 3, 4]) {
     assert.equal(validateAt(rank, { bridgeRound: 1 }).ok, true, `rank ${rank}`);
     const twice = validateAt(rank, { bridgeRound: 2 });
     assert.equal(twice.ok, false);
     assert.equal(twice.rule, "SHAPE");
   }
-  // Never from Series B on.
-  for (const rank of [3, 4, 5]) {
-    const r = validateAt(rank, { bridgeRound: 1 });
-    assert.equal(r.ok, false, `rank ${rank}`);
-    assert.equal(r.rule, "SHAPE");
-    assert.match(r.detail, /0-0/);
+  // Never at IPO: there is no next round.
+  const ipo = validateAt(5, { bridgeRound: 1 });
+  assert.equal(ipo.ok, false);
+  assert.equal(ipo.rule, "SHAPE");
+  assert.match(ipo.detail, /0-0/);
+  // Series B and Series C reach the next round's caps only with the
+  // bridge: without it, a level past their own cap is out of reach.
+  for (const [rank, coffee] of [[3, 18], [4, 21]]) {
+    const unbridged = validateAt(rank, { coffeeScript: coffee });
+    assert.equal(unbridged.ok, false, `rank ${rank} unbridged`);
+    assert.equal(unbridged.rule, "SHAPE");
+    assert.equal(validateAt(rank, { bridgeRound: 1, coffeeScript: coffee }).ok, true, `rank ${rank} bridged`);
   }
-  // So a Series B company holds its own caps: a Series C level is out
-  // of reach (and a stray bridge level lifts nothing, pinned above in
-  // the cap helper test).
-  const seriesB = validateAt(3, { coffeeScript: 18 });
-  assert.equal(seriesB.ok, false);
-  assert.equal(seriesB.rule, "SHAPE");
 });
 
 test("validator: the bridge cannot be un-bought within a company", () => {
@@ -316,6 +323,63 @@ test("resets on sale: the bridge and the bridged levels go back to 0, the rank s
   assert.equal(openSourceNextLevelCost("bridgeRound", post.openSourceProjects.bridgeRound, post.permanentStoreRanks), 14_000_000_000);
 });
 
+test("issue #226: buying at Series B and Series C lifts the caps to the next round's row, and resets on sale", () => {
+  // Series B + bridge: engineers 18, Scrum 17, Commitment Issues 14,
+  // Ship Happens 9. Series C + bridge: 21, 20, 16, 10 (the IPO row).
+  const rows = {
+    3: { price: 3_000_000_000_000, caps: { coffeeScript: 18, juniorAchievement: 18, seniorMoment: 18, scrumMaster: 17, commitmentIssues: 14, shipHappens: 9 } },
+    4: { price: 49_000_000_000_000, caps: { coffeeScript: 21, juniorAchievement: 21, seniorMoment: 21, scrumMaster: 20, commitmentIssues: 16, shipHappens: 10 } },
+  };
+  for (const [rankText, { price, caps }] of Object.entries(rows)) {
+    const rank = Number(rankText);
+    // The purchase: the card prices it, and owning it opens each track
+    // past its own round's cap (the next level becomes buyable).
+    const offer = openSourceCardModel("bridgeRound", clientState(rank));
+    assert.equal(offer.locCost, price);
+    assert.equal(offer.canContribute, true);
+    const owned = clientState(rank, { bridgeRound: 1 });
+    for (const [id, cap] of Object.entries(caps)) {
+      assert.equal(openSourceLevelCap(id, ranksAt(rank), owned.openSourceProjects), cap, `${id} rank ${rank}`);
+      assert.deepEqual(cap, FUNDING_ROUNDS_CONFIG.levelCaps[id][rank + 1]);
+      const own = FUNDING_ROUNDS_CONFIG.levelCaps[id][rank];
+      const before = openSourceCardModel(id, clientState(rank, { [id]: own }));
+      assert.equal(before.canContribute, false, `${id} held at its own cap`);
+      const after = openSourceCardModel(id, clientState(rank, { [id]: own, bridgeRound: 1 }));
+      assert.equal(after.canContribute, true, `${id} opened by the bridge`);
+    }
+    // The sale resets it: the next company holds its own caps again and
+    // is offered the bridge again at the same price.
+    const pre = initialSaveState();
+    pre.totalLinesOfCode = equityThresholdLoc(200);
+    pre.lifetimeEquityEarned = 150;
+    pre.permanentStoreRanks = ranksAt(rank);
+    pre.openSourceProjects = { ...pre.openSourceProjects, bridgeRound: 1, coffeeScript: caps.coffeeScript, shipHappens: caps.shipHappens };
+    const post = applyPrestigeSale(pre, randomUUID());
+    assert.equal(post.openSourceProjects.bridgeRound, 0);
+    assert.equal(post.openSourceProjects.coffeeScript, 0);
+    assert.equal(post.permanentStoreRanks.fundingRounds, rank);
+    assert.equal(openSourceLevelCap("coffeeScript", post.permanentStoreRanks, post.openSourceProjects), FUNDING_ROUNDS_CONFIG.levelCaps.coffeeScript[rank]);
+    assert.equal(openSourceNextLevelCost("bridgeRound", 0, post.permanentStoreRanks), price);
+  }
+});
+
+test("issue #226: the structural stop at IPO: no bridge, because there is no rank 6 caps row", () => {
+  // IPO is the last round: rank 5 is the top of every caps row, so there
+  // is nothing to rent, and bridgeRoundAvailable says so.
+  assert.equal(FUNDING_ROUNDS_CONFIG.roundNames.length, 5);
+  assert.equal(fundingRoundName(5), "IPO");
+  for (const id of GATED) {
+    assert.equal(FUNDING_ROUNDS_CONFIG.levelCaps[id].length, 6, `${id}: ranks 0 to 5, no rank 6`);
+    assert.equal(FUNDING_ROUNDS_CONFIG.levelCaps[id][6], undefined);
+  }
+  assert.equal(FUNDING_ROUNDS_CONFIG.bridgeRoundPrices.length, 5, "one price per round with a next round");
+  assert.equal(bridgeRoundAvailable(ranksAt(5)), false);
+  assert.equal(bridgeRoundPrice(ranksAt(5)), null);
+  // The rank never reads past IPO, so the stop cannot be skipped.
+  assert.equal(bridgeRoundAvailable({ fundingRounds: 9 }), false);
+  assert.equal(effectiveFundingRoundRank(ranksAt(5), { bridgeRound: 1 }), 5);
+});
+
 // --- The card ---
 
 /** The client reducer's state shape: levels as { level }. */
@@ -341,6 +405,35 @@ test("card model: priced by rank, affordable or not, then rented until the sale"
   assert.equal(owned.canContribute, false);
 });
 
+test("issue #226: at IPO the card shows closed in Maxed Out, and its one line says why", () => {
+  // The model: closed reads as maxed (the tab puts it under Maxed Out),
+  // with nothing to buy or price. One round earlier it is on offer.
+  const closed = openSourceCardModel("bridgeRound", clientState(5));
+  assert.equal(closed.isMaxed, true);
+  assert.equal(closed.canContribute, false);
+  assert.equal(closed.locCost, undefined);
+  assert.equal(closed.lockedRoundName, null);
+  assert.equal(openSourceCardModel("bridgeRound", clientState(4)).isMaxed, false);
+  assert.deepEqual(RANKS.map((rank) => bridgeRoundClosed(ranksAt(rank))), [false, false, false, false, false, true]);
+  // The line: the final round is owned, and the line is complete
+  // because there is no next round to rent. Null while a bridge is offered.
+  const line = bridgeRoundClosedText(ranksAt(5));
+  assert.equal(line, "You own IPO, the final round. The bridge line is complete: there is no next round left to rent.");
+  assert.match(line, /You own IPO, the final round/);
+  assert.match(line, /bridge line is complete/);
+  assert.match(line, /no next round left to rent/);
+  assert.ok(!/[—–]/.test(line));
+  for (const rank of [0, 1, 2, 3, 4]) assert.equal(bridgeRoundClosedText(ranksAt(rank)), null);
+  // The card: the closed line, the comment and the button label; no buy.
+  const card = src("components/OpenSourceCard.jsx");
+  assert.match(card, /const isBridgeClosed = isBridge && bridgeRoundClosed\(storeRanks\);/);
+  assert.match(card, /type="CLOSED"\s*value=\{bridgeRoundClosedText\(storeRanks\)\}/);
+  assert.match(card, /\? "\/\/ LINE COMPLETE"/);
+  assert.match(card, /isBridgeClosed \? "Closed" : isBridge \? "Bridged" : "Maxed Out"/);
+  assert.match(card, /disabled=\{!canContribute \|\| isMaxed \|\| isRoundLocked \|\| confirming\}/);
+  assert.match(src("utils/openSourceCard.js"), /const isMaxed = bridgeClosed \|\| currentLevel >= levels\.length;/);
+});
+
 test("card model: a bridged track opens to the next cap, then names the real round it needs", () => {
   const unbridged = openSourceCardModel("seniorMoment", clientState(0, { seniorMoment: 6 }));
   assert.equal(unbridged.canContribute, false);
@@ -359,7 +452,9 @@ test("card copy: what it rents, at each rank, from the shared caps", () => {
   assert.equal(bridgeRoundTargetName(ranksAt(0)), "Seed");
   assert.equal(bridgeRoundTargetName(ranksAt(1)), "Series A");
   assert.equal(bridgeRoundTargetName(ranksAt(2)), "Series B");
-  assert.equal(bridgeRoundTargetName(ranksAt(3)), null);
+  assert.equal(bridgeRoundTargetName(ranksAt(3)), "Series C");
+  assert.equal(bridgeRoundTargetName(ranksAt(4)), "IPO");
+  assert.equal(bridgeRoundTargetName(ranksAt(5)), null);
   assert.equal(
     bridgeRoundCapsText(ranksAt(0)),
     "CoffeeScript, Junior Achievement and Senior Moment to v.9.0, Scrum Master to v.8.0, Commitment Issues to v.8.0, Ship Happens to v.3.0"
@@ -368,8 +463,18 @@ test("card copy: what it rents, at each rank, from the shared caps", () => {
     bridgeRoundCapsText(ranksAt(2)),
     "CoffeeScript, Junior Achievement and Senior Moment to v.15.0, Scrum Master to v.14.0, Commitment Issues to v.12.0, Ship Happens to v.8.0"
   );
+  assert.equal(
+    bridgeRoundCapsText(ranksAt(3)),
+    "CoffeeScript, Junior Achievement and Senior Moment to v.18.0, Scrum Master to v.17.0, Commitment Issues to v.14.0, Ship Happens to v.9.0"
+  );
+  assert.equal(
+    bridgeRoundCapsText(ranksAt(4)),
+    "CoffeeScript, Junior Achievement and Senior Moment to v.21.0, Scrum Master to v.20.0, Commitment Issues to v.16.0, Ship Happens to v.10.0"
+  );
   assert.match(bridgeRoundOfferText(ranksAt(1)), /^Rents Series A caps for this company: /);
-  assert.equal(bridgeRoundOfferText(ranksAt(4)), null);
+  assert.match(bridgeRoundOfferText(ranksAt(3)), /^Rents Series C caps for this company: /);
+  assert.match(bridgeRoundOfferText(ranksAt(4)), /^Rents IPO caps for this company: /);
+  assert.equal(bridgeRoundOfferText(ranksAt(5)), null);
   assert.match(bridgeRoundOwnedText(ranksAt(0)), /until you sell/);
   assert.equal(bridgeRoundFloatText(ranksAt(0)), "Bridged to Seed!");
 });
@@ -393,6 +498,7 @@ test("card copy: the description says plainly what it does, with zero em or en d
       bridgeRoundOfferText(ranksAt(rank)),
       bridgeRoundOwnedText(ranksAt(rank)),
       bridgeRoundFloatText(ranksAt(rank)),
+      bridgeRoundClosedText(ranksAt(rank)),
     ]).filter(Boolean),
   ];
   for (const text of copy) {
@@ -417,8 +523,8 @@ test("the reducer, the tab and the card read the one cap helper and the ranked p
     /shared\.openSourceNextLevelCost\(\s*projectId,\s*projectState\.level,\s*state\.permanentStoreRanks\s*\)/
   );
   const tab = src("components/OpenSource.jsx");
-  // Not shown from Series B on.
-  assert.match(tab, /id === BRIDGE_ROUND_PROJECT_ID &&\s*!bridgeRoundAvailable\(state\.permanentStoreRanks\)/);
+  // Issue #226: never hidden any more (at IPO it shows closed).
+  assert.ok(!/bridgeRoundAvailable|BRIDGE_ROUND_PROJECT_ID/.test(tab), "the tab no longer hides the bridge");
   const card = src("components/OpenSourceCard.jsx");
   assert.match(card, /<Panel /);
   assert.match(card, /bridgeRoundOfferText\(storeRanks\)/);
