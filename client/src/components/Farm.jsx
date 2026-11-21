@@ -16,6 +16,10 @@ import {
   stallChipAfterIndex,
   stallFocusScrollDelta,
 } from "../utils/stallFocus.js";
+import {
+  formatBreedCountdown,
+  secondsUntilBreedCheck,
+} from "../utils/breedCountdown.js";
 import "./LlamaBirth.css";
 import { Panel } from "./Panel.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
@@ -248,6 +252,11 @@ export function Farm() {
     farm.stalls.length,
     FARM_CONFIG.gridCols
   );
+  // Issue #239: the countdown reads the reducer's own breeding clock
+  // (farmBreedTicks, advanced by GAME_TICK), never a second timer.
+  const breedCountdown = formatBreedCountdown(
+    secondsUntilBreedCheck(state.farmBreedTicks)
+  );
 
   return (
     <SectionLayout sectionId="farm">
@@ -271,6 +280,17 @@ export function Farm() {
           while moving, clicking an empty stall drops the llama there.
           The selected stall's controls (issue #230) open in a chip
           spanning the grid, right under that stall's row. */}
+      {/* Issue #239: a quiet countdown to the next breeding check,
+          right above the stalls. Text only, no bar. role="timer" is
+          not announced every second. */}
+      <p
+        className="m-0 px-1 text-xs text-gray-400 text-right tabular-nums"
+        role="timer"
+        aria-label={`Next breeding check in ${breedCountdown}`}
+      >
+        Next breeding check in {breedCountdown}
+        {eligible.length === 0 ? " (nothing can breed yet)" : ""}
+      </p>
       <div
         ref={gridRef}
         className="grid grid-cols-3 gap-2"
