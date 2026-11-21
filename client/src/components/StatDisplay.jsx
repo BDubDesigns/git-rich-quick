@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import "./StatBump.css";
 
 /**
  * StatDisplay
@@ -18,18 +19,31 @@ import { forwardRef } from "react";
  * @param {string | number} value - Value to display
  * @param {string} [label] - Tiny label under the value (e.g. "LOC").
  *   Omitted when the stat needs no label.
+ * @param {"loc" | "money" | "rate"} [bump] - The gain color of the
+ *   value's bump (issue #214), or omitted for none.
+ * @param {number} [bumpKey] - The latest bump's key: a new key remounts
+ *   the value and restarts the bump. 0 means no bump.
  * @param {React.Ref} ref - Ref to attach to the main element
  * @returns {React.ReactNode} - Formatted stat display
  */
 export const StatDisplay = forwardRef(function StatDisplay(
-  { icon, value, label },
+  { icon, value, label, bump, bumpKey = 0 },
   ref
 ) {
   return (
     <div ref={ref} className="flex flex-col items-center w-20">
       <span>{icon}</span>
 
-      <span className="">{value}</span>
+      {/* The value; bumps on a big gain (issue #214, StatBump.css). */}
+      <span
+        key={bumpKey}
+        className={
+          bump && bumpKey ? `stat-value stat-bump stat-bump--${bump}` : "stat-value"
+        }
+        data-value={value}
+      >
+        {value}
+      </span>
 
       {/* Tiny label under the value (issue #103): the four stats were
           icon-only, so a new player had to guess which number was

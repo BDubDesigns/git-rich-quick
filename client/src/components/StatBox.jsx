@@ -8,6 +8,7 @@ import {
   calculateLOCPerSecond,
 } from "../context/gameLogic.js";
 import { useGameContext } from "../context/useGameContext.js";
+import { useStatBump } from "../hooks/useStatBump.js";
 // Number abbreviation (issue #42) — the shared formatter. formatMoney
 // returns the string WITH the "$" attached, so callers do not prepend it.
 import {
@@ -53,6 +54,12 @@ export function StatBox() {
   // relative to where the passive LOC generation indicator is displayed
   const locPerSecondRef = useRef(null);
 
+  // The numbers react (issue #214): each stat bumps on a big gain of
+  // its own (state.statGain, set by the reducer; see utils/statGain.js).
+  const locBump = useStatBump(state.statGain, "loc");
+  const moneyBump = useStatBump(state.statGain, "money");
+  const rateBump = useStatBump(state.statGain, "rate");
+
   return (
     <>
       <div className="mx-2 select-none">
@@ -67,6 +74,8 @@ export function StatBox() {
             }
             value={displayLoc}
             label="LOC"
+            bump="loc"
+            bumpKey={locBump}
           />
 
           {/* Game stat displays: Money currency (in dollars) */}
@@ -74,6 +83,8 @@ export function StatBox() {
             icon={<LiaMoneyBillWaveAltSolid color="green" size={24} />}
             value={displayMoney}
             label="Money"
+            bump="money"
+            bumpKey={moneyBump}
           />
 
           {/* Game stat displays: Total employee count across all job levels */}
@@ -97,6 +108,8 @@ export function StatBox() {
             icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
             value={`${formatNumber(locPerSecond)}/s`}
             label="LOC/s"
+            bump="rate"
+            bumpKey={rateBump}
           />
         </Panel>
       </div>
