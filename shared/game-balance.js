@@ -3617,6 +3617,48 @@ export function nightShiftStartLevel(storeRanks) {
     : 0;
 }
 
+/**
+ * Night Shift discovery mail (issue #195): the card's id on the Hire
+ * tab, for email links (the HighlightAnchor around NightShiftCard).
+ */
+export const NIGHT_SHIFT_EMAIL_ITEM_ID = "nightShift";
+
+/**
+ * Night Shift became VISIBLE (10% of the level 1 gate) and is not
+ * hireable yet: a teaser and a goal. `requirementText` is the level 1
+ * gate in words, e.g. "Reach 100 passive LOC/s and Hire 10 Junior
+ * Developers". Only level 1 mails: once the shift exists, the card
+ * itself shows the next level.
+ */
+export function buildNightShiftVisibleEmail({ requirementText }) {
+  return withEmailTarget(emailTarget("shop", NIGHT_SHIFT_EMAIL_ITEM_ID), {
+    sender: "Night Shift Lead",
+    subject: "The night crew wants a word",
+    body:
+      `Somebody asked what the team does while the game is closed. ` +
+      `The answer is nothing. Everyone goes home when you do.\n\n` +
+      `Night Shift keeps the team coding while the game is closed, and ` +
+      `you collect the LOC the next time you open it. It sits at the top ` +
+      `of the Hire tab.\n\n` +
+      `To hire the first shift: ${requirementText}. The price follows ` +
+      `your LOC/s, so the earlier you hire it, the cheaper it is.`,
+  });
+}
+
+/** The level 1 gate is met: Night Shift can be hired now (if affordable). */
+export function buildNightShiftUnlockedEmail() {
+  return withEmailTarget(emailTarget("shop", NIGHT_SHIFT_EMAIL_ITEM_ID), {
+    sender: "Night Shift Lead",
+    subject: "The night shift is ready to clock in",
+    body:
+      `The crew is ready. Hire Night Shift at the top of the Hire tab ` +
+      `and the team keeps coding while the game is closed. You collect ` +
+      `the LOC the next time you open the game.\n\n` +
+      `The price follows your LOC/s, so it only goes up from here. Hire ` +
+      `them before they find a startup with better snacks.`,
+  });
+}
+
 /** The inbox mail for a settled absence (shown once, on return). */
 export function buildNightShiftEmail(report) {
   const loc = formatNumber(nightShiftSafeNumber(report?.creditedLoc));
@@ -6767,7 +6809,8 @@ export const EMAIL_LINK_TABS = Object.freeze([
 function emailTargetItemIds(tab) {
   switch (tab) {
     case "shop":
-      return EMPLOYEE_TYPES;
+      // The employee cards, plus the Night Shift card (issue #195).
+      return [...EMPLOYEE_TYPES, NIGHT_SHIFT_EMAIL_ITEM_ID];
     case "projects":
       return FREELANCE_PROJECT_KEYS;
     case "openSource":

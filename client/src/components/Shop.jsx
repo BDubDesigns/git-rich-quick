@@ -17,6 +17,7 @@ import {
   employeeCost,
   employeePurchaseCosts,
   hiringCostMultiplier,
+  NIGHT_SHIFT_EMAIL_ITEM_ID,
 } from "../../../shared/game-balance.js";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
@@ -85,6 +86,13 @@ export function Shop() {
         </div>
         <SortControl tab="shop" />
       </div>
+      {/* Night Shift (issue #149): the offline-production upgrade. At
+          the top of the tab, outside the sorted list (issue #195), so
+          it is on screen without scrolling and no sort mode moves it.
+          Its discovery mails link here. */}
+      <HighlightAnchor tab="shop" itemId={NIGHT_SHIFT_EMAIL_ITEM_ID}>
+        <NightShiftCard />
+      </HighlightAnchor>
       {employeeTypes.map((employeeType) => {
         const config = EMPLOYEE_CONFIGS[employeeType];
         const unlocked = isEmployeeUnlocked(employeeType, state);
@@ -210,8 +218,6 @@ export function Shop() {
           </div>
         );
       })}
-      {/* Night Shift (issue #149): the offline-production upgrade. */}
-      <NightShiftCard />
     </SectionLayout>
   );
 }
