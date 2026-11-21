@@ -142,8 +142,8 @@ test("the old production-value basis and the stored-value helpers are gone", () 
 
 // --- Price tables at sampled P ---
 
-test("Night Shift prices are 10 / 15 / 20 / 30 / 45 minutes of S at every sampled P", () => {
-  const minutes = [10, 15, 20, 30, 45];
+test("Night Shift prices are 2.5 / 3.75 / 5 / 7.5 / 11.25 minutes of S at every sampled P (Brandon, Nov 21: a quarter of #244)", () => {
+  const minutes = [2.5, 3.75, 5, 7.5, 11.25];
   assert.deepEqual(NIGHT_SHIFT_CONFIG.levels.map((l) => l.priceSeconds / 60), minutes);
   for (const p of SAMPLED_P) {
     minutes.forEach((m, i) => {
@@ -155,8 +155,8 @@ test("Night Shift prices are 10 / 15 / 20 / 30 / 45 minutes of S at every sample
     });
   }
   // The proposal's dollar figures.
-  assert.equal(nightShiftPriceCents(1, 1_000), 12_600_000); // $126,000
-  assert.equal(nightShiftPriceCents(1, 4_870_000_000), 61_362_000_000_000); // $613.6B
+  assert.equal(nightShiftPriceCents(1, 1_000), 3_150_000); // $31,500
+  assert.equal(nightShiftPriceCents(1, 4_870_000_000), 15_340_500_000_000); // $153.4B
 });
 
 test("Night Shift rates, caps and gates are unchanged", () => {
@@ -190,12 +190,12 @@ test("farm buy prices are seconds of S at every sampled P", () => {
   assert.equal(llamaBuyPriceCents("classic", 9_210_000), 5_802_300_000); // $58.02M
 });
 
-test("buy, barn and Night Shift numbers are unchanged from master (pinned at P = 9.21M)", () => {
+test("buy, barn and Night Shift numbers are pinned at P = 9.21M", () => {
   const p = 9_210_000;
   assert.equal(farmPurchaseCostCents(p), 11_604_600_000);
   assert.deepEqual(
     [1, 2, 3, 4, 5].map((level) => nightShiftPriceCents(level, p)),
-    [116_046_000_000, 174_069_000_000, 232_092_000_000, 348_138_000_000, 522_207_000_000]
+    [29_011_500_000, 43_517_250_000, 58_023_000_000, 87_034_500_000, 130_551_750_000]
   );
   assert.deepEqual(
     Object.fromEntries(LLAMA_TYPES.map((type) => [type, llamaBuyPriceCents(type, p)])),
