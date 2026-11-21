@@ -79,7 +79,7 @@ export function SellCompany() {
   const companyLoc = shared.companyLocEarned(state);
 
   // The meter spans the current bracket: entitlement n means the bar
-  // runs from n^2 million through (n+1)^2 million lifetime LOC. It
+  // runs from 10M x n^3 through 10M x (n+1)^3 lifetime LOC. It
   // rolls over when an Equity is earned, while the claimable count
   // stays visible next to it. A filled bar is progress, never a
   // deadline. Shared with the header Equity strip (issue #131), so
