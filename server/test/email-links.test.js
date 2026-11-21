@@ -124,6 +124,8 @@ function expectedTarget(triggerKey) {
   if (kind.startsWith("opensource-")) return { tab: "openSource", itemId: id };
   if (kind.startsWith("freelance-")) return { tab: "projects", itemId: id };
   if (kind.startsWith("farm-")) return { tab: "farm", itemId: null };
+  // Night Shift discovery (issue #195): the card on the Hire tab.
+  if (kind.startsWith("night-shift-")) return { tab: "shop", itemId: "nightShift" };
   return undefined; // star rewards and anything else: no link
 }
 
@@ -191,6 +193,7 @@ test("every trigger the adapters send carries the target its key names", () => {
     "opensource-visible:blocker",
     "freelance-visible:hobbyWebsite",
     "farm-visible:barn",
+    "night-shift-visible:1",
   ]) {
     const mail = teasers.find((m) => m.triggerKey === key);
     assert.ok(mail, key);
@@ -222,6 +225,7 @@ test("every trigger the adapters send carries the target its key names", () => {
     "farm-unlocked",
     "farm-purchased",
     "farm-new-type",
+    "night-shift-visible",
     "star-reward",
   ]) {
     assert.ok(seen.has(kind), `covered ${kind}`);

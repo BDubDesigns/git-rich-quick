@@ -21,6 +21,8 @@ const formatCondition = (condition) => {
       return `Ship ${formatNumber(condition.target)} projects in total`;
     case "OPEN_SOURCE_LEVEL":
       return `Reach ${condition.projectName} v.${formatNumber(condition.target)}.0`;
+    case "PASSIVE_LOC_PER_SECOND":
+      return `Reach ${formatNumber(condition.target)} passive LOC/s`;
     case "GOLD_STARS_CLICKED":
       return `Click ${formatNumber(condition.target)} gold stars`;
     default:

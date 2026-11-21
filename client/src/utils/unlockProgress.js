@@ -19,10 +19,12 @@
 
 import {
   BALANCE,
+  buffedLocPerSecond,
   EMPLOYEE_DISPLAY_NAMES,
   employeeBulkCost,
   FARM_CONFIG,
   FREELANCE_PROJECT_DISPLAY_NAMES,
+  nightShiftGateProgress,
   OPEN_SOURCE_DISPLAY_NAMES,
   openSourceNextLevelCost,
   openSourceNextLevelNeedsRound,
@@ -111,6 +113,58 @@ export function getUnlockProgressForFarm(state) {
 /** Whether every farm unlock condition is met right now. */
 export function isFarmUnlockMet(state) {
   return getUnlockProgressForFarm(state).every(
+    (entry) => entry.current >= entry.target
+  );
+}
+
+/**
+ * Progress toward hiring Night Shift level 1 (issue #195): the level 1
+ * gate from NIGHT_SHIFT_CONFIG (live passive LOC/s and one employee
+ * count), in the same progress shape as every other unlock, so the
+ * visibility rule and the requirement text work unchanged. LOC/s is
+ * the buffed healthy rate the card and the reducer read (the shared
+ * buffedLocPerSecond on flat counts), floored like the card shows it.
+ */
+export function getUnlockProgressForNightShift(state) {
+  const flat = (map, field) =>
+    Object.fromEntries(
+      Object.entries(map ?? {}).map(([key, value]) => [key, value?.[field] ?? 0])
+    );
+  const employees = flat(state?.employees, "count");
+  const gate = nightShiftGateProgress(
+    1,
+    buffedLocPerSecond({
+      employees,
+      openSourceProjects: flat(state?.openSourceProjects, "level"),
+      lifetimeEquityEarned: state?.lifetimeEquityEarned ?? 0,
+      achievements: state?.achievements,
+      permanentStoreRanks: state?.permanentStoreRanks ?? {},
+    }),
+    employees
+  );
+  const rate = gate.locPerSecond;
+  const hires = gate.employees;
+  return [
+    {
+      type: "PASSIVE_LOC_PER_SECOND",
+      current: Math.floor(rate.current),
+      target: rate.target,
+      remaining: Math.max(0, rate.target - Math.floor(rate.current)),
+    },
+    {
+      type: "SPECIFIC_EMPLOYEE_COUNT",
+      current: hires.current,
+      target: hires.target,
+      remaining: Math.max(0, hires.target - hires.current),
+      employeeType: hires.employeeType,
+      employeeName: EMPLOYEE_DISPLAY_NAMES[hires.employeeType],
+    },
+  ];
+}
+
+/** Whether the Night Shift level 1 gate is met right now. */
+export function isNightShiftUnlockMet(state) {
+  return getUnlockProgressForNightShift(state).every(
     (entry) => entry.current >= entry.target
   );
 }
@@ -225,6 +279,12 @@ export function hasCrossedUnlockThreshold(unlockType, unlockUnit, state) {
   // Handle the farm (a single unlockable; unlockUnit is ignored)
   if (unlockType === "farm") {
     const progress = getUnlockProgressForFarm(state);
+    return checkProgressAgainstThreshold(progress, UNLOCK_VISIBILITY_THRESHOLD);
+  }
+
+  // Night Shift level 1 (issue #195; unlockUnit is ignored)
+  if (unlockType === "nightShift") {
+    const progress = getUnlockProgressForNightShift(state);
     return checkProgressAgainstThreshold(progress, UNLOCK_VISIBILITY_THRESHOLD);
   }
 

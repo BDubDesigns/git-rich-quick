@@ -18,7 +18,8 @@
  *
  * The adapters at the bottom translate game events into mail:
  * employee visible / unlocked, open-source visible / unlocked /
- * level-up, freelance project visible / unlocked, and star rewards.
+ * level-up, freelance project visible / unlocked, star rewards, the
+ * farm, and Night Shift visible / unlocked.
  * Each adapter only fires on a transition
  * (a latch flip, a level increase, a claim), so the same event never
  * mails twice, and a restored save never re-mails old unlocks.
@@ -34,6 +35,7 @@ import {
   LLAMA_BASE_TYPES,
   LLAMA_TYPE_DESCRIPTIONS,
   LLAMA_TYPE_NAMES,
+  NIGHT_SHIFT_EMAIL_ITEM_ID,
   OPEN_SOURCE_DISPLAY_NAMES,
   OPEN_SOURCE_IDS,
   achievementEmailEntries,
@@ -45,12 +47,15 @@ import {
   buildFarmVisibleEmail,
   buildFreelanceProjectUnlockedEmail,
   buildFreelanceProjectVisibleEmail,
+  buildNightShiftUnlockedEmail,
+  buildNightShiftVisibleEmail,
   buildOpenSourceLevelEmail,
   buildOpenSourceUnlockedEmail,
   buildOpenSourceVisibleEmail,
   buildStarRewardEmail,
   starEffectFlavor,
   findAchievement,
+  nightShiftLevelOf,
   sanitizeEmailTarget,
   sanitizeEmailTrophies,
   starEffectName,
@@ -60,9 +65,11 @@ import {
   getUnlockProgress,
   getUnlockProgressForFarm,
   getUnlockProgressForFreelanceProject,
+  getUnlockProgressForNightShift,
   getUnlockProgressForOpenSource,
   hasCrossedUnlockThreshold,
   isFarmUnlockMet,
+  isNightShiftUnlockMet,
 } from "../utils/unlockProgress.js";
 import { formatCondition } from "../utils/formatCondition.js";
 
@@ -252,6 +259,7 @@ const TEASER_TRIGGER_PREFIXES = [
   "opensource-visible:",
   "freelance-visible:",
   "farm-visible:",
+  "night-shift-visible:",
 ];
 
 export function isTeaserEmail(email) {
@@ -511,6 +519,36 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     );
   }
 
+  // Night Shift discovery (issue #195): the farm's rules, on the
+  // level 1 gate. A teaser when the gate first becomes visible (10% of
+  // it: the first Junior, or 10 passive LOC/s), and an unlock mail when
+  // it is met. Both fire only on a transition, so a restored save
+  // (already past the gate) never mails, and neither fires once a shift
+  // is hired (level 1 or more, the Night Shift Contract included). A
+  // sale resets the level and the gate, and the fixed trigger keys
+  // dedupe against the inbox, so a later company re-mails only once the
+  // old mail has aged out of it, exactly like the farm's.
+  if (nightShiftLevelOf(newState.nightShiftLevel) === 0) {
+    const shiftWasUnlocked = isNightShiftUnlockMet(prevState);
+    const shiftIsUnlocked = isNightShiftUnlockMet(newState);
+    if (!shiftWasUnlocked && shiftIsUnlocked) {
+      send(buildNightShiftUnlockedEmail(), "night-shift-unlocked:1");
+    } else if (
+      !shiftIsUnlocked &&
+      !hasCrossedUnlockThreshold("nightShift", null, prevState) &&
+      hasCrossedUnlockThreshold("nightShift", null, newState)
+    ) {
+      send(
+        buildNightShiftVisibleEmail({
+          requirementText: describeUnlockRequirements(
+            getUnlockProgressForNightShift(newState)
+          ),
+        }),
+        "night-shift-visible:1"
+      );
+    }
+  }
+
   return { emails, newEmailId };
 }
 
@@ -543,6 +581,12 @@ export function emailLinkLabel(email, target) {
   const teaser = isTeaserEmail(email);
   switch (target.tab) {
     case "shop":
+      // The Night Shift card (issue #195): the card's own button text.
+      if (target.itemId === NIGHT_SHIFT_EMAIL_ITEM_ID) {
+        return teaser
+          ? "See the Night Shift requirements"
+          : "Hire the night shift";
+      }
       if (!name) return "Go to Hire";
       return teaser ? `See the ${name} unlock progress` : `Hire a ${name}`;
     case "projects":

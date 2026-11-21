@@ -305,7 +305,9 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
   // 10% (the same rule the Shop uses to show the locked card). The
   // first junior also makes Junior Achievement visible (issue #118):
   // its unlock is 10 juniors, so 1 junior is exactly the 10%
-  // threshold. So three teasers fire here — one per newly visible unlock.
+  // threshold. Night Shift (issue #195) becomes visible too: its level
+  // 1 gate wants 10 juniors, so 1 is its 10%. So four teasers fire
+  // here — one per newly visible unlock.
   const prev = gameState();
   const visible = gameState({
     employees: {
@@ -317,13 +319,14 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
     },
   });
   const teaser = collectTriggerEmails(prev, visible).emails;
-  assert.equal(teaser.length, 3);
+  assert.equal(teaser.length, 4);
   assert.deepEqual(
     teaser.map((entry) => entry.triggerKey),
     [
       "employee-visible:senior",
       "opensource-visible:blocker",
       "opensource-visible:juniorAchievement",
+      "night-shift-visible:1",
     ]
   );
   const unlocked = gameState({
@@ -349,13 +352,14 @@ test("open-source unlock + teaser follow the same latch/visibility rules", () =>
   // teaser from the first part is already in the inbox, so it is not
   // re-sent — it just stays in the list ahead of the new ones.
   const { emails } = collectTriggerEmails(visible, unlocked);
-  assert.equal(emails.length, 7);
+  assert.equal(emails.length, 8);
   assert.deepEqual(
     emails.map((entry) => entry.triggerKey),
     [
       "employee-visible:senior",
       "opensource-visible:blocker",
       "opensource-visible:juniorAchievement",
+      "night-shift-visible:1",
       "employee-visible:projectManager",
       "employee-visible:commitSpecialist",
       "employee-visible:releaseManager",
