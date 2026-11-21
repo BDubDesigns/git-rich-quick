@@ -16,7 +16,7 @@ import {
   FARM_CONFIG,
   FARM_LIGHTING,
   FARM_LIGHTING_COLORS,
-  LLAMA_BASE_TYPES,
+  llamaShopTypes,
   LLAMA_ECONOMY,
   LLAMA_TYPES,
   LLAMA_TYPE_DESCRIPTIONS,
@@ -310,11 +310,12 @@ export function Farm() {
           ) : (
             <>
               <p className="m-0 text-sm">
-                Buy a llama for stall {selectedStall + 1}. Only these are
-                for sale; the fancy types come only from breeding.
+                Buy a llama for stall {selectedStall + 1}. The base types
+                are always for sale; a fancy type joins the shop once you
+                have bred one.
               </p>
               <div className="flex flex-wrap gap-2">
-                {LLAMA_BASE_TYPES.map((type) => {
+                {llamaShopTypes(farm.unlockedTypes).map((type) => {
                   const price = llamaBuyPriceCents(type, pricingRate);
                   return (
                     <Button
@@ -366,7 +367,7 @@ export function Farm() {
         </p>
         {LLAMA_TYPES.map((type) => {
           const discovered = farm.unlockedTypes.includes(type);
-          const forSale = LLAMA_BASE_TYPES.includes(type);
+          const forSale = llamaShopTypes(farm.unlockedTypes).includes(type);
           return (
             <p key={type} className="m-0 text-sm">
               {discovered ? "🦙 " : "· "}
@@ -383,7 +384,7 @@ export function Farm() {
               ) : forSale ? (
                 ", in the shop. Buy one to meet it."
               ) : (
-                ", undiscovered. Breed for it."
+                ", undiscovered. Breed one and it joins the shop."
               )}
             </p>
           );

@@ -61,6 +61,7 @@ import {
   navigateToTarget,
 } from "../navigation/highlight.js";
 import { GameContext } from "./gameContext.js";
+import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
 
 // Initial state of the game
@@ -584,45 +585,31 @@ function gameReducer(state, action) {
       return { ...state, farm: { ...farm, stalls } };
     }
 
-    // Buy one base llama into an empty stall (issue #79 feedback — no
-    // free llamas, each base llama is bought separately). Payload:
-    // { stallIndex, type }. Only the two base types are for sale; bred
-    // types come only from breeding, never from the shop. The farm must
+    // Buy one llama into an empty stall (issue #79 feedback — no free
+    // llamas, each llama is bought separately). Payload: { stallIndex,
+    // type }. For sale: the base types, plus every bred type this farm
+    // has discovered (shared.llamaShopTypes, issue #203); an
+    // undiscovered bred type comes only from breeding. The farm must
     // be owned, the stall must be empty, and the player must afford
     // FARM_CONFIG.llamaPriceCents. Buying unlocks the type (a bought
     // Classic unlocks Classic) and is a big-action save trigger (the
     // farm llama count changes, see serialize.js), so it persists
-    // promptly. An invalid buy is ignored here; the server rejects it
-    // too, so a tampered save cannot buy a llama for free, into an
-    // occupied stall, or of a bred type.
+    // promptly. An invalid buy is ignored here: not owned, an occupied
+    // stall, too little cash, or a type that is not for sale.
     case "BUY_LLAMA": {
       const { stallIndex, type } = action.payload ?? {};
-      const farm = state.farm ?? shared.emptyFarmState();
-      if (!farm.owned) return state;
-      if (
-        typeof stallIndex !== "number" ||
-        stallIndex < 0 ||
-        stallIndex >= shared.FARM_CONFIG.stallCount ||
-        !shared.LLAMA_BASE_TYPES.includes(type)
-      ) {
-        return state;
-      }
-      const stall = farm.stalls[stallIndex];
-      if (!stall || stall.llama !== null) return state;
-      // Llama economy v2 (issue #129): the price is time at the
-      // player's buffed LOC/s, priced at the moment of purchase.
-      const price = shared.llamaBuyPriceCents(type, getBaseLocPerSecond(state));
-      if (!(price > 0) || state.money < price) return state;
-      const stalls = farm.stalls.map((entry, i) =>
-        i === stallIndex ? { ...entry, llama: type } : entry
-      );
-      const unlockedTypes = (farm.unlockedTypes ?? []).includes(type)
-        ? [...(farm.unlockedTypes ?? [])]
-        : [...(farm.unlockedTypes ?? []), type];
+      const bought = applyLlamaBuy({
+        farm: state.farm ?? shared.emptyFarmState(),
+        money: state.money,
+        stallIndex,
+        type,
+        buffedLocPerSec: getBaseLocPerSecond(state),
+      });
+      if (!bought) return state;
       const newState = {
         ...state,
-        money: state.money - price,
-        farm: { ...farm, stalls, unlockedTypes },
+        money: bought.money,
+        farm: bought.farm,
         // Achievements (issue #132): lifetime llamas bought, per type.
         achievements: shared.recordLlamaBought(state.achievements, type, 1),
       };

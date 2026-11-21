@@ -1494,6 +1494,23 @@ export const LLAMA_TYPES = Object.freeze([
  */
 export const LLAMA_BASE_TYPES = Object.freeze(["classic", "drama", "mama"]);
 
+/**
+ * The types the farm shop sells right now (issue #203, Brandon: "Once
+ * discovered a llama should be buyable again after sold like my quantum
+ * llama"): the base types always, plus every bred type the player has
+ * discovered (farm.unlockedTypes), whether or not they own one. An
+ * undiscovered bred type is never offered (no spoilers). Order is
+ * LLAMA_TYPES order, base types first. Prices are unchanged: each type
+ * sells at llamaBuyPriceCents. The reducer's buy rule and the shop UI
+ * both read this list.
+ */
+export function llamaShopTypes(unlockedTypes = []) {
+  const discovered = Array.isArray(unlockedTypes) ? unlockedTypes : [];
+  return LLAMA_TYPES.filter(
+    (type) => LLAMA_BASE_TYPES.includes(type) || discovered.includes(type)
+  );
+}
+
 /** Display names for the llama types. */
 export const LLAMA_TYPE_NAMES = Object.freeze({
   classic: "Classic Llama",
