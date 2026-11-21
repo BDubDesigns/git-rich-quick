@@ -28,6 +28,9 @@ import {
 } from "../utils/bridgeRound.js";
 import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
+import { VersionRoll, VersionSweep } from "./VersionRoll.jsx";
+import { useGameContext } from "../context/useGameContext.js";
+import { useVersionRoll } from "../hooks/useVersionRoll.js";
 
 /**
  * Star info for a Constellation level: the spawn interval and the
@@ -101,6 +104,10 @@ export function OpenSourceCard({
   // round the bridge rents. Defaults to Bootstrapped.
   storeRanks = {},
 }) {
+  // Version bump (issue #216): a successful contribution to this
+  // project rolls the version text and sweeps the top border, 320ms.
+  const { state: gameState } = useGameContext();
+  const roll = useVersionRoll(gameState.lastContribution, projectId);
   const isConstellation = projectId === "constellation";
   // Bridge Round (issue #192): one level, no numeric bonus. The card
   // says what it rents, and once owned, that it lasts until the sale.
@@ -189,13 +196,17 @@ export function OpenSourceCard({
   };
 
   return (
-    <Panel className="px-3 pb-1 flex flex-col gap-1 m-0">
+    <Panel className="relative px-3 pb-1 flex flex-col gap-1 m-0">
+      {roll && <VersionSweep key={`sweep-${roll.seq}`} />}
       {/* Two-column layout */}
       <div className="flex items-center gap-4">
         {/* Left: Content */}
         <div className="flex-1">
           <JsDocBlock
-            title={`${project.name} v.${currentLevel}.0`}
+            title={`${project.name} `}
+            titleAfter={
+              <VersionRoll key={roll ? `roll-${roll.seq}` : "rest"} level={currentLevel} roll={roll} />
+            }
             description={project.description}
           >
             {/* A maxed card has no next version to price (issue #191):

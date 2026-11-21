@@ -29,6 +29,9 @@
 
 import { useState } from "react";
 import { ExitCountUp } from "./ExitCountUp.jsx";
+import { ROUND_CLOSED_TEXT, rankStampFor, rankStampOn } from "../utils/rankStamp.js";
+import "./StatBump.css";
+import "./RankStamp.css";
 import { useGameContext } from "../context/useGameContext.js";
 import * as shared from "../../../shared/game-balance.js";
 import { formatMoney } from "../../../shared/formatNumber.js";
@@ -110,6 +113,9 @@ export function PermanentStore() {
   const { state, buyStoreRank, completeIntermission } = useGameContext();
   const [busy, setBusy] = useState(false);
   const [storeError, setStoreError] = useState(null);
+  // Rank stamp (issue #217): the last successful purchase's stamp, on
+  // its track's panel. A new purchase replaces it (restart, no stack).
+  const [stamp, setStamp] = useState(null);
 
   const intermission = state.prestigeIntermission ?? null;
   const ranks = state.permanentStoreRanks ?? shared.zeroStoreRanks();
@@ -138,7 +144,9 @@ export function PermanentStore() {
     setStoreError(null);
     try {
       const result = await buyStoreRank(storeId);
-      if (!result.ok) {
+      if (result.ok) {
+        setStamp((prev) => rankStampFor(storeId, prev));
+      } else {
         if (result.error === "WIPE") {
           // Funding Rounds save wipe (issue #170): the engine already
           // loaded the fresh company the server reset this save to.
@@ -231,10 +239,27 @@ export function PermanentStore() {
               frozenRate
             )
           : null;
+        const stamped = rankStampOn(stamp, storeId);
+        const rankText = `Rank ${rank} of ${maxRank}`;
         return (
-          <Panel key={storeId} className="flex flex-col gap-1 p-3">
+          <Panel key={storeId} className="relative flex flex-col gap-1 p-3">
+            {stamped && (
+              <span key={`flash-${stamp.key}`} className="rank-flash" aria-hidden="true" />
+            )}
+            {stamped && stamp.roundClosed && (
+              <span key={`closed-${stamp.key}`} className="round-closed-chip" aria-hidden="true">
+                {ROUND_CLOSED_TEXT}
+              </span>
+            )}
             <h4 className="m-0 text-sm text-[#cccccc]">
-              {config.displayName} · Rank {rank} of {maxRank}
+              {config.displayName} ·{" "}
+              <span
+                key={stamped ? `rank-${stamp.key}` : "rank"}
+                className={stamped ? "stat-value stat-bump stat-bump--money" : undefined}
+                data-value={rankText}
+              >
+                {rankText}
+              </span>
               {storeId === "fundingRounds" &&
                 ` · ${shared.fundingRoundName(rank)}`}
             </h4>

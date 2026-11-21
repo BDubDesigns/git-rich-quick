@@ -65,6 +65,7 @@ import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
 import { birthRecord } from "../utils/llamaBirths.js";
+import { nextContribution } from "../utils/versionRoll.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -1035,6 +1036,15 @@ function gameReducer(state, action) {
       // deduct LOC cost and increase project level
       const contributed = {
         ...state,
+        // Version bump (issue #216): the card for this project rolls
+        // its version once. Transient UI state, never saved.
+        lastContribution: nextContribution(
+          state.lastContribution,
+          projectId,
+          projectState.level,
+          projectState.level + 1,
+          Date.now()
+        ),
         linesOfCode: state.linesOfCode - cost,
         openSourceProjects: {
           ...state.openSourceProjects,
@@ -1431,6 +1441,8 @@ function gameReducer(state, action) {
         statGain: null,
         // Llama births (issue #218): a restore never pops or bumps.
         lastBirths: null,
+        // Version bump (issue #216): a restore never rolls a card.
+        lastContribution: null,
       };
     }
 
