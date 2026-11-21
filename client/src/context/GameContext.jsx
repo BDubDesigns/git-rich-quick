@@ -606,7 +606,9 @@ function gameReducer(state, action) {
       const newState = {
         ...state,
         money: state.money - barnCost,
-        farm: shared.initialFarmState(),
+        // Issue #237: a barn re-bought after a sale keeps the types
+        // the earlier companies discovered.
+        farm: shared.initialFarmState(farm.unlockedTypes),
       };
       const latched = {
         ...newState,

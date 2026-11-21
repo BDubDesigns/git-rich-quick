@@ -456,8 +456,9 @@ test("applyPrestigeSale resets the company and keeps the lifetime books", () => 
     bridgeRound: 0,
   });
   assert.deepEqual(post.activeStarEffects, []);
-  // The farm resets: no llamas, no barn, no types (Brandon, Nov 15).
-  assert.deepEqual(post.farm, emptyFarmState());
+  // The farm resets: no llamas, no barn (Brandon, Nov 15). The
+  // discovered types survive (issue #237).
+  assert.deepEqual(post.farm, { ...emptyFarmState(), unlockedTypes: ["classic", "drama"] });
   // Unlock latches re-derive from the post-sale state: LOC-gated ones
   // re-fire at once from lifetime LOC, count-gated ones wait.
   assert.equal(post.unlockedEmployees.intern, true);
@@ -855,7 +856,7 @@ test("migration: a save from before prestige shipped backfills to 0 and still va
   }
 });
 
-test("the farm resets on sale: llamas, barn, and discovered types do not survive", async () => {
+test("the farm resets on sale: llamas and barn do not survive, discovered types do (issue #237)", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
@@ -874,7 +875,10 @@ test("the farm resets on sale: llamas, barn, and discovered types do not survive
     });
     const res = await sell(srv.base, playerId, pre);
     assert.equal(res.status, 200);
-    assert.deepEqual((await res.json()).state.farm, emptyFarmState());
+    assert.deepEqual((await res.json()).state.farm, {
+      ...emptyFarmState(),
+      unlockedTypes: ["classic", "drama"],
+    });
   } finally {
     await srv.stop();
   }

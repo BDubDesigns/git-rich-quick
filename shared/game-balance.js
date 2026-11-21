@@ -1938,15 +1938,31 @@ export function applyFarmBreedKids(farm, kids) {
   return { ...base, stalls, unlockedTypes };
 }
 
-/** A farm that has never been bought: no llamas, no types, warm lights. */
-export function emptyFarmState() {
+/**
+ * The discovered llama types a farm reset keeps (issue #237): known
+ * type ids only, no duplicates, as a fresh array. Anything that is not
+ * an array keeps nothing.
+ */
+export function keptLlamaDiscoveries(unlockedTypes) {
+  if (!Array.isArray(unlockedTypes)) return [];
+  return [...new Set(unlockedTypes)].filter((type) => LLAMA_TYPES.includes(type));
+}
+
+/**
+ * A farm that is not bought: no llamas, warm lights. A farm that has
+ * never been bought has no types either. After a sale the barn is gone
+ * but the discovered types stay (issue #237: discovery is knowledge,
+ * not inventory), so applyPrestigeSale passes the sold farm's
+ * unlockedTypes as `keptTypes`.
+ */
+export function emptyFarmState(keptTypes = []) {
   return {
     owned: false,
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
     })),
-    unlockedTypes: [],
+    unlockedTypes: keptLlamaDiscoveries(keptTypes),
     // Issue #204: llamas born since the player last opened the Farm tab.
     unseenBirths: 0,
   };
@@ -1955,17 +1971,19 @@ export function emptyFarmState() {
 /**
  * The farm state right after buying it: owned, but EMPTY — no free
  * llamas (Brandon: "you have to buy the llamas yourself"). Buy base
- * llamas in the shop to move in, then breed. No types are unlocked
- * until a llama of that type is bought or born.
+ * llamas in the shop to move in, then breed. In a first company no
+ * types are unlocked until a llama of that type is bought or born; a
+ * barn re-bought after a sale keeps the types already discovered
+ * (`keptTypes`, issue #237), so llamaShopTypes offers them again.
  */
-export function initialFarmState() {
+export function initialFarmState(keptTypes = []) {
   return {
     owned: true,
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
     })),
-    unlockedTypes: [],
+    unlockedTypes: keptLlamaDiscoveries(keptTypes),
     unseenBirths: 0,
   };
 }
@@ -3759,8 +3777,10 @@ export function subtracterallApplyClick(sub, healthy) {
  * re-fire at once from lifetime LOC; count-gated ones wait for the
  * new company to re-earn them); run-local project queues; golden-star
  * buffs and uncollected stars; company-specific timers; the llama
- * farm (ownership, stalls, llamas, discovered types — Brandon,
- * Nov 15: the farm RESETS, it does not survive as a collection);
+ * farm (ownership, stalls, llamas, lighting — Brandon, Nov 15: the
+ * farm RESETS, it does not survive as a collection), EXCEPT its
+ * discovered types (farm.unlockedTypes, issue #237: discovery is
+ * knowledge, not inventory, so the herd book survives the sale);
  * the SUBTRACTERALL use count (issue #150: the new company starts at
  * use 1; a phase in progress is NOT reset and survives the sale).
  *
@@ -3844,7 +3864,8 @@ export function applyPrestigeSale(preSaleState, saleId) {
     unlockedOpenSourceProjects: {},
     unlockedFreelanceProjects: {},
     activeStarEffects: [],
-    farm: emptyFarmState(),
+    // Issue #237: the farm resets, but the discovered types carry over.
+    farm: emptyFarmState(preSaleState.farm?.unlockedTypes),
     // SUBTRACTERALL (issue #150): the use count resets, so the new
     // company starts again at use 1. A phase in progress SURVIVES the
     // sale with its exact remaining time and its terms (activeUse):
