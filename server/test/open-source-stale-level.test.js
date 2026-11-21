@@ -111,7 +111,9 @@ test("in-range levels model exactly as before (no behavior change)", () => {
     const levels = BALANCE.openSource[id].levels;
     for (let level = 0; level <= levels.length; level += 1) {
       const model = openSourceCardModel(id, stateAt({ [id]: level }));
-      const isMaxed = level >= levels.length;
+      // stateAt owns every round (IPO), where the Bridge Round card is
+      // closed (issue #226): it reads as maxed at level 0 too.
+      const isMaxed = level >= levels.length || id === "bridgeRound";
       assert.equal(model.currentLevel, level);
       assert.equal(model.isMaxed, isMaxed);
       assert.deepEqual(model.currentBonus, level > 0 ? levels[level - 1].bonus : null);

@@ -12,6 +12,15 @@ import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
 import { ProjectRateLine } from "./ProjectRateLine.jsx";
+import {
+  CLEAR_COUNT,
+  assignAllAriaLabel,
+  assignAllCount,
+  assignAllLabel,
+  canAssignAll,
+  canClear,
+  clearAriaLabel,
+} from "../utils/releaseManagerBulk.js";
 
 /**
  * Release Manager assignment row (issue #163), inside the project's
@@ -19,11 +28,19 @@ import { ProjectRateLine } from "./ProjectRateLine.jsx";
  * count assigned here, the LOC/s those managers burn, and the cash/s
  * they earn. The reducer (SET_RELEASE_MANAGER_ASSIGNMENT) enforces the
  * rules too: never below 0, never more assigned than owned.
+ *
+ * Bulk buttons (issue #225), for players running dozens of managers:
+ * All (N) moves every free manager onto this project, Clear frees all
+ * of this project's managers. Each is one absolute count through the
+ * same onChange, so one tap is one dispatch.
  */
 function ReleaseManagerRow({ projectName, rm }) {
   const assigned = rm.assigned ?? 0;
   const canRemove = assigned > 0;
-  const canAdd = (rm.unassigned ?? 0) > 0;
+  const unassigned = rm.unassigned ?? 0;
+  const canAdd = unassigned > 0;
+  const canAll = canAssignAll(unassigned);
+  const canClearAll = canClear(assigned);
   return (
     <div className="flex items-center gap-2 text-sm border-t border-gray-600 pt-1 mb-1">
       <span className="flex-1 text-xs text-gray-300">
@@ -56,6 +73,22 @@ function ReleaseManagerRow({ projectName, rm }) {
         aria-label={`Assign a manager to ${projectName}`}
       >
         +
+      </Button>
+      <Button
+        onClick={() => rm.onChange(assignAllCount(assigned, unassigned))}
+        disabled={!canAll}
+        className={canAll ? "" : "game-button--inactive"}
+        aria-label={assignAllAriaLabel(unassigned, projectName)}
+      >
+        {assignAllLabel(unassigned)}
+      </Button>
+      <Button
+        onClick={() => rm.onChange(CLEAR_COUNT)}
+        disabled={!canClearAll}
+        className={canClearAll ? "" : "game-button--inactive"}
+        aria-label={clearAriaLabel(projectName)}
+      >
+        Clear
       </Button>
     </div>
   );
