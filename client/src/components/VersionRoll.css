@@ -1,0 +1,108 @@
+/* Version bump (issue #216, Slice 4 of #210). 320ms, transform and
+   opacity only, pointer-events none, inside the card: the version text
+   rolls in a clipped one-line box (no layout shift), and a 1px comment
+   green line sweeps the card's top border. */
+.version-roll {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+/* The old version slides up and out while the new one slides in. */
+.version-roll-old {
+  display: block;
+  line-height: inherit;
+  pointer-events: none;
+  animation: version-roll-out 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.version-roll-new {
+  display: block;
+  line-height: inherit;
+  pointer-events: none;
+  animation: version-roll-in 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes version-roll-out {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes version-roll-in {
+  from {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(-100%);
+    opacity: 1;
+  }
+}
+
+/* The sweep: a 1px line along the card's top border, scaleX 0 to 1
+   from the left, then gone. The card's own border is untouched. */
+.version-sweep {
+  position: absolute;
+  top: -1px;
+  left: 1rem;
+  right: 1rem;
+  height: 1px;
+  background: #84bd6a;
+  transform-origin: left;
+  transform: scaleX(0);
+  opacity: 0;
+  pointer-events: none;
+  animation: version-sweep 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes version-sweep {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  80% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: no slide and no sweep motion. The new version shows
+   at once, and the top line shows whole for the same 320ms, then goes. */
+@media (prefers-reduced-motion: reduce) {
+  .version-roll-old {
+    display: none;
+  }
+
+  .version-roll-new {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+
+  .version-sweep {
+    transform: none;
+    animation: version-sweep-still 320ms steps(1, end) forwards;
+  }
+}
+
+@keyframes version-sweep-still {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
