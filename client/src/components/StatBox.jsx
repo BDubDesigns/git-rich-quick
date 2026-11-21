@@ -9,6 +9,10 @@ import {
 } from "../context/gameLogic.js";
 import { useGameContext } from "../context/useGameContext.js";
 import { useStatBump } from "../hooks/useStatBump.js";
+import { useProductionTick } from "../hooks/useProductionTick.js";
+import { tickBarVisible } from "../utils/tickBar.js";
+import { GAME_BALANCE_CONFIG } from "../context/gameConfig.js";
+import "./TickBar.css";
 // Number abbreviation (issue #42) — the shared formatter. formatMoney
 // returns the string WITH the "$" attached, so callers do not prepend it.
 import {
@@ -30,9 +34,12 @@ import { Panel } from "./Panel.jsx";
  * 2. Current Money balance
  * 3. Total employee count
  * 4. Passive LOC generation rate (LOC/sec)
- * 5. Floating text animations for passive LOC generation
+ * 5. The tick bar (issue #229): a slim bar along the panel's bottom
+ *    edge that fills over each production tick, with a quiet flash on
+ *    the LOC total when the tick lands
  *
- * Uses the ref pattern to position floating text animations relative to the LOC/sec display.
+ * The passive layer stays mounted for the Night Shift report's one-off
+ * float (an event); the per-second tick no longer launches a float.
  * This component calculates all derived game values once to avoid prop drilling and
  * ensure consistent calculations across child components.
  */
@@ -50,8 +57,8 @@ export function StatBox() {
   const displayLoc = formatNumber(Math.floor(state.linesOfCode));
 
   // Create ref for the LOC/sec stat display element
-  // This is used by PassiveAnimationLayer to position floating text animations
-  // relative to where the passive LOC generation indicator is displayed
+  // This is used by PassiveAnimationLayer to position the Night Shift
+  // report's floating text at the passive LOC generation indicator
   const locPerSecondRef = useRef(null);
 
   // The numbers react (issue #214): each stat bumps on a big gain of
@@ -60,10 +67,13 @@ export function StatBox() {
   const moneyBump = useStatBump(state.statGain, "money");
   const rateBump = useStatBump(state.statGain, "rate");
 
+  // The tick bar (issue #229): a new key on every production tick.
+  const tick = useProductionTick();
+
   return (
     <>
       <div className="mx-2 select-none">
-        <Panel className="flex justify-items-normal items-center gap-6 mt-2 py-2 px-6 w-full mb-2">
+        <Panel className="relative flex justify-items-normal items-center gap-6 mt-2 py-2 px-6 w-full mb-2">
           {/* Game stat displays: LOC currency */}
           <StatDisplay
             icon={
@@ -76,6 +86,7 @@ export function StatBox() {
             label="LOC"
             bump="loc"
             bumpKey={locBump}
+            flashKey={tick}
           />
 
           {/* Game stat displays: Money currency (in dollars) */}
@@ -101,8 +112,8 @@ export function StatBox() {
           />
 
           {/* Game stat displays: Passive LOC generation per second (employees' production)
-              This element has a ref attached so PassiveAnimationLayer can position 
-              floating text animations relative to it */}
+              This element has a ref attached so PassiveAnimationLayer can position
+              the Night Shift report's floating text relative to it */}
           <StatDisplay
             ref={locPerSecondRef}
             icon={<TbUserCode size={24} color="var(--comment-text-color)" />}
@@ -111,12 +122,24 @@ export function StatBox() {
             bump="rate"
             bumpKey={rateBump}
           />
+
+          {/* The tick bar (issue #229, TickBar.css): fills over one
+              production tick along the panel's bottom edge, covering
+              no label. Keyed by the tick, so each tick restarts it. */}
+          {tickBarVisible(tick, locPerSecond) && (
+            <span
+              key={tick}
+              className="tick-bar"
+              aria-hidden="true"
+              style={{ animationDuration: `${GAME_BALANCE_CONFIG.TICK_INTERVAL}ms` }}
+            />
+          )}
         </Panel>
       </div>
 
-      {/* Floating text animation layer for passive LOC generation
-          Displays "+X LOC" animations that originate from the LOC/sec stat display.
-          Uses the ref to calculate animation start position */}
+      {/* Floating text layer, now only for the Night Shift report's
+          credited LOC (a one-off event on load). The per-second passive
+          float is gone (issue #229): ticks drive the tick bar above. */}
       <PassiveAnimationLayer locPerSecondRef={locPerSecondRef} />
     </>
   );
