@@ -159,7 +159,8 @@ test("resets with the farm on a sale", () => {
   pre.farm = farmWith({ 0: "classic", 1: "drama" }, 5);
   const post = applyPrestigeSale(pre, randomUUID());
   assert.equal(post.farm.unseenBirths, 0);
-  assert.deepEqual(post.farm, emptyFarmState());
+  // Issue #237: the discovered types survive; the rest resets.
+  assert.deepEqual(post.farm, emptyFarmState(["classic", "drama"]));
   assert.equal(emptyFarmState().unseenBirths, 0);
   assert.equal(initialFarmState().unseenBirths, 0);
 });
