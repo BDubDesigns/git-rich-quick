@@ -24,6 +24,8 @@ import {
 import "./LlamaBirth.css";
 import { Panel } from "./Panel.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
+import { BreedingGuide } from "./BreedingGuide.jsx";
+import { herdBookHiddenHint } from "../utils/breedingGuide.js";
 import {
   FARM_CONFIG,
   FARM_LIGHTING,
@@ -84,6 +86,8 @@ export function Farm() {
   // llama is being moved (the next empty stall clicked receives it).
   const [selectedStall, setSelectedStall] = useState(null);
   const [moving, setMoving] = useState(false);
+  // Issue #238: the breeding guide popup.
+  const [guideOpen, setGuideOpen] = useState(false);
   const pricingRate = getBaseLocPerSecond(state);
   // Progress bar toggles (issue #128): the farm's unlock bar follows
   // the "unlock" toggle, like every other unlock bar.
@@ -294,6 +298,11 @@ export function Farm() {
                 : "No empty stall sits between two llamas right now, so nothing can breed. Move some llamas into a nest."}{" "}
             Click a stall to select it.
           </p>
+          {/* Issue #238: how breeding and discovery work, in a popup. */}
+          <div>
+            <Button onClick={() => setGuideOpen(true)}>How breeding works</Button>
+          </div>
+          <BreedingGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
           {/* Issue #240: Sell All sells every llama that is not locked.
               The label says what it will do; nothing sellable disables it. */}
           <div className="flex flex-wrap items-center gap-2">
@@ -541,10 +550,13 @@ export function Farm() {
         {LLAMA_TYPES.map((type) => {
           const discovered = farm.unlockedTypes.includes(type);
           const forSale = llamaShopTypes(farm.unlockedTypes).includes(type);
+          // Issue #238: an undiscovered bred type (not in the shop yet)
+          // reads ??? so its name stays a surprise; its worth still
+          // shows there is something out there.
           return (
             <p key={type} className="m-0 text-sm">
               {discovered ? "🦙 " : "· "}
-              <strong>{LLAMA_TYPE_NAMES[type]}</strong>{" "}
+              <strong>{forSale ? LLAMA_TYPE_NAMES[type] : "??? (undiscovered)"}</strong>{" "}
               <span className="text-xs text-gray-400">
                 ({forSale ? "buy" : "worth"}{" "}
                 {formatMoney(llamaBuyPriceCents(type, pricingRate))},{" "}
@@ -557,11 +569,14 @@ export function Farm() {
               ) : forSale ? (
                 ", in the shop. Buy one to meet it."
               ) : (
-                ", undiscovered. Breed one and it joins the shop."
+                ". Breed one to find it."
               )}
             </p>
           );
         })}
+        {LLAMA_TYPES.some((type) => !llamaShopTypes(farm.unlockedTypes).includes(type)) && (
+          <p className="m-0 text-xs text-gray-400">{herdBookHiddenHint()}</p>
+        )}
       </Panel>
     </SectionLayout>
   );
