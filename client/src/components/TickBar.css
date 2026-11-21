@@ -1,0 +1,64 @@
+/* The header tick bar (issue #229): passive income is a stream, so it
+   gets a bar, not a floating number. Transform and opacity only,
+   pointer-events none, nothing here takes a tap.
+
+   - The bar: 2px along the bottom edge of the header panel, in the
+     panel's border zone (inset 1rem from each side, clear of the
+     rounded corners), so it covers no label. It fills left to right
+     over one tick (scaleX 0 to 1, origin left, linear; the duration is
+     the tick interval, set inline). A new tick remounts it (a new key),
+     so it lands as the LOC total jumps.
+   - The flash: the LOC total brightens briefly when the tick lands. A
+     copy of the value in the LOC green over the #ccc text fades out, so
+     the brightness change is an opacity change. No scale: Slice 2's
+     stat bump stays the big-gain signal, and this is quieter. */
+.tick-bar {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: #4ade80;
+  opacity: 0.7;
+  pointer-events: none;
+  transform-origin: left;
+  transform: scaleX(0);
+  animation: tick-bar-fill 1000ms linear forwards;
+}
+
+@keyframes tick-bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.stat-tick-flash {
+  position: absolute;
+  inset: 0;
+  color: #4ade80;
+  pointer-events: none;
+  opacity: 0;
+  animation: stat-tick-flash 300ms ease-out;
+}
+
+@keyframes stat-tick-flash {
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: no bar at all (nothing slides); the flash stays, as
+   an opacity fade alone, like Slice 2's reduced-motion bump. */
+@media (prefers-reduced-motion: reduce) {
+  .tick-bar {
+    animation: none;
+    display: none;
+  }
+}

@@ -4,6 +4,7 @@ import { useGameContext } from "./context/useGameContext";
 // Import game balance and LOC calculation
 import { GAME_BALANCE_CONFIG } from "./context/gameConfig";
 import { calculateTickCredit } from "./context/gameLogic";
+import { PRODUCTION_TICK_EVENT } from "./utils/tickBar.js";
 // Import save player id key (splash gating: a returning player has one)
 import { PLAYER_ID_KEY } from "./save/api.js";
 // Import components
@@ -66,11 +67,8 @@ function App() {
   useEffect(() => {
     const interval = setInterval(() => {
       // Calculate the tick credit BEFORE dispatching - use ref to get
-      // current state. SUBTRACTERALL (Slice 3): the floating text
-      // shows what the tick actually credits (3x in a burst, 0.25x
-      // in a withdrawal), not the healthy rate — calculateTickCredit
-      // runs the same shared advance function as the reducer, so the
-      // display and the balance can never disagree.
+      // current state. calculateTickCredit runs the same shared advance
+      // function as the reducer, so it is what the tick actually credits.
       // Store-only intermission (issue #188): no tick at all while the
       // intermission is open (the reducer refuses it anyway).
       if (stateRef.current.prestigeIntermission) return;
@@ -79,13 +77,11 @@ function App() {
       // Dispatch the game tick
       dispatch({ type: "GAME_TICK" });
 
-      // Emit animation event if there's passive LOC
+      // The header tick bar (issue #229): passive income is a stream,
+      // so a tick that credits LOC restarts the bar and the LOC flash
+      // instead of launching a floating number every second.
       if (locAmount > 0) {
-        window.dispatchEvent(
-          new CustomEvent("gameTickAnimation", {
-            detail: { amount: locAmount },
-          })
-        );
+        window.dispatchEvent(new Event(PRODUCTION_TICK_EVENT));
       }
     }, GAME_BALANCE_CONFIG.TICK_INTERVAL);
 
