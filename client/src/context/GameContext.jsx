@@ -64,7 +64,6 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
-import { nextEquityGain } from "../utils/equitySweep.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -76,6 +75,7 @@ import {
   setLayoutMode,
   showSection,
 } from "../navigation/panes.js";
+import { nextEquityGain } from "../utils/equitySweep.js";
 import {
   STAT_GAIN_NEVER_ACTIONS,
   nextStatGain,
