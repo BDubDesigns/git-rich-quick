@@ -44,6 +44,8 @@ import {
   windowViewport,
 } from "../utils/starViewport.js";
 import "./GoldenStar.css";
+import { ClaimPopLayer } from "./ClaimPop.jsx";
+import { moonFrameActive } from "../utils/claimPop.js";
 
 /** The star's rendered size in px; spawn positions keep it fully on-screen. */
 const STAR_SIZE_PX = 64;
@@ -177,6 +179,9 @@ export function GoldenStar() {
   const { state, dispatch, requestClaimSave, saveNow } = useGameContext();
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
     useFloatingText();
+  // The claim pop (issue #213): a shockwave ring at each claimed star.
+  // The layer owns the live rings; this ref triggers one.
+  const claimPopRef = useRef(null);
   const [star, setStar] = useState(null);
   // Viewport robustness (issue #194): a rotation or a window resize can
   // leave a live star's spawn point outside the new viewport. Each star
@@ -620,6 +625,8 @@ export function GoldenStar() {
       dispatch({ type: "APPLY_STAR_REWARD", payload: { claim } });
       requestClaimSave();
       playStarClickSound(claim.good);
+      // The claim pop (issue #213), at the claimed star's center.
+      claimPopRef.current?.pop(claim, position.x + STAR_SIZE_PX / 2, position.y + STAR_SIZE_PX / 2);
       triggerFloatingText(
         position.x + STAR_SIZE_PX / 2,
         position.y,
@@ -1142,6 +1149,8 @@ export function GoldenStar() {
           </div>,
           buySlot
         )}
+      {/* The claim pop rings and the To the Moon edge frame (issue #213). */}
+      <ClaimPopLayer ref={claimPopRef} moonFrame={moonFrameActive(liveEffects)} />
       {floatingTexts.map((ft) => (
         <FloatingText
           key={ft.id}

@@ -1,0 +1,208 @@
+/* The claim pop (issue #213, Slice 1 of #210). Every value here is
+   static except transform and opacity, which are the only animated
+   properties (on the compositor). Every layer is pointer-events: none
+   and sits in the ambient band (z-index 40 to 55), under the floats
+   (60 and 70) and the rotate prompt (1000).
+
+   One .claim-pop div per claim (at most 2 alive, utils/claimPop.js),
+   positioned at the claimed star's center. Its ::before is the
+   shockwave ring, its ::after the six code tick dashes: no extra nodes
+   per tick. The div's own no-op animation is its 420ms life, so it is
+   removed on that animation's end in every motion setting. */
+.claim-pop {
+  --pop-color: #ffd700;
+  --pop-fill: rgba(255, 215, 0, 0.35);
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 52;
+  animation: claim-pop-life 420ms linear forwards;
+}
+
+.claim-pop--red {
+  --pop-color: #ff4d4d;
+  --pop-fill: rgba(255, 77, 77, 0.35);
+}
+
+@keyframes claim-pop-life {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The ring: a 64px circle, scaling 0.6 to its end scale while it fades
+   from 0.9. Chain steps grow the end scale and the border (2.2/2px,
+   2.6/3px, 3.0/4px). */
+.claim-pop::before {
+  content: "";
+  position: absolute;
+  left: -32px;
+  top: -32px;
+  width: 64px;
+  height: 64px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--pop-color);
+  background: radial-gradient(circle, var(--pop-fill), transparent 60%);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: claim-ring-1 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.claim-pop--s2::before {
+  border-width: 3px;
+  animation-name: claim-ring-2;
+}
+
+.claim-pop--s3::before {
+  border-width: 4px;
+  animation-name: claim-ring-3;
+}
+
+@keyframes claim-ring-1 {
+  from {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes claim-ring-2 {
+  from {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes claim-ring-3 {
+  from {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+/* The six code tick dashes, at 60-degree steps: a static conic pattern
+   (six 2px slivers) masked to a 10px band at the edge of an 80px box,
+   so each sliver is a 2x10 dash. Gold bursts outward (scale 0.6 to 1.6
+   moves the band about 36px out) with a turn; a red crash's dashes drop
+   downward instead. */
+.claim-pop::after {
+  content: "";
+  position: absolute;
+  left: -40px;
+  top: -40px;
+  width: 80px;
+  height: 80px;
+  background: repeating-conic-gradient(
+    from -1.65deg,
+    var(--pop-color) 0deg 3.3deg,
+    transparent 3.3deg 60deg
+  );
+  -webkit-mask: radial-gradient(circle closest-side, transparent calc(100% - 10px), #000 calc(100% - 10px));
+  mask: radial-gradient(circle closest-side, transparent calc(100% - 10px), #000 calc(100% - 10px));
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: claim-ticks-burst 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.claim-pop--red::after {
+  animation-name: claim-ticks-drop;
+}
+
+@keyframes claim-ticks-burst {
+  from {
+    transform: scale(0.6) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.6) rotate(30deg);
+    opacity: 0;
+  }
+}
+
+@keyframes claim-ticks-drop {
+  from {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(36px) rotate(12deg);
+    opacity: 0;
+  }
+}
+
+/* To the Moon: a soft screen-edge frame for the 15s buff. The inset
+   shadow is static; the breathing is the layer's opacity, 0.5 to 1 and
+   back on a 1.6s cycle. Only the outer edge glows; the middle of the
+   screen is never covered, and it never takes a tap. */
+.moon-frame {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  box-shadow: inset 0 0 40px rgba(255, 140, 0, 0.35);
+  opacity: 0.5;
+  animation: moon-frame-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes moon-frame-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: no ring, no dashes, no breathing. The claim shows a
+   420ms static gold outline on its label instead (an opacity step, not
+   motion), and the To the Moon frame holds still. */
+@media (prefers-reduced-motion: reduce) {
+  .claim-pop::before,
+  .claim-pop::after {
+    display: none;
+  }
+
+  /* A transition, never an animation: the label's onAnimationEnd
+     removes the label, and an animation on its ::after would end it
+     after 420ms. The outline starts shown (@starting-style) and steps
+     off at 420ms (a 0s transition after a 420ms delay). Where
+     @starting-style is unsupported it simply never shows. */
+  .floating-text.animate-float-star::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 2px solid #ffd700;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0s linear 420ms;
+  }
+
+  @starting-style {
+    .floating-text.animate-float-star::after {
+      opacity: 1;
+    }
+  }
+
+  .moon-frame {
+    animation: none;
+    opacity: 0.75;
+  }
+}
