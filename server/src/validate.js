@@ -1056,22 +1056,9 @@ export function validateSave(prev, body, nowMs, options = {}) {
   }
   const prevLlamaCounts = farmLlamaCountsByType(prevState.farm.stalls);
   const newLlamaCounts = farmLlamaCountsByType(newState.farm.stalls);
-  // Brandon, Nov 21: a locked llama cannot be sold until it is
-  // unlocked. The lock moves with the llama and llamas of one type look
-  // alike, so the check is per type: when llamas of a type left the
-  // barn, that type's locked count may not have dropped. A locked
-  // llama that was sold always drops it. Limit: an unlock and a sale of
-  // the same type that land in one save (the unlock's own save was
-  // rate limited) read the same and are refused too.
-  const lockedOnly = (stalls) => stalls.filter((stall) => stall.locked === true);
-  const prevLockedCounts = farmLlamaCountsByType(lockedOnly(prevState.farm.stalls));
-  const newLockedCounts = farmLlamaCountsByType(lockedOnly(newState.farm.stalls));
   for (const type of LLAMA_TYPES) {
     const left = prevLlamaCounts[type] - newLlamaCounts[type];
     if (left <= 0) continue;
-    if (newLockedCounts[type] < prevLockedCounts[type]) {
-      return fail("MONOTONIC", `farm sold a locked ${type} llama`);
-    }
     const sold =
       (newState.achievements?.llamasSold?.[type] ?? 0) -
       (prevState.achievements?.llamasSold?.[type] ?? 0);

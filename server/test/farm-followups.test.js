@@ -2,10 +2,11 @@
  * Farm follow-ups (Brandon, Nov 21, 2026), after #251, #252 and #253.
  *
  * 1. A locked llama cannot be sold at all until it is unlocked. The
- *    single SELL_LLAMA refuses it, the server refuses a save where a
- *    llama that was locked left the barn (MONOTONIC, like a closed
- *    stall opening again in #253), and the chip's Sell button is
- *    disabled and reads "Unlock to sell". Sell All is unchanged.
+ *    single SELL_LLAMA refuses it and the chip's Sell button is
+ *    disabled and reads "Unlock to sell". Sell All is unchanged. The
+ *    server does NOT police locks: a per-type save-diff check would
+ *    refuse legit play (an unlock and a sale landing in one save), and
+ *    the save server stays dumb storage for player-only choices (Nov 11).
  * 2. Mamas are never bred. A stall with only Mamas beside it is no
  *    nest and makes no kid. A Mama still boosts the kid chance of a
  *    nest with another llama, and that kid copies the other llama.
@@ -17,9 +18,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { newDb } from "pg-mem";
-import { createStore } from "../src/store.js";
-import { createServer } from "../src/server.js";
 import { validateSave } from "../src/validate.js";
 import {
   EMPLOYEE_TYPES,
@@ -40,7 +38,6 @@ import {
   toggleFarmLlamaLock,
 } from "../../shared/game-balance.js";
 import { breedingGuideSections } from "../../client/src/utils/breedingGuide.js";
-import { saveStateToGameFields, stateToSaveState } from "../../client/src/save/serialize.js";
 
 const T0 = 1_700_000_000_000;
 const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -117,23 +114,11 @@ test("SELL_LLAMA refuses a locked llama before it pays anything; Sell All still 
   assert.deepEqual(farmSellableStalls(barnSave(LAYOUT, [1, 4]).farm.stalls), [3, 5]);
 });
 
-test("the server refuses a save that sold a locked llama, like other illegal farm changes", () => {
+test("the server does not police locks: a save that sold a locked llama, or unlocked and sold in one save, is accepted", () => {
   const prev = barnSave(LAYOUT, [1]);
-  const result = save(prev, sold(prev, 1));
-  assert.equal(result.ok, false);
-  assert.equal(result.rule, "MONOTONIC");
-  assert.match(result.detail, /sold a locked classic llama/);
-  // Moved first (the lock goes with it), then sold: still refused.
-  const moved = { ...prev, farm: moveFarmLlama(prev.farm, 1, 2) };
-  assert.equal(moved.farm.stalls[2].locked, true);
-  assert.equal(save(prev, sold(moved, 2)).ok, false);
-  // An unlocked Classic twin (stall 3) does not hide it: types look
-  // alike, so the check is on the locked count, which dropped.
-  assert.equal(prev.farm.stalls[3].llama, "classic");
-  // Known limit: an unlock and a sale in ONE save read the same, so
-  // that is refused too (normally the unlock saves on its own first).
+  assert.equal(save(prev, sold(prev, 1)).ok, true);
   const unlockedAndSold = sold({ ...prev, farm: toggleFarmLlamaLock(prev.farm, 1) }, 1);
-  assert.equal(save(prev, unlockedAndSold).ok, false);
+  assert.equal(save(prev, unlockedAndSold).ok, true);
 });
 
 test("the server still accepts the legal paths: unlock then sell, an unlocked twin, moves, Sell All", () => {
@@ -163,80 +148,6 @@ test("the chip's Sell button is disabled for a locked llama and says to unlock i
   assert.match(chip, /selectedLocked \? \(\s*"Unlock to sell"/);
   assert.match(chip, /`Unlock this \$\{LLAMA_TYPE_NAMES\[selectedLlama\]\} to sell it`/);
   assert.match(chip, /Locked: unlock it to sell it\. Sell All skips it\./);
-});
-
-async function startTestServer() {
-  const db = newDb();
-  const { Pool } = db.adapters.createPg();
-  const pool = new Pool();
-  const store = createStore(pool);
-  await store.ensureSchema();
-  let nowMs = T0;
-  const server = createServer(store, { clock: () => nowMs });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-  return {
-    base: `http://127.0.0.1:${port}`,
-    pool,
-    advance: (ms) => {
-      nowMs += ms;
-    },
-    stop: async () => {
-      await new Promise((resolve) => server.close(resolve));
-      await store.close();
-    },
-  };
-}
-
-async function post(base, path, body) {
-  return fetch(`${base}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-test("end to end: selling a locked llama gets a 409, and unlocking first then selling saves", async () => {
-  const srv = await startTestServer();
-  try {
-    const minted = await post(srv.base, "/api/player", {});
-    assert.equal(minted.status, 201);
-    const { playerId } = await minted.json();
-    const stored = barnSave(LAYOUT, [1]);
-    await srv.pool.query(`UPDATE git_saves SET state = $1 WHERE player_id = $2`, [JSON.stringify(stored), playerId]);
-    const loaded = await (await fetch(`${srv.base}/api/load?playerId=${playerId}`)).json();
-    const client = { ...loaded.state, ...saveStateToGameFields(loaded.state) };
-    assert.equal(client.farm.stalls[1].locked, true);
-
-    srv.advance(60_000);
-    const refused = await post(srv.base, "/api/save", {
-      playerId,
-      state: stateToSaveState(sold(client, 1)),
-      actionsSinceLastSave: zeroActions(),
-    });
-    assert.equal(refused.status, 409);
-    const body = await refused.json();
-    assert.equal(body.rule, "MONOTONIC");
-    assert.match(body.detail, /locked/);
-
-    const unlocked = { ...client, farm: toggleFarmLlamaLock(client.farm, 1) };
-    srv.advance(60_000);
-    const ok1 = await post(srv.base, "/api/save", {
-      playerId,
-      state: stateToSaveState(unlocked),
-      actionsSinceLastSave: zeroActions(),
-    });
-    assert.equal(ok1.status, 200, await ok1.clone().text());
-    srv.advance(60_000);
-    const ok2 = await post(srv.base, "/api/save", {
-      playerId,
-      state: stateToSaveState(sold(unlocked, 1)),
-      actionsSinceLastSave: zeroActions(),
-    });
-    assert.equal(ok2.status, 200, await ok2.clone().text());
-  } finally {
-    await srv.stop();
-  }
 });
 
 // --- 2. Mamas are never bred ---
