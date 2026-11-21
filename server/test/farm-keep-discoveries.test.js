@@ -75,7 +75,7 @@ test("a sale with discovered types keeps unlockedTypes while barn, stalls, llama
   assert.equal(post.farm.owned, false);
   assert.equal(post.farm.stalls.length, FARM_CONFIG.stallCount);
   for (const stall of post.farm.stalls) {
-    assert.deepEqual(stall, { llama: null, lighting: "warm" });
+    assert.deepEqual(stall, { llama: null, lighting: "warm", locked: false });
   }
   assert.equal(post.farm.unseenBirths, 0);
   // Everything but the types is exactly the old reset.
@@ -89,12 +89,13 @@ test("a sale with no discoveries behaves exactly as before", () => {
   pre.totalLinesOfCode = equityThresholdLoc(2);
   pre.farm = { ...initialFarmState() };
   const post = applyPrestigeSale(pre, randomUUID());
-  // The literal pre-#237 reset.
+  // The literal pre-#237 reset (plus #240's unlocked stalls).
   assert.deepEqual(post.farm, {
     owned: false,
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
+      locked: false,
     })),
     unlockedTypes: [],
     unseenBirths: 0,

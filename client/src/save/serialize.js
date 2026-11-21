@@ -127,13 +127,15 @@ export function stateToSaveState(clientState) {
     unlockedCosmetics: [...(clientState.unlockedCosmetics ?? [])],
     equippedCosmetics: { ...(clientState.equippedCosmetics ?? {}) },
     // Llama farm (issue #79). Owned, stalls (llama + lighting per
-    // stall), and the unlocked types. Copied per stall so the save
-    // never shares a reference with the live state.
+    // stall, plus the llama's lock, issue #240), and the unlocked
+    // types. Copied per stall so the save never shares a reference
+    // with the live state.
     farm: {
       owned: clientState.farm?.owned ?? false,
       stalls: (clientState.farm?.stalls ?? []).map((stall) => ({
         llama: stall.llama ?? null,
         lighting: stall.lighting ?? "warm",
+        locked: Boolean(stall.llama) && stall.locked === true,
       })),
       unlockedTypes: [...(clientState.farm?.unlockedTypes ?? [])],
       // Issue #204: the Farm tab badge count.
@@ -327,14 +329,18 @@ export function saveStateToGameFields(saveState) {
           stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
             llama: null,
             lighting: "warm",
+            locked: false,
           })),
           unlockedTypes: [],
           unseenBirths: 0,
         };
       }
+      // Issue #240: a save from before the lock loads every llama
+      // unlocked; an empty stall is never locked.
       const stalls = (farm.stalls ?? []).map((stall) => ({
         llama: stall?.llama ?? null,
         lighting: stall?.lighting ?? "warm",
+        locked: Boolean(stall?.llama) && stall?.locked === true,
       }));
       const unlockedTypes = Array.isArray(farm.unlockedTypes)
         ? [...farm.unlockedTypes]
@@ -456,6 +462,11 @@ export function bigActionFields(saveState) {
     // player actions (a sale moves money), so they save promptly.
     farmLayout: JSON.stringify(
       (saveState.farm?.stalls ?? []).map((stall) => stall.llama ?? null)
+    ),
+    // Issue #240: locking or unlocking a llama is a deliberate player
+    // action (it decides what Sell All sells), so it saves promptly.
+    farmLocks: JSON.stringify(
+      (saveState.farm?.stalls ?? []).map((stall) => stall.locked === true)
     ),
     // Release Manager assignments: changing an assignment is a
     // deliberate player choice (like an equip), so it saves promptly.
@@ -654,6 +665,7 @@ export function bigActionIncreased(prev, next) {
     return true;
   if ((next.farmLighting ?? "") !== (prev.farmLighting ?? "")) return true;
   if ((next.farmLayout ?? "") !== (prev.farmLayout ?? "")) return true;
+  if ((next.farmLocks ?? "") !== (prev.farmLocks ?? "")) return true;
   // Release Manager assignments: any change (one project's count) is
   // a big action, like an equip.
   if (

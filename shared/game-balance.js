@@ -1854,7 +1854,9 @@ export function llamaSellPriceCents(type, buffedLocPerSec) {
 
 /**
  * Move a llama from one stall to an EMPTY stall (pure). The lighting
- * stays with the stall (it is the stall's mood, not the llama's).
+ * stays with the stall (it is the stall's mood, not the llama's). The
+ * lock (issue #240) goes with the llama: a locked llama is still locked
+ * in its new stall, and the stall it left is unlocked.
  * Returns the new farm, or null when the move is not allowed: farm
  * not owned, bad indices, the same stall, no llama in `from`, or
  * `to` occupied.
@@ -1870,11 +1872,65 @@ export function moveFarmLlama(farm, fromIndex, toIndex) {
   const to = farm.stalls[toIndex];
   if (!from?.llama || !to || to.llama !== null) return null;
   const stalls = farm.stalls.map((stall, i) => {
-    if (i === fromIndex) return { ...stall, llama: null };
-    if (i === toIndex) return { ...stall, llama: from.llama };
+    if (i === fromIndex) return { ...stall, llama: null, locked: false };
+    if (i === toIndex) {
+      return { ...stall, llama: from.llama, locked: from.locked === true };
+    }
     return { ...stall };
   });
   return { ...farm, stalls };
+}
+
+/**
+ * Lock or unlock the llama in a stall (issue #240, pure). A locked
+ * llama is protected: Sell All never sells it. The lock belongs to the
+ * llama (moveFarmLlama carries it), so an empty stall cannot be locked.
+ * Returns the new farm, or null when there is nothing to toggle: farm
+ * not owned, a bad index, or an empty stall.
+ */
+export function toggleFarmLlamaLock(farm, stallIndex) {
+  if (!farm?.owned || !Array.isArray(farm.stalls)) return null;
+  if (
+    !Number.isInteger(stallIndex) ||
+    stallIndex < 0 ||
+    stallIndex >= FARM_CONFIG.stallCount
+  ) {
+    return null;
+  }
+  if (!farm.stalls[stallIndex]?.llama) return null;
+  const stalls = farm.stalls.map((stall, i) =>
+    i === stallIndex ? { ...stall, locked: stall.locked !== true } : stall
+  );
+  return { ...farm, stalls };
+}
+
+/**
+ * The stalls Sell All sells (issue #240): every stall holding a llama
+ * that is not locked, in stall order. Empty and locked stalls are
+ * skipped. Anything that is not an array has none.
+ */
+export function farmSellableStalls(stalls) {
+  if (!Array.isArray(stalls)) return [];
+  const indices = [];
+  stalls.forEach((stall, index) => {
+    if (stall?.llama && stall.locked !== true) indices.push(index);
+  });
+  return indices;
+}
+
+/**
+ * What Sell All will do right now (issue #240): how many llamas it
+ * sells and the total, in whole cents. Each llama is priced by the
+ * same llamaSellPriceCents the single Sell uses, at the same buffed
+ * LOC/s, so the button's total is the sum of the single prices.
+ */
+export function farmSellAllPreview(stalls, buffedLocPerSec) {
+  const indices = farmSellableStalls(stalls);
+  let totalCents = 0;
+  for (const index of indices) {
+    totalCents += llamaSellPriceCents(stalls[index].llama, buffedLocPerSec);
+  }
+  return { count: indices.length, totalCents };
 }
 
 /**
@@ -2001,6 +2057,7 @@ export function emptyFarmState(keptTypes = []) {
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
+      locked: false,
     })),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     // Issue #204: llamas born since the player last opened the Farm tab.
@@ -2022,6 +2079,7 @@ export function initialFarmState(keptTypes = []) {
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
+      locked: false,
     })),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     unseenBirths: 0,
@@ -6202,14 +6260,24 @@ export function normalizeSaveState(state) {
     } else {
       farm.stalls = farm.stalls.map((stall) => {
         if (!stall || typeof stall !== "object" || Array.isArray(stall)) {
-          return { llama: null, lighting: "warm" };
+          return { llama: null, lighting: "warm", locked: false };
         }
-        // Rebuilt from llama and lighting only, so a `sellCents` key
-        // written by the stored-value build (issue #244) is dropped:
+        // Rebuilt from llama, lighting and locked only, so a `sellCents`
+        // key written by the stored-value build (issue #244) is dropped:
         // sell prices float again and nothing is stored on a stall.
+        // Issue #240: a save from before the lock has no `locked`, so
+        // every llama loads unlocked. The lock belongs to the llama, so
+        // an empty stall is never locked.
+        const llama = stall.llama === undefined ? null : stall.llama;
         return {
-          llama: stall.llama === undefined ? null : stall.llama,
+          llama,
           lighting: stall.lighting === undefined ? "warm" : stall.lighting,
+          locked:
+            llama === null
+              ? false
+              : stall.locked === undefined
+                ? false
+                : stall.locked,
         };
       });
     }

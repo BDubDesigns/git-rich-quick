@@ -709,8 +709,10 @@ function gameReducer(state, action) {
       if (!type) return state;
       const value = shared.llamaSellPriceCents(type, getBaseLocPerSecond(state));
       if (!Number.isFinite(value) || value < 0) return state;
+      // The stall empties, so its lock goes too (issue #240: the lock
+      // belongs to the llama).
       const stalls = farm.stalls.map((entry, i) =>
-        i === stallIndex ? { ...entry, llama: null } : entry
+        i === stallIndex ? { ...entry, llama: null, locked: false } : entry
       );
       return {
         ...state,
@@ -718,6 +720,36 @@ function gameReducer(state, action) {
         farm: { ...farm, stalls },
         achievements: shared.recordLlamaSold(state.achievements, type, 1),
       };
+    }
+
+    // Sell All (issue #240): sell every llama that is not locked, in
+    // one action. Each sale IS a SELL_LLAMA, run through this reducer,
+    // so it pays the same floating price (llamaSellPriceCents at the
+    // buffed LOC/s), empties the stall the same way and records the
+    // sale the same way (the server's MONOTONIC check sees N recorded
+    // sales for N llamas gone). There is no second price path. Locked
+    // and empty stalls are skipped (shared.farmSellableStalls), so a
+    // locked llama is never sold here. Nothing sellable: no change.
+    case "SELL_UNLOCKED_LLAMAS": {
+      const farm = state.farm ?? shared.emptyFarmState();
+      if (!farm.owned) return state;
+      let next = state;
+      for (const stallIndex of shared.farmSellableStalls(farm.stalls)) {
+        next = gameReducer(next, { type: "SELL_LLAMA", payload: { stallIndex } });
+      }
+      return next;
+    }
+
+    // Lock or unlock the llama in a stall (issue #240). Payload:
+    // { stallIndex }. A locked llama is skipped by Sell All; the lock
+    // moves with the llama (shared.moveFarmLlama). Selling it on its
+    // own still works. An empty stall, an unowned farm, or a bad index
+    // is ignored. The lock is a big-action save trigger (serialize.js).
+    case "TOGGLE_LLAMA_LOCK": {
+      const { stallIndex } = action.payload ?? {};
+      const toggled = shared.toggleFarmLlamaLock(state.farm, stallIndex);
+      if (!toggled) return state;
+      return { ...state, farm: toggled };
     }
 
     // Move a llama to an EMPTY stall (issue #129). Payload:
