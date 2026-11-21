@@ -91,3 +91,117 @@
   display: flex; /* SVGs are inline-block; flex helps with alignment */
   flex-shrink: 0; /* Prevent SVG from squishing */
 }
+
+/* ------------------------------------------------------------------
+   Skins (issue #212, Slice A of #210). LOOK ONLY: nothing below
+   animates, moves, resizes the type or changes when a float lives or
+   dies. Every value is static, so the rise and fade above are still
+   the only motion (transform and opacity, on the compositor).
+   ------------------------------------------------------------------ */
+
+/* A1. The click float (and the Contribute and passive floats, the same
+   default variant): "the diff chip", one added line in a diff. The
+   gutter is an inset shadow, not an extra element. Shape, padding
+   (px-3 py-1), text-2xl and the icon are unchanged. */
+.diff-chip {
+  background: linear-gradient(180deg, rgba(16, 28, 20, 0.92), rgba(8, 16, 11, 0.92));
+  border: 1px solid rgba(74, 222, 128, 0.55);
+  color: #4ade80;
+  text-shadow: 0 0 6px rgba(74, 222, 128, 0.45);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 3px 0 0 rgba(74, 222, 128, 0.8);
+  font-family: "Cascadia Code", monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* A2. The star claim label: "the CI badge". A title row (prefix chip,
+   the effect name, the star icon) over the detail. The kind classes
+   (utils/starBadge.js) set the palette; the shape is shared. */
+.ci-badge {
+  --ci-bg: rgba(22, 18, 6, 0.95);
+  --ci-border: rgba(255, 215, 0, 0.75);
+  --ci-chip-bg: rgba(255, 215, 0, 0.25);
+  --ci-name: #ffd700;
+  --ci-glow: 0 0 18px rgba(255, 215, 0, 0.25);
+  background: var(--ci-bg);
+  border: 1px solid var(--ci-border);
+  padding: 6px 12px;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.6),
+    var(--ci-glow);
+  color: #f5f5f5;
+  /* The top-edge nudge (issue #212): 0 unless a star at the very top of
+     the screen would end its rise with the badge's top off screen (set
+     by useStarLabelNudge). Static, set once before the first paint. */
+  margin-top: var(--star-nudge-y, 0px);
+}
+
+/* Gold star: PASS. */
+.ci-badge--pass {
+  --ci-bg: rgba(22, 18, 6, 0.95);
+}
+
+/* Red star crash: FAIL. */
+.ci-badge--fail {
+  --ci-bg: rgba(26, 8, 8, 0.95);
+  --ci-border: rgba(255, 77, 77, 0.75);
+  --ci-chip-bg: rgba(255, 77, 77, 0.25);
+  --ci-name: #ff6b6b;
+  --ci-glow: 0 0 18px rgba(255, 77, 77, 0.25);
+}
+
+/* To the Moon: the jackpot, red into gold. */
+.ci-badge--moon {
+  --ci-bg: linear-gradient(90deg, rgba(40, 10, 10, 0.96), rgba(40, 32, 6, 0.96));
+  --ci-border: rgba(255, 215, 0, 0.9);
+  --ci-chip-bg: rgba(255, 215, 0, 0.25);
+  --ci-glow: 0 0 22px rgba(255, 140, 0, 0.45);
+}
+
+/* Shooting Stars chain step: the gold palette, the step's multiple in
+   the chip. */
+.ci-badge--chain {
+  --ci-bg: rgba(22, 18, 6, 0.95);
+}
+
+.ci-badge-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ci-badge-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ci-badge-chip {
+  font-family: "Cascadia Code", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--ci-chip-bg);
+  color: var(--ci-name);
+}
+
+.ci-badge-name {
+  color: var(--ci-name);
+  font-weight: 700;
+}
+
+/* text-lg (18px), semibold, the body line under the name. */
+.ci-badge-detail {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  color: #f5f5f5;
+}

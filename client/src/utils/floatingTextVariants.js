@@ -39,8 +39,12 @@ export const FLOATING_TEXT_VARIANTS = Object.freeze({
     zIndex: 60,
     /** Single line. */
     wrap: false,
-    /** The pill background (issue #49). */
-    pillClass: "bg-black/60",
+    /**
+     * The pill skin: the diff chip (issue #212, FloatingText.css), a
+     * near-opaque dark green pill with a green gutter, over the issue
+     * #49 dark background. Padding unchanged (px-3 py-1).
+     */
+    pillClass: "diff-chip px-3 py-1",
   }),
   star: Object.freeze({
     animationClass: "animate-float-star",
@@ -52,10 +56,12 @@ export const FLOATING_TEXT_VARIANTS = Object.freeze({
     /** Long labels ("Sprint! Senior Developer x12 for 60s") wrap. */
     wrap: true,
     /**
-     * Near-opaque pill: the label floats over card copy and code
-     * comments, and at 60% the text behind it bled through in play.
+     * The CI badge skin (issue #212, FloatingText.css): a near-opaque
+     * badge (the label floats over card copy and code comments, and at
+     * 60% the text behind it bled through in play), colored by the
+     * claim's kind (utils/starBadge.js). Padding 6px 12px in the skin.
      */
-    pillClass: "bg-black/90",
+    pillClass: "ci-badge",
   }),
 });
 

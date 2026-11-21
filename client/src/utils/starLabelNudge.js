@@ -31,3 +31,19 @@ export function starLabelNudgeX(left, right, viewportWidth, margin = STAR_LABEL_
   if (right > maxRight) return maxRight - right;
   return 0;
 }
+
+/**
+ * The downward shift (px, never negative) that keeps the star label's
+ * top edge `margin` inside the top of the screen at the END of its rise
+ * (issue #212). `top` is the rendered pill's top edge as spawned
+ * (centered on the tap, before the rise) and `rise` the px it will rise
+ * (--float-rise). A star near the top of the screen otherwise put the
+ * top of the pill above the screen: the rise is already shortened there,
+ * but the pill is centered on the star's top edge, so half its height
+ * hung over. The CI badge is two lines tall, which made that worse. 0
+ * whenever the pill ends on screen, so mid-screen labels are untouched.
+ */
+export function starLabelNudgeY(top, rise, margin = STAR_LABEL_EDGE_MARGIN_PX) {
+  if (![top, rise].every(Number.isFinite)) return 0;
+  return Math.max(0, margin - (top - Math.max(0, rise)));
+}
