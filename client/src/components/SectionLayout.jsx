@@ -50,9 +50,11 @@ export function SectionLayout({ sectionId, children }) {
         isDescriptionVisible={isDescriptionVisible}
         onToggle={handleToggleDescription}
       />
+      {/* The editor surface (issue #231): the panel color, so the
+          title bar's active tab joins it with no edge between them. */}
       <ScrollAffordanceFrame
-        className="flex-1 min-h-0"
-        scrollerClassName="h-full overflow-y-auto"
+        className="pane-surface flex-1 min-h-0 bg-[var(--panel-background-color)] border-x border-b border-[var(--title-bar-color)]"
+        scrollerClassName="h-full overflow-y-auto p-2"
       >
         {isDescriptionVisible && (
           <CodeComment>{sectionConfig.description}</CodeComment>

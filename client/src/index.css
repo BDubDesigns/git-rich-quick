@@ -331,6 +331,46 @@ body {
   }
 }
 
+/* Title bar tabs (issue #231): the pinned-pane flash (a nav tap on a
+   section already in a side pane) lights the tab, not an outline
+   around the strip. The accent line thickens (an inset shadow over the
+   1px top border, so nothing moves) and the tab washes accent blue,
+   fading back over the same 1.6s. Reduced motion: a steady tint and
+   the thick line for the 1.6s. */
+.pane-bar.highlight-flash {
+  animation: none;
+  outline: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.pane-bar.highlight-flash .pane-tab {
+  animation: grq-tab-flash 1.6s ease-out 1 both;
+}
+
+@keyframes grq-tab-flash {
+  0%,
+  30% {
+    background-color: color-mix(in srgb, #0078d4 38%, var(--panel-background-color));
+    box-shadow: inset 0 3px 0 #0078d4;
+  }
+  100% {
+    background-color: var(--panel-background-color);
+    box-shadow: inset 0 3px 0 rgba(0, 120, 212, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-bar.highlight-flash {
+    outline: none;
+  }
+  .pane-bar.highlight-flash .pane-tab {
+    animation: none;
+    background-color: color-mix(in srgb, #0078d4 38%, var(--panel-background-color));
+    box-shadow: inset 0 3px 0 #0078d4;
+  }
+}
+
 /* Hype Train (issue #157): while freelance payouts are doubled, the
    shippable project cards glow green (the money) and sparkle (the
    hype). The glow is a pulsing box shadow; the sparkles are a layer of
