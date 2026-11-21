@@ -1758,19 +1758,18 @@ export const LLAMA_ECONOMY = Object.freeze({
   /**
    * THE SELL-PRICE TUNING KNOB. What a llama of each type sells for, in
    * seconds of S at the player's CURRENT production. Bought and born
-   * llamas of one type share this price. Seeded from the flat kid
-   * produce ladder (revision 2 on issue #200): rare llamas are worth
-   * several common ones, and every type sells well below its buy price
-   * (typeSeconds) so buying to resell never pays. Retune here only.
+   * llamas of one type share this price. Brandon, Nov 21, 2026: a llama
+   * sells for one fifth of its buy price, so each entry is typeSeconds / 5
+   * (a test pins that ratio). Retune here only.
    */
   sellSeconds: Object.freeze({
-    mama: 1,
-    classic: 1.5,
-    drama: 2,
-    spaghetti: 3,
-    quantum: 4,
-    blockchain: 5,
-    ai: 6,
+    mama: 4,
+    classic: 6,
+    drama: 8,
+    spaghetti: 16,
+    quantum: 24,
+    blockchain: 40,
+    ai: 60,
   }),
   /** Kid chance multiplier for a stall beside a Mama Llama. */
   mamaKidChanceMultiplier: 3,
