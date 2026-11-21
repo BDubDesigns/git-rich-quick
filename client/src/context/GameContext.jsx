@@ -10,6 +10,7 @@ import {
 // framework-free; the provider owns it because it owns the reducer state
 // the engine reads and restores.
 import { serverNowMs } from "../save/serverClock.js";
+import { birthRecord } from "../utils/llamaBirths.js";
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
 // Tap-latency diagnostics (PR #101): the instrument that records slow
@@ -64,7 +65,6 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
-import { birthRecord } from "../utils/llamaBirths.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -1419,6 +1419,8 @@ function gameReducer(state, action) {
       return {
         ...state,
         ...saveStateToGameFields(saveState),
+        // Llama births (issue #218): a restore never pops or bumps.
+        lastBirths: null,
         clickHistory: [],
         currentCPS: 0,
         // Transient email UI state is reset on restore: the selected /
@@ -1429,8 +1431,6 @@ function gameReducer(state, action) {
         // The numbers react (issue #214): a load or restore is never a
         // gain, and clears any pending one.
         statGain: null,
-        // Llama births (issue #218): a restore never pops or bumps.
-        lastBirths: null,
       };
     }
 
