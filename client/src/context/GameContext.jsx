@@ -64,6 +64,7 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
+import { nextAutoShipPulse } from "../utils/shipFeel.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -953,6 +954,9 @@ function gameReducer(state, action) {
         money: shipMoney,
         freelanceProjectsCompleted: shipCompleted,
         autoShipsCompleted: shipAuto,
+        // Issue #219: a tick that auto-shipped pulses the shipping
+        // strip's Cash readout (no chip). Transient, never saved.
+        autoShipPulse: nextAutoShipPulse(state.autoShipPulse, autoShipCount, Date.now()),
         achievements: recordHypeShips(state, autoShipCount, autoShipCash),
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
@@ -1422,6 +1426,8 @@ function gameReducer(state, action) {
         // The numbers react (issue #214): a load or restore is never a
         // gain, and clears any pending one.
         statGain: null,
+        // Shipped (issue #219): a restore never pulses the Cash readout.
+        autoShipPulse: null,
       };
     }
 

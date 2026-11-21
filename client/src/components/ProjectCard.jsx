@@ -12,6 +12,7 @@ import { JsDocBlock, JsDocLine } from "./JsDocBlock.jsx";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
 import { ProjectRateLine } from "./ProjectRateLine.jsx";
+import "./ShipChip.css";
 import {
   CLEAR_COUNT,
   assignAllAriaLabel,
@@ -146,12 +147,15 @@ export function ProjectCard({
           <div className="text-xs text-gray-400">
             x{formatNumber(completionCount)}
           </div>
+          {/* Issue #219: a manual ship is an event, so its float wears
+              the cash chip (ShipChip.css, scoped by ship-action). */}
           <ActionButton
             onClick={onComplete}
             disabled={!canComplete}
             floatText={`+${payoutText}`}
             icon={<HiOutlineBanknotes size={20} />}
             fullWidth={false}
+            className="ship-action"
           >
             <div>Ship!</div>
             <div>({formatNumber(project.loc)} LOC)</div>

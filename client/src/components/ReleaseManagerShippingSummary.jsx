@@ -2,6 +2,8 @@ import { useGameContext } from "../context/useGameContext";
 import { getReleaseManagerEconomics } from "../context/gameLogic";
 import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
+import { useCashPulse } from "../hooks/useCashPulse.js";
+import "./StatBump.css";
 
 /**
  * Release Manager shipping summary (issue #163), under the Release
@@ -15,6 +17,9 @@ import { Panel } from "./Panel.jsx";
  */
 export function ReleaseManagerShippingSummary() {
   const { state } = useGameContext();
+  // Issue #219: auto-ships are a stream, so no floating chip; the Cash
+  // readout bumps (Slice 2 style, gold) at most once a second instead.
+  const cashPulse = useCashPulse(state.autoShipPulse);
   const owned = state.employees.releaseManager?.count ?? 0;
   if (owned <= 0) return null;
 
@@ -45,7 +50,11 @@ export function ReleaseManagerShippingSummary() {
         </span>
         <span>
           Cash:{" "}
-          <span className="text-green-400">
+          <span
+            key={cashPulse}
+            className={`text-green-400${cashPulse ? " stat-value stat-bump stat-bump--money" : ""}`}
+            data-value={`+${formatMoney(econ.cashPerSecond)}`}
+          >
             +{formatMoney(econ.cashPerSecond)}
           </span>
           /s
