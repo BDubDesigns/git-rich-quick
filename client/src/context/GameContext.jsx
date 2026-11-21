@@ -61,6 +61,7 @@ import {
   navigateToTarget,
 } from "../navigation/highlight.js";
 import { GameContext } from "./gameContext.js";
+import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
 
 // Initial state of the game
 // All monetary values are in CENTS to avoid floating-point errors
@@ -285,6 +286,13 @@ function recordHypeShips(state, ships, cashCents) {
 }
 
 function gameReducer(state, action) {
+  // Store-only intermission (issue #188): while the post-sale
+  // intermission is open, every game action is inert (no tick, click,
+  // hire, ship, contribute or buy). Only adopting a server state and
+  // pure view preferences run. See context/intermissionGate.js.
+  if (isActionBlockedDuringIntermission(state, action)) {
+    return state;
+  }
   switch (action.type) {
     // Player changes active tab (shop, projects, or openSource)
     case "SET_ACTIVE_TAB": {
@@ -1867,10 +1875,16 @@ export function GameProvider({ children }) {
   // (it unconditionally adds LOC), so counting it here is exact; hires,
   // projects, and open-source levels are derived from state deltas by the
   // engine instead, so a reducer-rejected action is never counted.
+  // A click the reducer refuses during the intermission (issue #188)
+  // is not counted either: the gate reads the same latest state.
   const trackedDispatch = useCallback(
     (action) => {
+      const blocked = isActionBlockedDuringIntermission(
+        stateRef.current,
+        action
+      );
       dispatch(action);
-      if (action.type === "WRITE_CODE") {
+      if (action.type === "WRITE_CODE" && !blocked) {
         saveSyncRef.current.recordClick();
       }
     },

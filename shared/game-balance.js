@@ -3849,6 +3849,77 @@ export function completePrestigeIntermission(state) {
 }
 
 /**
+ * The intermission is store-only (issue #188, Brandon Nov 19: "It
+ * should bring up the store to spend stuff on and nothing else"). These
+ * are the company-progress fields that cannot move while the post-sale
+ * intermission is open: the production, the bank, the company itself
+ * (employees, levels, unlocks, the farm), the star timers and buffs,
+ * and the lifetime records an intermission click or tick would feed
+ * (lifetime LOC, achievements, cosmetics). The client makes all of
+ * this inert; the server pins it (pinIntermissionProgress), so a
+ * modified client's intermission accrual never reaches the store, the
+ * stored state, or the next company.
+ *
+ * Not pinned: the Equity books, store ranks and the intermission
+ * itself (only the sale, store-buy and complete endpoints move them,
+ * and validateSave already rejects anything else), and the
+ * presentation fields (emails, favorites, equipped cosmetics, the
+ * overtime reskin), which are not progress.
+ */
+export const INTERMISSION_FROZEN_FIELDS = Object.freeze([
+  "linesOfCode",
+  "totalLinesOfCode",
+  "money",
+  "employees",
+  "aiAssistants",
+  "freelanceProjectsCompleted",
+  "releaseManagerAssignments",
+  "autoShipsCompleted",
+  "openSourceProjects",
+  "unlockedEmployees",
+  "unlockedOpenSourceProjects",
+  "unlockedFreelanceProjects",
+  "activeStarEffects",
+  "farm",
+  "subtracterall",
+  "nightShiftLevel",
+  "nextStarAtMs",
+  "lastStarBuyAtMs",
+  "achievements",
+  "unlockedCosmetics",
+]);
+
+/** Whether a state has the post-sale intermission open. */
+export function intermissionOpen(state) {
+  const intermission = state?.prestigeIntermission ?? null;
+  return (
+    intermission !== null &&
+    typeof intermission === "object" &&
+    !Array.isArray(intermission)
+  );
+}
+
+/**
+ * Pin the company-progress fields of `sentState` to `storedState`'s
+ * while the STORED state has the intermission open (issue #188): the
+ * result is the sent state with every INTERMISSION_FROZEN_FIELDS entry
+ * replaced by the stored value. With no open intermission it returns
+ * `sentState` unchanged. Pure; the caller has already validated the
+ * sent state as an ordinary successor, so pinning only ever discards
+ * intermission accrual, never a field the endpoints own.
+ */
+export function pinIntermissionProgress(storedState, sentState) {
+  if (!intermissionOpen(storedState)) return sentState;
+  const pinned = { ...sentState };
+  for (const field of INTERMISSION_FROZEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(storedState, field)) {
+      pinned[field] = structuredClone(storedState[field]);
+    }
+  }
+  return pinned;
+}
+
+/**
  * The store purchase estimate for an unaffordable card (Slice 2):
  * how long to earn the Equity shortfall at a production rate. `c`
  * is the shortfall in Equity (price minus available Equity); the
