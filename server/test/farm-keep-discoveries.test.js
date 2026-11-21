@@ -74,8 +74,14 @@ test("a sale with discovered types keeps unlockedTypes while barn, stalls, llama
   assert.deepEqual(post.farm.unlockedTypes, ["classic", "drama", "spaghetti", "quantum"]);
   assert.equal(post.farm.owned, false);
   assert.equal(post.farm.stalls.length, FARM_CONFIG.stallCount);
-  for (const stall of post.farm.stalls) {
-    assert.deepEqual(stall, { llama: null, lighting: "warm", locked: false });
+  for (const [i, stall] of post.farm.stalls.entries()) {
+    assert.deepEqual(stall, {
+      llama: null,
+      lighting: "warm",
+      locked: false,
+      // Issue #241: the corners close again with the rest of the farm.
+      open: FARM_CONFIG.starterStalls.includes(i),
+    });
   }
   assert.equal(post.farm.unseenBirths, 0);
   // Everything but the types is exactly the old reset.
@@ -92,10 +98,11 @@ test("a sale with no discoveries behaves exactly as before", () => {
   // The literal pre-#237 reset (plus #240's unlocked stalls).
   assert.deepEqual(post.farm, {
     owned: false,
-    stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, (_, i) => ({
       llama: null,
       lighting: "warm",
       locked: false,
+      open: FARM_CONFIG.starterStalls.includes(i),
     })),
     unlockedTypes: [],
     unseenBirths: 0,
@@ -166,12 +173,12 @@ test("the shop offers the persisted types after the barn is re-bought", () => {
   const bought = applyLlamaBuy({
     farm,
     money: 1e15,
-    stallIndex: 0,
+    stallIndex: 1,
     type: "quantum",
     buffedLocPerSec: 100,
   });
   assert.ok(bought);
-  assert.equal(bought.farm.stalls[0].llama, "quantum");
+  assert.equal(bought.farm.stalls[1].llama, "quantum");
   // Without the fix (a fresh barn) the shop is back to the base types.
   assert.deepEqual(llamaShopTypes(initialFarmState().unlockedTypes), [...LLAMA_BASE_TYPES]);
 });
@@ -206,7 +213,7 @@ test("shape check: an unbought farm may hold types after a sale, never before on
     detail: "farm has unlocked types but is not owned",
   });
   // An unbought farm with llamas is still malformed after a sale.
-  const stalls = post.farm.stalls.map((stall, i) => (i === 0 ? { ...stall, llama: "quantum" } : stall));
+  const stalls = post.farm.stalls.map((stall, i) => (i === 4 ? { ...stall, llama: "quantum" } : stall));
   assert.deepEqual(validateSeedState({ ...post, farm: { ...post.farm, stalls } }), {
     ok: false,
     detail: "farm has llamas but is not owned",

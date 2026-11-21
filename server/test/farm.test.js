@@ -336,7 +336,7 @@ test("buying the farm and two llamas in one window is accepted", () => {
   // llamas.
   const before = stateWith({ money: 2000000, farm: emptyFarmState() });
   let farm = initialFarmState();
-  farm = withStall(farm, 0, { llama: "classic" });
+  farm = withStall(farm, 1, { llama: "classic" });
   farm = withStall(farm, 4, { llama: "drama" });
   farm.unlockedTypes = ["classic", "drama"];
   const after = stateWith({
@@ -357,7 +357,7 @@ test("buying the farm and two llamas in one window is accepted", () => {
 test("buying the farm with a non-base llama is accepted (leaderboard killed: llama types are trusted)", () => {
   const before = stateWith({ money: 2000000, farm: emptyFarmState() });
   let farm = initialFarmState();
-  farm = withStall(farm, 0, { llama: "quantum" });
+  farm = withStall(farm, 1, { llama: "quantum" });
   farm.unlockedTypes = ["quantum"];
   const after = stateWith({
     money:
@@ -396,7 +396,7 @@ test("buying the farm while claiming an unlocked type with no llama is accepted 
 
 test("buying a base llama deducts the price and places it", () => {
   const before = emptyOwnedFarmState(100000);
-  const farm = withStall(before.farm, 0, { llama: "classic" });
+  const farm = withStall(before.farm, 1, { llama: "classic" });
   farm.unlockedTypes = ["classic"];
   const after = stateWith({
     money: 100000 - llamaBuyPriceCents("classic", 0),
@@ -414,7 +414,7 @@ test("buying a llama without enough money is accepted (leaderboard killed: money
   // 10000c is less than the 50000c llama price, and the new money does
   // not deduct it — the server stores the llama anyway now.
   const before = emptyOwnedFarmState(10000);
-  const farm = withStall(before.farm, 0, { llama: "classic" });
+  const farm = withStall(before.farm, 1, { llama: "classic" });
   farm.unlockedTypes = ["classic"];
   const after = stateWith({ money: 10000, farm });
   const result = validateSave(
@@ -430,7 +430,7 @@ test("buying a non-base llama is accepted (leaderboard killed: llama types are t
   // "bought" (not bred, no issued outcome) was tampered, not purchased.
   // The server stores it now.
   const before = emptyOwnedFarmState(100000);
-  const farm = withStall(before.farm, 0, { llama: "quantum" });
+  const farm = withStall(before.farm, 1, { llama: "quantum" });
   farm.unlockedTypes = ["quantum"];
   const after = stateWith({
     money: 100000 - llamaBuyPriceCents("classic", 0),

@@ -13,6 +13,7 @@
  */
 import {
   FARM_CONFIG,
+  farmStallIsOpen,
   llamaBuyPriceCents,
   llamaShopTypes,
 } from "../../../shared/game-balance.js";
@@ -33,7 +34,8 @@ export function applyLlamaBuy({ farm, money, stallIndex, type, buffedLocPerSec }
     return null;
   }
   const stall = farm.stalls?.[stallIndex];
-  if (!stall || stall.llama !== null) return null;
+  // Issue #241: a closed stall cannot take a llama.
+  if (!stall || stall.llama !== null || !farmStallIsOpen(stall)) return null;
   // The price is seconds of S at the player's buffed LOC/s, priced at
   // the moment of purchase.
   const price = llamaBuyPriceCents(type, buffedLocPerSec);

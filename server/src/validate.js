@@ -99,6 +99,7 @@ import {
   canEquipCosmetic,
   claimableEquity,
   farmLlamaCountsByType,
+  farmStallIsOpen,
   findCosmetic,
   NIGHT_SHIFT_CONFIG,
   normalizeSaveState,
@@ -499,7 +500,7 @@ function checkStateShape(state) {
   }
   // Llama farm (issue #79). The farm is one object: owned (boolean),
   // stalls (exactly FARM_CONFIG.stallCount entries, each { llama,
-  // lighting, locked } with a llama that is null or a known type id and a
+  // lighting, locked, open } with a llama that is null or a known type id and a
   // lighting that is a known color), and unlockedTypes (known type ids
   // only, no duplicates). Sell prices float with production, so nothing
   // is stored on a stall. A save written by the stored-value build
@@ -532,19 +533,40 @@ function checkStateShape(state) {
   ) {
     return `farm.stalls must be an array of ${FARM_CONFIG.stallCount} stalls`;
   }
-  for (const stall of state.farm.stalls) {
+  // Issue #241: `open` (closed stalls) is optional like `locked` and
+  // `sellCents`: normalizeSaveState backfills it, and a stale client
+  // that predates it sends no key.
+  const optionalStallKeys = ["locked", "sellCents", "open"];
+  for (const [stallIndex, stall] of state.farm.stalls.entries()) {
     if (
       stall === null ||
       typeof stall !== "object" ||
       Array.isArray(stall) ||
-      !(
-        hasExactKeys(stall, ["llama", "lighting"]) ||
-        hasExactKeys(stall, ["llama", "lighting", "sellCents"]) ||
-        hasExactKeys(stall, ["llama", "lighting", "locked"]) ||
-        hasExactKeys(stall, ["llama", "lighting", "locked", "sellCents"])
+      !("llama" in stall) ||
+      !("lighting" in stall) ||
+      Object.keys(stall).some(
+        (key) =>
+          key !== "llama" && key !== "lighting" && !optionalStallKeys.includes(key)
       )
     ) {
       return "farm stalls must be objects with llama and lighting";
+    }
+    // Issue #241: a closed stall holds no llama (so it cannot be
+    // locked), and an owned barn's starter stalls are always open.
+    if ("open" in stall) {
+      if (typeof stall.open !== "boolean") {
+        return "farm stall open must be a boolean";
+      }
+      if (!stall.open && stall.llama !== null) {
+        return "farm stall is closed but holds a llama";
+      }
+      if (
+        !stall.open &&
+        state.farm.owned &&
+        FARM_CONFIG.starterStalls.includes(stallIndex)
+      ) {
+        return "farm starter stall is closed";
+      }
     }
     // Issue #240: the llama lock. normalizeSaveState backfills it
     // (unlocked) before this check; a stale client that predates the
@@ -1012,6 +1034,20 @@ export function validateSave(prev, body, nowMs, options = {}) {
   // vanishes or swaps type without a sale is tampered, not gameplay.
   if (prevState.farm.owned && !newState.farm.owned) {
     return fail("MONOTONIC", "farm ownership flipped back");
+  }
+  // Issue #241: an opened stall is bought, like the barn, so it never
+  // closes again within a company (a sale resets the farm on its own
+  // path, never here). Opening one is a cash purchase the client prices,
+  // the same as the barn and Night Shift levels.
+  if (prevState.farm.owned && newState.farm.owned) {
+    for (let i = 0; i < FARM_CONFIG.stallCount; i++) {
+      if (
+        farmStallIsOpen(prevState.farm.stalls[i]) &&
+        !farmStallIsOpen(newState.farm.stalls[i])
+      ) {
+        return fail("MONOTONIC", `farm stall ${i} closed again`);
+      }
+    }
   }
   for (const type of prevState.farm.unlockedTypes ?? []) {
     if (!(newState.farm.unlockedTypes ?? []).includes(type)) {

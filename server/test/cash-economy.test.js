@@ -277,18 +277,26 @@ test("bought and born llamas of the same type sell for the same, and nothing is 
     buffedLocPerSec: p,
   });
   assert.equal(bought.money, 0);
-  assert.deepEqual(bought.farm.stalls[4], { llama: "classic", lighting: "warm", locked: false });
+  assert.deepEqual(bought.farm.stalls[4], { llama: "classic", lighting: "warm", locked: false, open: true });
   const bred = applyFarmBirths(bought.farm, [{ stallIndex: 5, type: "classic" }]);
-  assert.deepEqual(bred.stalls[5], { llama: "classic", lighting: "warm", locked: false });
+  assert.deepEqual(bred.stalls[5], { llama: "classic", lighting: "warm", locked: false, open: true });
   // Same shape, same type, so one price; it follows P, not the day each arrived.
   for (const at of [p, p * 100]) {
     assert.equal(llamaSellPriceCents(bred.stalls[4].llama, at), llamaSellPriceCents(bred.stalls[5].llama, at));
   }
-  const moved = moveFarmLlama(bred, 4, 0);
-  assert.deepEqual(moved.stalls[0], { llama: "classic", lighting: "warm", locked: false });
-  assert.deepEqual(moved.stalls[4], { llama: null, lighting: "warm", locked: false });
-  for (const stall of [...initialFarmState().stalls, ...emptyFarmState().stalls]) {
-    assert.deepEqual(stall, { llama: null, lighting: "warm", locked: false });
+  const moved = moveFarmLlama(bred, 4, 1);
+  assert.deepEqual(moved.stalls[1], { llama: "classic", lighting: "warm", locked: false, open: true });
+  assert.deepEqual(moved.stalls[4], { llama: null, lighting: "warm", locked: false, open: true });
+  // Issue #241: a fresh barn opens the starter stalls only.
+  for (const stalls of [initialFarmState().stalls, emptyFarmState().stalls]) {
+    for (const [i, stall] of stalls.entries()) {
+      assert.deepEqual(stall, {
+        llama: null,
+        lighting: "warm",
+        locked: false,
+        open: FARM_CONFIG.starterStalls.includes(i),
+      });
+    }
   }
 });
 
@@ -329,7 +337,7 @@ test("normalizeSaveState strips sellCents and stays idempotent", () => {
   const withKey = { ...saveAt(100), farm: barnFarm({ 0: "classic", 1: "mama", 4: "ai" }, { sellCents: true }) };
   const normalized = normalizeSaveState(withKey);
   for (const stall of normalized.farm.stalls) {
-    assert.deepEqual(Object.keys(stall).sort(), ["lighting", "llama", "locked"]);
+    assert.deepEqual(Object.keys(stall).sort(), ["lighting", "llama", "locked", "open"]);
   }
   assert.equal(normalized.farm.stalls[4].llama, "ai");
   assert.equal(normalized.farm.stalls[4].lighting, "red");

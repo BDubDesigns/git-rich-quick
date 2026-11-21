@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { FaLock } from "react-icons/fa";
+import { FaDoorClosed, FaLock } from "react-icons/fa";
 import { useGameContext } from "../context/useGameContext.js";
 import {
   getBaseLocPerSecond,
@@ -37,7 +37,11 @@ import {
   LLAMA_TYPE_NAMES,
   farmEligibleBreedingStalls,
   farmLlamaCount,
+  farmOpenStallCount,
   farmPurchaseCostCents,
+  farmStallIsOpen,
+  farmStallOpenPriceCents,
+  farmStallsOpenedCount,
   farmSellAllPreview,
   formatEstimateDuration,
   llamaBuyPriceCents,
@@ -76,6 +80,12 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
  * llama that is not locked in one tap; its button reads the count and
  * the total before you tap it. Selling one llama from its chip works
  * the same, locked or not.
+ *
+ * Issue #241: the barn opens FARM_CONFIG.starterStalls (a plus shape).
+ * The corners start closed: a closed stall shows its opening price, and
+ * tapping it opens the chip with an "Open this stall" button. Each one
+ * opened makes the next cost more (LLAMA_ECONOMY.stallOpenSeconds).
+ * "Closed" and "Open" on purpose: "Lock" is the llama lock above.
  */
 export function Farm() {
   const { state, dispatch } = useGameContext();
@@ -148,6 +158,13 @@ export function Farm() {
   const handleStallClick = (stallIndex) => {
     const stall = farm.stalls[stallIndex];
     if (!stall) return;
+    if (moving && selectedStall !== null && !farmStallIsOpen(stall)) {
+      // Issue #241: a closed stall is not a move target. Select it
+      // instead, so its chip shows how to open it.
+      setMoving(false);
+      setSelectedStall(stallIndex);
+      return;
+    }
     if (moving && selectedStall !== null) {
       if (stallIndex === selectedStall) {
         // Clicking the moving llama again cancels the move.
@@ -190,6 +207,13 @@ export function Farm() {
   const handleToggleLock = () => {
     if (selectedStall === null) return;
     dispatch({ type: "TOGGLE_LLAMA_LOCK", payload: { stallIndex: selectedStall } });
+  };
+
+  // Issue #241: open the selected closed stall. The chip stays open
+  // and turns into the empty stall's buy chip.
+  const handleOpenStall = () => {
+    if (selectedStall === null) return;
+    dispatch({ type: "OPEN_FARM_STALL", payload: { stallIndex: selectedStall } });
   };
 
   // Issue #240: sell every unlocked llama in one action.
@@ -240,7 +264,9 @@ export function Farm() {
                 comment above this panel), so it is not repeated here. */}
             <p className="m-0 text-sm">
               Buy the barn and it arrives empty. No llamas come with it.
-              Buy llamas, move them into nests, set the lights, breed
+              It opens {FARM_CONFIG.starterStalls.length} of its{" "}
+              {FARM_CONFIG.stallCount} stalls; the corners open later, one at a
+              time. Buy llamas, move them into nests, set the lights, breed
               them, and sell the kids. Barn prices track your production:
               it costs {formatEstimateDuration(LLAMA_ECONOMY.barnSeconds)} of
               what your team earns shipping everything, so it is never a
@@ -263,7 +289,15 @@ export function Farm() {
 
   const eligible = farmEligibleBreedingStalls(farm.stalls);
   const llamaCount = farmLlamaCount(farm.stalls);
+  // Issue #241: closed stalls, and the price of opening the next one
+  // (the same for every closed stall: it follows how many are open).
+  const openStallCount = farmOpenStallCount(farm.stalls);
+  const stallOpenCents = farmStallOpenPriceCents(farm.stalls, pricingRate);
+  const stallOpenSeconds =
+    LLAMA_ECONOMY.stallOpenSeconds[farmStallsOpenedCount(farm.stalls)];
+  const canAffordStall = stallOpenCents !== null && state.money >= stallOpenCents;
   const selected = selectedStall !== null ? farm.stalls[selectedStall] : null;
+  const selectedClosed = selected !== null && !farmStallIsOpen(selected);
   const selectedLlama = selected?.llama ?? null;
   const selectedSellCents = selectedLlama
     ? llamaSellPriceCents(selectedLlama, pricingRate)
@@ -359,7 +393,8 @@ export function Farm() {
           const lighting = FARM_LIGHTING[stall.lighting] ?? FARM_LIGHTING.warm;
           const isEligible = eligible.includes(index);
           const isSelected = selectedStall === index;
-          const isMoveTarget = moving && !stall.llama;
+          const isClosed = !farmStallIsOpen(stall);
+          const isMoveTarget = moving && !stall.llama && !isClosed;
           // Issue #218: a kid just born here pops in (and a new type
           // gets the one-time gold outline).
           const birth = stallBirth(births, index);
@@ -373,20 +408,30 @@ export function Farm() {
               aria-controls={isSelected ? "farm-stall-chip" : undefined}
               onClick={() => handleStallClick(index)}
               className={`stall relative flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
+                isClosed ? " stall--closed" : ""
+              }${
                 isSelected || isMoveTarget
                   ? " stall--selected"
                   : isEligible
                     ? " stall--eligible"
                     : ""
               }`}
-              style={{ "--stall-light": lighting.color }}
+              style={isClosed ? undefined : { "--stall-light": lighting.color }}
               title={
-                isMoveTarget
+                isClosed
+                  ? "A closed stall. Click to see what it costs to open."
+                  : isMoveTarget
                   ? "Move the llama here."
                   : `${lighting.label}: ${lighting.description} Click to select this stall.`
               }
               aria-label={
-                stall.llama
+                isClosed
+                  ? `Stall ${index + 1}: closed${
+                      stallOpenCents !== null
+                        ? `, open it for ${formatMoney(stallOpenCents)}`
+                        : ""
+                    }${isSelected ? ", selected" : ""}`
+                  : stall.llama
                   ? `Stall ${index + 1}: ${LLAMA_TYPE_NAMES[stall.llama]}, sells for ${formatMoney(
                       llamaSellPriceCents(stall.llama, pricingRate)
                     )}, ${lighting.label} lighting${stall.locked ? ", locked" : ""}${
@@ -399,12 +444,25 @@ export function Farm() {
                     }`
               }
             >
+              {isClosed && (
+                <>
+                  <FaDoorClosed className="text-2xl text-gray-400" aria-hidden="true" />
+                  <span className="text-sm text-center">Closed stall</span>
+                  {stallOpenCents !== null && (
+                    <span className="text-xs text-gray-400 text-center">
+                      Open for {formatMoney(stallOpenCents)}
+                    </span>
+                  )}
+                </>
+              )}
               {stall.llama && stall.locked && (
                 <FaLock
                   className="absolute top-1 right-1 text-xs text-yellow-300"
                   aria-hidden="true"
                 />
               )}
+              {!isClosed && (
+              <>
               {birth?.newType && (
                 <span key={`new-${births.seq}`} className="birth-new-type" aria-hidden="true" />
               )}
@@ -433,6 +491,8 @@ export function Farm() {
                 {isEligible ? " · can breed" : ""}
                 {isMoveTarget ? " · move here" : ""}
               </span>
+              </>
+              )}
             </Panel>
             {index === chipAfterIndex && (
               <Panel
@@ -442,7 +502,35 @@ export function Farm() {
                 aria-label={`Stall ${selectedStall + 1} controls`}
                 className="col-span-full flex flex-col gap-2 p-3"
               >
-                {selectedLlama ? (
+                {selectedClosed ? (
+                  <>
+                    <p className="m-0 text-sm">
+                      Stall {selectedStall + 1} is closed. It holds no llama
+                      and does not count for breeding until you open it.
+                      Opening it costs{" "}
+                      {formatEstimateDuration(stallOpenSeconds ?? 0)} of what
+                      your team earns shipping everything, and each stall you
+                      open makes the next one cost more.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        onClick={handleOpenStall}
+                        disabled={!canAffordStall}
+                        aria-label={`Open stall ${selectedStall + 1} for ${formatMoney(
+                          stallOpenCents ?? 0
+                        )}`}
+                      >
+                        Open this stall ({formatMoney(stallOpenCents ?? 0)})
+                      </Button>
+                      {!canAffordStall && (
+                        <p className="m-0 text-xs text-gray-400">
+                          You need {formatMoney(stallOpenCents ?? 0)}. You have{" "}
+                          {formatMoney(state.money)}.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : selectedLlama ? (
                   <>
                     <p className="m-0 text-sm">
                       <strong>{LLAMA_TYPE_NAMES[selectedLlama]}</strong> in stall{" "}
@@ -465,7 +553,7 @@ export function Farm() {
                         </Button>
                         <Button
                           onClick={() => setMoving(true)}
-                          disabled={llamaCount >= FARM_CONFIG.stallCount}
+                          disabled={llamaCount >= openStallCount}
                         >
                           Move
                         </Button>

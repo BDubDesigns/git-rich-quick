@@ -636,7 +636,9 @@ function gameReducer(state, action) {
         typeof stallIndex !== "number" ||
         stallIndex < 0 ||
         stallIndex >= shared.FARM_CONFIG.stallCount ||
-        !shared.FARM_LIGHTING_COLORS.includes(lighting)
+        !shared.FARM_LIGHTING_COLORS.includes(lighting) ||
+        // Issue #241: a closed stall has no lighting control.
+        !shared.farmStallIsOpen(farm.stalls[stallIndex])
       ) {
         return state;
       }
@@ -644,6 +646,25 @@ function gameReducer(state, action) {
         i === stallIndex ? { ...stall, lighting } : stall
       );
       return { ...state, farm: { ...farm, stalls } };
+    }
+
+    // Open a closed stall (issue #241). Payload: { stallIndex }. A
+    // cash purchase priced at the moment of purchase:
+    // LLAMA_ECONOMY.stallOpenSeconds[stalls opened so far] x S at the
+    // buffed LOC/s (shared.applyFarmStallOpen, pure and tested). An
+    // unowned barn, a bad index, an already open stall or too little
+    // cash is ignored. A big action, so it saves promptly; the server
+    // never lets an opened stall close again within a company.
+    case "OPEN_FARM_STALL": {
+      const { stallIndex } = action.payload ?? {};
+      const opened = shared.applyFarmStallOpen({
+        farm: state.farm ?? shared.emptyFarmState(),
+        money: state.money,
+        stallIndex,
+        buffedLocPerSec: getBaseLocPerSecond(state),
+      });
+      if (!opened) return state;
+      return { ...state, money: opened.money, farm: opened.farm };
     }
 
     // Buy one llama into an empty stall (issue #79 feedback — no free
