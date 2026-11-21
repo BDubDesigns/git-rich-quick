@@ -244,7 +244,8 @@ function checkStateShape(state) {
   // the store-buy endpoint, so a normal save cannot raise its own cap.
   // Bridge Rounds (issue #192): a company that owns its Bridge Round
   // reaches the next round's caps, and the Bridge Round itself caps at
-  // 0 from Series B on, both read from the same shared helper.
+  // 0 at IPO (issue #226: every other round has a bridge), both read
+  // from the same shared helper.
   for (const projectId of OPEN_SOURCE_IDS) {
     const maxLevel = openSourceLevelCap(
       projectId,

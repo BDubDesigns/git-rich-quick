@@ -14,6 +14,25 @@ import {
   openSourceLevelCap,
 } from "../../../shared/game-balance.js";
 
+/**
+ * Whether the Bridge Round card shows closed (issue #226): no bridge is
+ * offered at the owned rank, which is IPO, the final round.
+ */
+export function bridgeRoundClosed(storeRanks = {}) {
+  return !bridgeRoundAvailable(storeRanks);
+}
+
+/**
+ * The closed card's one line (issue #226), null while a bridge is
+ * offered. Two facts: the player owns the final round, and the bridge
+ * line is complete because there is no next round to rent.
+ */
+export function bridgeRoundClosedText(storeRanks = {}) {
+  if (!bridgeRoundClosed(storeRanks)) return null;
+  const round = fundingRoundName(fundingRoundRank(storeRanks));
+  return `You own ${round}, the final round. The bridge line is complete: there is no next round left to rent.`;
+}
+
 /** The round a Bridge Round rents at these store ranks, or null when none is offered. */
 export function bridgeRoundTargetName(storeRanks = {}) {
   if (!bridgeRoundAvailable(storeRanks)) return null;

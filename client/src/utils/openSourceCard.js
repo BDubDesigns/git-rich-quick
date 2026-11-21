@@ -15,6 +15,8 @@
  */
 import {
   BALANCE,
+  BRIDGE_ROUND_PROJECT_ID,
+  bridgeRoundAvailable,
   fundingRoundName,
   fundingRoundRankForLevel,
   openSourceNextLevelCost,
@@ -40,7 +42,13 @@ export function openSourceCardModel(projectId, state) {
     projectId,
     state.openSourceProjects?.[projectId]?.level
   );
-  const isMaxed = currentLevel >= levels.length;
+  // Bridge Round (issue #226): at IPO no bridge is offered (there is no
+  // next round), so the card is closed: it reads as maxed and sits in
+  // Maxed Out, with nothing to buy.
+  const bridgeClosed =
+    projectId === BRIDGE_ROUND_PROJECT_ID &&
+    !bridgeRoundAvailable(state.permanentStoreRanks);
+  const isMaxed = bridgeClosed || currentLevel >= levels.length;
   const currentBonus =
     currentLevel > 0 ? (levels[currentLevel - 1]?.bonus ?? null) : null;
   const nextBonus = isMaxed ? undefined : levels[currentLevel]?.bonus;

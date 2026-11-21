@@ -27,7 +27,9 @@ import assert from "node:assert/strict";
 import {
   BALANCE,
   COMMITMENT_ISSUES_LEVELS,
+  FUNDING_ROUNDS_CONFIG,
   bestCentsPerLoc,
+  bridgeRoundAvailable,
   clickBonus,
   doublingMultiplier,
   employeeCost,
@@ -269,21 +271,26 @@ function bridgedPlateauLevels(round) {
   return levels;
 }
 
-test("invariant (issue #192): the three bridged plateaus sit at 0.970 / 0.934 / 0.988, inside 0.8x to 1.3x", () => {
-  const expected = [0.970, 0.934, 0.988];
-  [0, 1, 2].forEach((round) => {
-    const ranks = { fundingRounds: round };
-    const levels = bridgedPlateauLevels(round);
-    // The bridged levels are the next round's caps, exactly.
-    assert.deepEqual(
-      { ...levels, bridgeRound: undefined },
-      { ...plateauLevels(round + 1), bridgeRound: undefined },
-      `${fundingRoundName(round)} + bridge = ${fundingRoundName(round + 1)} caps`
-    );
-    const employees = ROUND_PLATEAUS[round];
-    const passive = locPerSecond(employees, levels, 1, ranks);
-    const click = locPerClick(levels, employees, 1, 1, ranks);
-    const ratio = (10 * click) / passive;
+/** The bridged plateau ratio at `round`: click at 10 clicks/s over passive. */
+function bridgedPlateauRatio(round) {
+  const ranks = { fundingRounds: round };
+  const levels = bridgedPlateauLevels(round);
+  // The bridged levels are the next round's caps, exactly.
+  assert.deepEqual(
+    { ...levels, bridgeRound: undefined },
+    { ...plateauLevels(round + 1), bridgeRound: undefined },
+    `${fundingRoundName(round)} + bridge = ${fundingRoundName(round + 1)} caps`
+  );
+  const employees = ROUND_PLATEAUS[round];
+  return (10 * locPerClick(levels, employees, 1, 1, ranks)) / locPerSecond(employees, levels, 1, ranks);
+}
+
+test("invariant (issues #192, #226): the bridged plateaus through Series B sit at 0.970 / 0.934 / 0.988 / 1.143, inside 0.8x to 1.3x", () => {
+  // Series B + bridge (renting Series C caps) was never measured for
+  // #192; measured here it reads 1.143, inside the band (issue #226).
+  const expected = [0.970, 0.934, 0.988, 1.143];
+  [0, 1, 2, 3].forEach((round) => {
+    const ratio = bridgedPlateauRatio(round);
     assert.ok(
       ratio >= 0.8 && ratio <= 1.3,
       `${fundingRoundName(round)} + bridge: ${ratio.toFixed(3)}`
@@ -292,20 +299,25 @@ test("invariant (issue #192): the three bridged plateaus sit at 0.970 / 0.934 / 
   });
 });
 
-test("invariant (issue #192): no Series C bridge, because Series C plus a bridge would leave the band", () => {
-  // The bridge stops at Series A: from Series B on, owning one lifts nothing.
-  for (const round of [3, 4]) {
-    assert.deepEqual(
-      bridgedPlateauLevels(round),
-      { ...plateauLevels(round), bridgeRound: 1 }
-    );
-  }
-  // Why: Series C headcount at IPO caps reads 1.358, out of band.
+test("invariant (issue #226): Series C + bridge is the accepted final plateau, pinned at exactly 1.358", () => {
+  // Series C headcount at IPO caps reads 1.358, 0.058 past the band's
+  // 1.3 edge at this one synthetic plateau. Brandon accepted the
+  // overshoot (Nov 20, 2026), a taste call recorded as one, not a
+  // balance fact: IPO is the last round, so nothing compounds past it.
+  // This test pins the exact value and deliberately asserts no band.
+  assert.equal(bridgedPlateauRatio(4).toFixed(3), "1.358");
+  // The same figure #192 cited: Series C headcount at IPO caps.
   const employees = ROUND_PLATEAUS[4];
   const levels = plateauLevels(5);
-  const ratio = (10 * locPerClick(levels, employees)) / locPerSecond(employees, levels);
-  assert.equal(ratio.toFixed(3), "1.358");
-  assert.ok(ratio > 1.3);
+  assert.equal(((10 * locPerClick(levels, employees)) / locPerSecond(employees, levels)).toFixed(3), "1.358");
+});
+
+test("invariant (issue #226): the bridge stops structurally at IPO, so no bridged plateau exists past Series C", () => {
+  // At rank 5 the bridge is unavailable (there is no rank 6 caps row):
+  // owning a stray level lifts nothing, so IPO keeps its own plateau.
+  assert.equal(bridgeRoundAvailable({ fundingRounds: 5 }), false);
+  assert.equal(FUNDING_ROUNDS_CONFIG.levelCaps.coffeeScript[6], undefined);
+  assert.deepEqual(bridgedPlateauLevels(5), { ...plateauLevels(5), bridgeRound: 1 });
 });
 
 test("invariant (issue #170): without the round caps, click would run away from passive", () => {
