@@ -1,0 +1,54 @@
+/* Equity milestones (issue #220, Slice 8 of #210): a light sweep across
+   the Equity strip when a new point becomes sellable. Transform and
+   opacity only, pointer-events none, inside the strip's own clipped box
+   (it never covers content). The "+N Equity" bump is the Slice 2 stat
+   bump (StatBump.css). */
+.equity-sweep {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  pointer-events: none;
+  transform: translateX(-100%);
+  opacity: 0;
+  animation: equity-sweep 700ms cubic-bezier(0.16, 1, 0.3, 1) 1 forwards;
+}
+
+/* A milestone (1, 5, 10, 25, 50, 100 claimable): gold, two passes. */
+.equity-sweep--milestone {
+  background: linear-gradient(90deg, transparent, rgba(250, 204, 21, 0.6), transparent);
+  animation-iteration-count: 2;
+}
+
+@keyframes equity-sweep {
+  0% {
+    transform: translateX(-100%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: no sweep across; the light shows in place for the
+   same 700ms (1.4s at a milestone), then goes. */
+@media (prefers-reduced-motion: reduce) {
+  .equity-sweep {
+    transform: none;
+    animation: equity-sweep-still 700ms steps(1, end) forwards;
+  }
+
+  .equity-sweep--milestone {
+    animation-duration: 1400ms;
+    animation-iteration-count: 1;
+  }
+}
+
+@keyframes equity-sweep-still {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
