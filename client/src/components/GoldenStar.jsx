@@ -37,6 +37,12 @@ import { FloatingText } from "./FloatingText.jsx";
 import { newStarClaimId } from "../email/email.js";
 import { serverNowMs } from "../save/serverClock.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
+import { useViewportSize } from "../hooks/useViewportSize.js";
+import {
+  STAR_EDGE_MARGIN_PX,
+  clampStarPosition,
+  windowViewport,
+} from "../utils/starViewport.js";
 import "./GoldenStar.css";
 
 /** The star's rendered size in px; spawn positions keep it fully on-screen. */
@@ -54,7 +60,7 @@ const STAR_BARS_COLLAPSED_KEY = "grq:starBarsCollapsed";
  * hangs half off the side, on mobile or desktop.
  */
 function randomStarPosition() {
-  const margin = 12;
+  const margin = STAR_EDGE_MARGIN_PX;
   const maxX = Math.max(margin, window.innerWidth - STAR_SIZE_PX - margin);
   const maxY = Math.max(margin, window.innerHeight - STAR_SIZE_PX - margin);
   return {
@@ -172,6 +178,12 @@ export function GoldenStar() {
   const { floatingTexts, triggerFloatingText, handleAnimationEnd } =
     useFloatingText();
   const [star, setStar] = useState(null);
+  // Viewport robustness (issue #194): a rotation or a window resize can
+  // leave a live star's spawn point outside the new viewport. Each star
+  // is RENDERED at its spawn point clamped into the current viewport
+  // (and claimed there); its state, and so its lifetime and fade
+  // timers, never change. See utils/starViewport.js.
+  const viewport = useViewportSize();
   // Whether the star is in its fade-out window (issue #49): it starts
   // fading starFadeSeconds before it despawns, so the player gets a
   // "click me now or lose me" signal instead of it just vanishing.
@@ -744,7 +756,7 @@ export function GoldenStar() {
   // then go on or end by the shared rule.
   const handleChainStarClick = useCallback(() => {
     if (!chainStar || !chain) return;
-    const position = chainStar;
+    const position = clampStarPosition(chainStar, windowViewport(), STAR_SIZE_PX);
     setChainStar(null);
     setChainFading(false);
     const step = chain.step + 1;
@@ -778,7 +790,8 @@ export function GoldenStar() {
     // it completes synchronously: the outcome is applied and a fresh
     // schedule is rolled before the handler returns, and the arm effect
     // re-arms the countdown from the new schedule.
-    const position = star;
+    // Where the player saw it (issue #194): the clamped point.
+    const position = clampStarPosition(star, windowViewport(), STAR_SIZE_PX);
     setStar(null);
     setSecondsLeft(null);
     setCountdownTotalSeconds(null);
@@ -852,7 +865,7 @@ export function GoldenStar() {
     if (!boughtStar) return;
     // Hide the bought star immediately so a double-click cannot claim
     // twice.
-    const position = boughtStar;
+    const position = clampStarPosition(boughtStar, windowViewport(), STAR_SIZE_PX);
     setBoughtStar(null);
     setBoughtFading(false);
     setBoughtStarAtMs(null);
@@ -896,6 +909,11 @@ export function GoldenStar() {
         )
       : 0;
 
+  // The rendered positions (issue #194): inside the current viewport.
+  const shownStar = clampStarPosition(star, viewport, STAR_SIZE_PX);
+  const shownChainStar = clampStarPosition(chainStar, viewport, STAR_SIZE_PX);
+  const shownBoughtStar = clampStarPosition(boughtStar, viewport, STAR_SIZE_PX);
+
   return (
     <>
       {star && (
@@ -907,7 +925,7 @@ export function GoldenStar() {
               : "Golden star, click for a random reward"
           }
           className={`golden-star${star.red ? " red-star" : ""}${fading ? " fading" : ""}`}
-          style={{ left: `${star.x}px`, top: `${star.y}px` }}
+          style={{ left: `${shownStar.x}px`, top: `${shownStar.y}px` }}
           onClick={handleStarClick}
         >
           <FaStar
@@ -923,7 +941,7 @@ export function GoldenStar() {
           type="button"
           aria-label={`Shooting star, chain ${(chainStep ?? 0) + 1}: click before it falls`}
           className={chainFading ? "golden-star fading" : "golden-star"}
-          style={{ left: `${chainStar.x}px`, top: `${chainStar.y}px` }}
+          style={{ left: `${shownChainStar.x}px`, top: `${shownChainStar.y}px` }}
           onClick={handleChainStarClick}
         >
           <FaStar size={STAR_SIZE_PX} color="#ffd700" />
@@ -942,7 +960,7 @@ export function GoldenStar() {
               : "Bought golden star, click for a random reward"
           }
           className={`golden-star${boughtStar.red ? " red-star" : ""}${boughtFading ? " fading" : ""}`}
-          style={{ left: `${boughtStar.x}px`, top: `${boughtStar.y}px` }}
+          style={{ left: `${shownBoughtStar.x}px`, top: `${shownBoughtStar.y}px` }}
           onClick={handleBoughtStarClick}
         >
           <FaStar
