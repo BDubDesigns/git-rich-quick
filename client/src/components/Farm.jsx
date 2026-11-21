@@ -10,6 +10,9 @@ import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 import { ProgressBar } from "./ProgressBar.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
+import { useBirthPops } from "../hooks/useLlamaBirths.js";
+import { stallBirth } from "../utils/llamaBirths.js";
+import "./LlamaBirth.css";
 import { Panel } from "./Panel.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import {
@@ -54,6 +57,8 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 export function Farm() {
   const { state, dispatch } = useGameContext();
   const farm = state.farm ?? { owned: false, stalls: [], unlockedTypes: [] };
+  // Issue #218: the last breed result's pops (null when none is live).
+  const births = useBirthPops(state.lastBirths);
   // The selected stall (null when none), and whether the selected
   // llama is being moved (the next empty stall clicked receives it).
   const [selectedStall, setSelectedStall] = useState(null);
@@ -226,13 +231,16 @@ export function Farm() {
           const isEligible = eligible.includes(index);
           const isSelected = selectedStall === index;
           const isMoveTarget = moving && !stall.llama;
+          // Issue #218: a kid just born here pops in (and a new type
+          // gets the one-time gold outline).
+          const birth = stallBirth(births, index);
           return (
             <Panel
               as="button"
               key={index}
               type="button"
               onClick={() => handleStallClick(index)}
-              className={`stall flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
+              className={`stall relative flex flex-col items-center gap-1 p-2 min-h-[84px] cursor-pointer${
                 isSelected || isMoveTarget
                   ? " stall--selected"
                   : isEligible
@@ -257,9 +265,21 @@ export function Farm() {
                     }`
               }
             >
-              <span className="text-2xl" aria-hidden="true">
+              {birth?.newType && (
+                <span key={`new-${births.seq}`} className="birth-new-type" aria-hidden="true" />
+              )}
+              <span
+                key={birth ? `pop-${births.seq}` : "llama"}
+                className={`text-2xl${birth ? " llama-pop" : ""}`}
+                aria-hidden="true"
+              >
                 {stall.llama ? "🦙" : "·"}
               </span>
+              {birth && (
+                <span key={`chip-${births.seq}`} className="birth-chip" aria-hidden="true">
+                  +1
+                </span>
+              )}
               <span className="text-sm text-center">
                 {stall.llama ? LLAMA_TYPE_NAMES[stall.llama] : "Empty stall"}
               </span>
