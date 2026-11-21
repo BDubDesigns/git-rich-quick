@@ -7,7 +7,7 @@
  * P), by running SELL_LLAMA once per sellable stall. Locked and empty
  * stalls are skipped; nothing sellable disables the button. The lock
  * belongs to the llama: a move carries it and the stall it left is
- * unlocked. A single Sell is unchanged (it works locked or not).
+ * unlocked. A single Sell refuses a locked llama (Brandon, Nov 21).
  *
  * Saves: a stall gains `locked` (boolean). No schema bump, no wipe: a
  * save from before the lock loads with every llama unlocked, through
@@ -287,12 +287,12 @@ test("SELL_UNLOCKED_LLAMAS runs SELL_LLAMA for each sellable stall, with no pric
   assert.doesNotMatch(sellAll, /llamaSellPriceCents|money:/);
 });
 
-test("SELL_LLAMA is unchanged apart from clearing the emptied stall's lock", () => {
+test("SELL_LLAMA keeps its price path, clears the emptied stall's lock, and refuses a locked llama", () => {
   const sell = caseBody("SELL_LLAMA", "SELL_UNLOCKED_LLAMAS");
   assert.match(sell, /const value = shared\.llamaSellPriceCents\(type, getBaseLocPerSecond\(state\)\);/);
   assert.match(sell, /i === stallIndex \? \{ \.\.\.entry, llama: null, locked: false \} : entry/);
-  // A single sale does not check the lock (the issue: individual sell stays as it is).
-  assert.doesNotMatch(sell, /locked\)|\.locked/);
+  // Brandon, Nov 21: a locked llama cannot be sold until it is unlocked.
+  assert.match(sell, /if \(farm\.stalls\[stallIndex\]\.locked === true\) return state;/);
 });
 
 test("TOGGLE_LLAMA_LOCK uses the shared helper", () => {
@@ -328,7 +328,7 @@ test("the lock toggle lives in the stall chip next to Sell and Move; locked tile
   const chip = farmCard.slice(start, farmCard.indexOf("</Fragment>", start));
   assert.match(chip, /onClick=\{handleSellLlama\}[\s\S]*setMoving\(true\)[\s\S]*onClick=\{handleToggleLock\}/);
   assert.match(chip, /\{selectedLocked \? "Unlock" : "Lock"\}/);
-  assert.match(chip, /Locked: Sell All skips this llama\./);
+  assert.match(chip, /Locked: unlock it to sell it\. Sell All skips it\./);
   assert.match(farmCard, /dispatch\(\{ type: "TOGGLE_LLAMA_LOCK", payload: \{ stallIndex: selectedStall \} \}\);/);
   // The tile: a lock icon (decorative) and ", locked" in its label.
   assert.match(farmCard, /\{stall\.llama && stall\.locked && \(\s*<FaLock/);

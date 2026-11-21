@@ -78,8 +78,8 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
  * Issue #240: a llama can be locked from its stall's chip (parents, the
  * Mama, a layout's buffers). Sell All, in the farm panel, sells every
  * llama that is not locked in one tap; its button reads the count and
- * the total before you tap it. Selling one llama from its chip works
- * the same, locked or not.
+ * the total before you tap it. A locked llama cannot be sold from its
+ * chip either: its Sell button reads "Unlock to sell" (Brandon, Nov 21).
  *
  * Issue #241: the barn opens FARM_CONFIG.starterStalls (a plus shape).
  * The corners start closed: a closed stall shows its opening price, and
@@ -538,7 +538,7 @@ export function Farm() {
                       {formatMoney(selectedSellCents ?? 0)}. The price follows
                       your shipping income, so it rises as your team grows.
                       {selectedLocked
-                        ? " Locked: Sell All skips this llama."
+                        ? " Locked: unlock it to sell it. Sell All skips it."
                         : ""}
                     </p>
                     {moving ? (
@@ -548,8 +548,20 @@ export function Farm() {
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        <Button onClick={handleSellLlama}>
-                          Sell ({formatMoney(selectedSellCents ?? 0)})
+                        <Button
+                          onClick={handleSellLlama}
+                          disabled={selectedLocked}
+                          aria-label={
+                            selectedLocked
+                              ? `Unlock this ${LLAMA_TYPE_NAMES[selectedLlama]} to sell it`
+                              : undefined
+                          }
+                        >
+                          {selectedLocked ? (
+                            "Unlock to sell"
+                          ) : (
+                            <>Sell ({formatMoney(selectedSellCents ?? 0)})</>
+                          )}
                         </Button>
                         <Button
                           onClick={() => setMoving(true)}
@@ -639,14 +651,22 @@ export function Farm() {
           const discovered = farm.unlockedTypes.includes(type);
           const forSale = llamaShopTypes(farm.unlockedTypes).includes(type);
           // Issue #238: an undiscovered bred type (not in the shop yet)
-          // reads ??? so its name stays a surprise; its worth still
-          // shows there is something out there.
+          // reads ??? so its name stays a surprise. Brandon, Nov 21: it
+          // hides its prices too, and shows only ??? and the hint.
+          if (!forSale) {
+            return (
+              <p key={type} className="m-0 text-sm">
+                {"· "}
+                <strong>??? (undiscovered)</strong>. Breed one to find it.
+              </p>
+            );
+          }
           return (
             <p key={type} className="m-0 text-sm">
               {discovered ? "🦙 " : "· "}
-              <strong>{forSale ? LLAMA_TYPE_NAMES[type] : "??? (undiscovered)"}</strong>{" "}
+              <strong>{LLAMA_TYPE_NAMES[type]}</strong>{" "}
               <span className="text-xs text-gray-400">
-                ({forSale ? "buy" : "worth"}{" "}
+                (buy{" "}
                 {formatMoney(llamaBuyPriceCents(type, pricingRate))},{" "}
                 {formatEstimateDuration(LLAMA_ECONOMY.typeSeconds[type])} of
                 shipping; sells for{" "}
@@ -654,10 +674,8 @@ export function Farm() {
               </span>
               {discovered ? (
                 <>: {LLAMA_TYPE_DESCRIPTIONS[type]}</>
-              ) : forSale ? (
-                ", in the shop. Buy one to meet it."
               ) : (
-                ". Breed one to find it."
+                ", in the shop. Buy one to meet it."
               )}
             </p>
           );

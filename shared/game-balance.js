@@ -1637,8 +1637,9 @@ export function farmLlamaCount(stalls) {
 
 /**
  * Indices of the empty stalls that can breed right now: empty, with at
- * least two llamas in their orthogonal neighbours. A kid can only appear
- * between two llamas, so a lone neighbour is not enough.
+ * least two llamas in their orthogonal neighbours, at least one of them
+ * not a Mama. A kid can only appear between two llamas, so a lone
+ * neighbour is not enough, and Mamas are never bred.
  */
 export function farmEligibleBreedingStalls(stalls) {
   const eligible = [];
@@ -1649,7 +1650,14 @@ export function farmEligibleBreedingStalls(stalls) {
     const llamaNeighbours = farmStallNeighbours(i).filter(
       (n) => stalls[n].llama && farmStallIsOpen(stalls[n])
     );
-    if (llamaNeighbours.length >= 2) eligible.push(i);
+    // Brandon, Nov 21: Mamas are never bred, so a stall with only
+    // Mamas beside it is no nest (no kid could come out of it).
+    if (
+      llamaNeighbours.length >= 2 &&
+      llamaNeighbours.some((n) => stalls[n].llama !== "mama")
+    ) {
+      eligible.push(i);
+    }
   }
   return eligible;
 }
@@ -1690,6 +1698,9 @@ export function rollFarmKid(stallIndex, stalls, unlockedTypes, rng = Math.random
     .map((n) => stalls[n].llama)
     .filter(Boolean);
   if (parentTypes.length < 2) return null;
+  // Brandon, Nov 21: Mamas are never bred. A stall with only Mamas
+  // beside it makes no kid (checked before any roll).
+  if (!parentTypes.some((type) => type !== "mama")) return null;
   if (rng() >= farmKidChance(stall.lighting, parentTypes)) return null;
   // The Mama Llama is shop-only: breeding never discovers one.
   const undiscovered = LLAMA_TYPES.filter(
@@ -1699,11 +1710,8 @@ export function rollFarmKid(stallIndex, stalls, unlockedTypes, rng = Math.random
     return undiscovered[Math.floor(rng() * undiscovered.length)];
   }
   // A Mama Llama raises everyone else's kids: the kid takes a
-  // non-mama parent's type when there is one (a mama-only nest has a
-  // Mama kid).
-  const kidPool = parentTypes.some((type) => type !== "mama")
-    ? parentTypes.filter((type) => type !== "mama")
-    : parentTypes;
+  // non-mama parent's type (there is always one, see above).
+  const kidPool = parentTypes.filter((type) => type !== "mama");
   return kidPool[Math.floor(rng() * kidPool.length)];
 }
 
