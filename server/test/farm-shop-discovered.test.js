@@ -122,17 +122,17 @@ test("the existing rules apply unchanged: undiscovered, no barn, occupied stall,
   assert.equal(applyLlamaBuy({ farm, money: rich, stallIndex: 3, type: "unicorn", buffedLocPerSec: rate }), null);
 });
 
-test("no economy change: the price table is the #129 table", () => {
+test("no economy change from #203: the price table is the #244 table", () => {
   assert.deepEqual({ ...LLAMA_ECONOMY.typeSeconds }, {
-    mama: 60,
-    classic: 90,
-    drama: 120,
-    spaghetti: 240,
-    quantum: 360,
-    blockchain: 600,
-    ai: 900,
+    mama: 20,
+    classic: 30,
+    drama: 40,
+    spaghetti: 80,
+    quantum: 120,
+    blockchain: 200,
+    ai: 300,
   });
-  assert.equal(LLAMA_ECONOMY.sellFraction, 0.5);
+  assert.equal(LLAMA_ECONOMY.boughtSellFraction, 0.5);
 });
 
 test("the server accepts a save that re-bought a discovered Quantum", () => {

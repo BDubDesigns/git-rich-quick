@@ -26,6 +26,7 @@ import {
   FARM_CONFIG,
   LLAMA_BASE_TYPES,
   applyFarmBreedKids,
+  boughtLlamaSellCents,
   emptyFarmState,
   farmEligibleBreedingStalls,
   farmKidsFromRoll,
@@ -126,11 +127,23 @@ function emptyOwnedFarmState(money) {
   return stateWith({ money, farm: initialFarmState() });
 }
 
-/** Deep-copy a farm's stalls so a test can mutate one stall. */
+/**
+ * Deep-copy a farm's stalls so a test can mutate one stall. A llama
+ * placed without a sellCents gets a bought llama's stored value at the
+ * price floor (issue #244), the way the reducer writes one; an emptied
+ * stall gets null.
+ */
 function withStall(farm, index, stall) {
-  const stalls = farm.stalls.map((entry, i) =>
-    i === index ? { ...entry, ...stall } : { ...entry }
-  );
+  const stalls = farm.stalls.map((entry, i) => {
+    if (i !== index) return { ...entry };
+    const next = { ...entry, ...stall };
+    if ("llama" in stall && !("sellCents" in stall)) {
+      next.sellCents = stall.llama
+        ? boughtLlamaSellCents(llamaBuyPriceCents(stall.llama, 0))
+        : null;
+    }
+    return next;
+  });
   return { ...farm, stalls };
 }
 
@@ -166,9 +179,10 @@ test("the farm starts empty: no free llamas, no unlocked types", () => {
   assert.equal(farmLlamaCount(farm.stalls), 0);
   assert.deepEqual(farm.unlockedTypes, []);
   // Issue #129: no fixed dollars anymore. At P = 0 the price floor
-  // applies (priced as 10 LOC/s x 60c/LOC = 600c of value per second).
-  assert.equal(farmPurchaseCostCents(0), 180 * 600);
-  assert.equal(llamaBuyPriceCents("classic", 0), 90 * 600);
+  // applies (issue #244: priced as 10 LOC/s x 21c/LOC = 210c of
+  // ship-everything income per second).
+  assert.equal(farmPurchaseCostCents(0), 60 * 210);
+  assert.equal(llamaBuyPriceCents("classic", 0), 30 * 210);
   assert.equal(FARM_CONFIG.breedingTickSeconds, 60);
 });
 

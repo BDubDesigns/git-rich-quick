@@ -601,8 +601,8 @@ function gameReducer(state, action) {
       // (FARM_CONFIG.unlockConditions). The Farm tab disables the
       // button; this is the second line of defence.
       if (!isFarmUnlockMet(state)) return state;
-      // Llama economy v2 (issue #129): the barn costs 3 minutes of
-      // production at the player's BUFFED LOC/s, priced right now.
+      // Issue #244: the barn costs barnSeconds of S at the player's
+      // BUFFED LOC/s, priced right now.
       const barnCost = shared.farmPurchaseCostCents(getBaseLocPerSecond(state));
       if (state.money < barnCost) return state;
       const newState = {
@@ -685,10 +685,11 @@ function gameReducer(state, action) {
     }
 
     // Sell the llama in a stall (issue #129). Payload: { stallIndex }.
-    // A llama sells for half its CURRENT buy price (time at the
-    // player's buffed LOC/s right now, never the price paid), so its
-    // value rises as production rises. The stall empties and keeps its
-    // lighting. The sale is recorded per type in the achievements
+    // A llama sells for its STORED value (issue #244), written once
+    // when it entered the farm: half of the price paid for a bought
+    // one, its produce value at birth for a kid. Nothing here reads the
+    // current price; a llama with no valid stored value is not sold.
+    // The stall empties and keeps its lighting. The sale is recorded per type in the achievements
     // record (shared.recordLlamaSold): the server only lets a llama
     // leave the barn through a recorded sale. Bred types sell too;
     // that is the point of breeding them. An empty stall, an unowned
@@ -706,10 +707,10 @@ function gameReducer(state, action) {
       }
       const type = farm.stalls[stallIndex]?.llama ?? null;
       if (!type) return state;
-      const value = shared.llamaSellPriceCents(type, getBaseLocPerSecond(state));
-      if (!Number.isFinite(value) || value < 0) return state;
+      const value = shared.storedLlamaSellCents(farm.stalls[stallIndex]);
+      if (value === null) return state;
       const stalls = farm.stalls.map((entry, i) =>
-        i === stallIndex ? { ...entry, llama: null } : entry
+        i === stallIndex ? { ...entry, llama: null, sellCents: null } : entry
       );
       return {
         ...state,
@@ -721,7 +722,8 @@ function gameReducer(state, action) {
 
     // Move a llama to an EMPTY stall (issue #129). Payload:
     // { fromIndex, toIndex }. Pure placement (shared.moveFarmLlama):
-    // the llama moves, each stall keeps its own lighting. Moving is
+    // the llama moves with its stored sell value, each stall keeps its
+    // own lighting. Moving is
     // free; it is how the player builds breeding nests. An invalid
     // move (occupied target, empty source, same stall) is ignored.
     case "MOVE_LLAMA": {
@@ -751,8 +753,11 @@ function gameReducer(state, action) {
         ...state,
         // Issue #204: the placed kids count toward the Farm tab badge,
         // except while the player is on the Farm tab watching them.
+        // Issue #244: each kid's sell value is set here, at the P of
+        // the moment it is born, and never recomputed.
         farm: shared.applyFarmBirths(farm, action.payload?.kids, {
           watching: isSectionOnScreen(state, "farm"),
+          buffedLocPerSec: getBaseLocPerSecond(state),
         }),
         farmBreedDue: false,
       };
@@ -1165,9 +1170,9 @@ function gameReducer(state, action) {
     }
 
     // Buy the next Night Shift level (issue #149). No payload. The price
-    // is TIME at current LOC/s: the level's minutes of production value
-    // (B) at the buffed healthy rate, the same P the barn and llamas
-    // price from. Bought only when the previous level is owned, the
+    // is TIME at current LOC/s: the level's minutes of ship-everything
+    // income (S, issue #244) at the buffed healthy rate, the same basis
+    // the barn and llamas price from. Bought only when the previous level is owned, the
     // gate holds (live P and a live employee count), and the cash
     // covers the price; otherwise the state is unchanged (the card
     // disables the button and says why, this is the second line of

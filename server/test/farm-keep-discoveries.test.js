@@ -75,7 +75,7 @@ test("a sale with discovered types keeps unlockedTypes while barn, stalls, llama
   assert.equal(post.farm.owned, false);
   assert.equal(post.farm.stalls.length, FARM_CONFIG.stallCount);
   for (const stall of post.farm.stalls) {
-    assert.deepEqual(stall, { llama: null, lighting: "warm" });
+    assert.deepEqual(stall, { llama: null, lighting: "warm", sellCents: null });
   }
   assert.equal(post.farm.unseenBirths, 0);
   // Everything but the types is exactly the old reset.
@@ -89,12 +89,13 @@ test("a sale with no discoveries behaves exactly as before", () => {
   pre.totalLinesOfCode = equityThresholdLoc(2);
   pre.farm = { ...initialFarmState() };
   const post = applyPrestigeSale(pre, randomUUID());
-  // The literal pre-#237 reset.
+  // The literal pre-#237 reset (with #244's empty sell value per stall).
   assert.deepEqual(post.farm, {
     owned: false,
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
+      sellCents: null,
     })),
     unlockedTypes: [],
     unseenBirths: 0,
@@ -205,7 +206,7 @@ test("shape check: an unbought farm may hold types after a sale, never before on
     detail: "farm has unlocked types but is not owned",
   });
   // An unbought farm with llamas is still malformed after a sale.
-  const stalls = post.farm.stalls.map((stall, i) => (i === 0 ? { ...stall, llama: "quantum" } : stall));
+  const stalls = post.farm.stalls.map((stall, i) => (i === 0 ? { ...stall, llama: "quantum", sellCents: 1000 } : stall));
   assert.deepEqual(validateSeedState({ ...post, farm: { ...post.farm, stalls } }), {
     ok: false,
     detail: "farm has llamas but is not owned",
