@@ -5,6 +5,8 @@ import { NavButton } from "./NavButton.jsx";
 import { getReleaseManagerEconomics } from "../context/gameLogic.js";
 import { farmUnseenBirths } from "../../../shared/game-balance.js";
 import { isSectionOnScreen, paneOf } from "../navigation/panes.js";
+import { useBadgeBump } from "../hooks/useLlamaBirths.js";
+import "./LlamaBirth.css";
 
 export function NavBar() {
   const { state, dispatch } = useGameContext();
@@ -18,6 +20,9 @@ export function NavBar() {
   const unseenBirths = isSectionOnScreen(state, "farm")
     ? 0
     : farmUnseenBirths(state.farm);
+  // Issue #218: the Farm badge bumps each time a breed result raises
+  // its count (never on a load, never while the Farm is watched).
+  const farmBadgeBump = useBadgeBump(state.lastBirths);
 
   const handleTabClick = (tab) => {
     dispatch({ type: "SET_ACTIVE_TAB", payload: { tab } });
@@ -54,6 +59,7 @@ export function NavBar() {
                     ? unseenBirths
                     : 0
             }
+            badgeBumpKey={id === "farm" ? farmBadgeBump : 0}
             onClick={() => handleTabClick(id)}
           />
         );
