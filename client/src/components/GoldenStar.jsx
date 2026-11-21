@@ -34,6 +34,7 @@ import {
 import { formatNumber } from "../../../shared/formatNumber.js";
 import { playStarSpawnSound, playStarClickSound } from "../utils/sound.js";
 import { FloatingText } from "./FloatingText.jsx";
+import { starBadge } from "../utils/starBadge.js";
 import { newStarClaimId } from "../email/email.js";
 import { serverNowMs } from "../save/serverClock.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
@@ -623,7 +624,8 @@ export function GoldenStar() {
       triggerFloatingText(
         position.x + STAR_SIZE_PX / 2,
         position.y,
-        starRewardLabel(claim),
+        // The CI badge (issue #212): the same label, split and skinned.
+        starBadge(claim, starRewardLabel(claim)),
         <FaStar size={20} color={claim.red ? RED_STAR_COLOR : GOLD_STAR_COLOR} />
       );
     },

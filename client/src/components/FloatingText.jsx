@@ -15,6 +15,8 @@ import { useStarLabelNudge } from "../hooks/useStarLabelNudge.js";
 //   - onAnimationEnd: Callback function triggered when the animation completes
 //   - variant: "default" (click, Contribute and passive floats) or "star"
 //     (star claim labels). See utils/floatingTextVariants.js.
+//     For the star variant, `text` may be a CI badge object from
+//     utils/starBadge.js ({ label, name, detail, kind, chip }), issue #212.
 //
 // Hotfix #202: the pill is placed AT (x, y), centered on it, from those
 // coordinates only. There is no measuring, clamping or spawn offset
@@ -37,6 +39,10 @@ export function FloatingText({
   // click float never runs it.
   const isStar = variant === "star";
   const starNudgeRef = useStarLabelNudge(isStar);
+  // Issue #212: the star label renders as a CI badge (a chip, the name,
+  // and the detail under it), skinned by its kind. Look only.
+  const badge = isStar && text && typeof text === "object" ? text : null;
+  const skinClass = badge ? `ci-badge--${badge.kind}` : "";
 
   // The star label wraps (at most the viewport width); the click float stays one line.
   const wrapClass = config.wrap
@@ -47,11 +53,13 @@ export function FloatingText({
     <div
       ref={isStar ? starNudgeRef : undefined}
       // Tailwind classes: prevent selection, disable pointer events, position fixed,
-      // the variant's animation and font size, bold green text, flex layout with gap.
-      // The dark translucent pill (issue #49) gives the text contrast
-      // against any background, wherever it floats. .floating-text
-      // centers the pill on the origin (FloatingText.css).
-      className={`floating-text select-none pointer-events-none fixed ${config.animationClass} font-bold ${config.fontClass} text-green-600 flex items-center gap-1 ${config.pillClass} px-3 py-1 ${wrapClass}`}
+      // the variant's animation and font size, bold text, flex layout with gap.
+      // The variant's skin (issue #212: the diff chip for the click
+      // float, the CI badge for the star label; FloatingText.css) is a
+      // dark pill that gives the text contrast against any background,
+      // wherever it floats (issue #49). .floating-text centers the pill
+      // on the origin (FloatingText.css).
+      className={`floating-text select-none pointer-events-none fixed ${config.animationClass} font-bold ${config.fontClass} flex items-center gap-1 ${config.pillClass} ${skinClass} ${wrapClass}`}
       style={{
         left: `${origin.left}px`,
         top: `${origin.top}px`,
@@ -62,10 +70,26 @@ export function FloatingText({
       // the first to end removes the float (the second is a no-op).
       onAnimationEnd={onAnimationEnd}
     >
-      {/* Display the main text content */}
-      <span>{text}</span>
-      {/* Conditionally render icon if provided */}
-      {icon && <span className="flex items-center justify-center">{icon}</span>}
+      {badge ? (
+        // The CI badge: title row (chip, name, icon), detail under it.
+        <span className="ci-badge-body" aria-label={badge.label}>
+          <span className="ci-badge-title">
+            <span className="ci-badge-chip">{badge.chip}</span>
+            <span className="ci-badge-name">{badge.name}</span>
+            {icon && <span className="flex items-center justify-center">{icon}</span>}
+          </span>
+          {badge.detail && (
+            <span className="ci-badge-detail">{badge.detail}</span>
+          )}
+        </span>
+      ) : (
+        <>
+          {/* Display the main text content */}
+          <span>{text}</span>
+          {/* Conditionally render icon if provided */}
+          {icon && <span className="flex items-center justify-center">{icon}</span>}
+        </>
+      )}
     </div>
   );
 }
