@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActionButton } from "./ActionButton.jsx";
 import { Button } from "./Button.jsx";
-// Number abbreviation (issue #42) — the shared formatter.
+// Number abbreviation (issue #42): the shared formatter.
 import { formatNumber } from "../../../shared/formatNumber.js";
 import {
   DOUBLING_PROJECT_EMPLOYEE,
@@ -30,7 +30,7 @@ import { Panel } from "./Panel.jsx";
 /**
  * Star info for a Constellation level: the spawn interval and the
  * unlocked effects (by their good-outcome pun names). Constellation has
- * no numeric bonus — its bonus IS the stars — so the card shows this
+ * no numeric bonus (its bonus IS the stars), so the card shows this
  * instead of "+0 STAR".
  */
 function constellationInfo(level) {
@@ -68,8 +68,8 @@ function scrumBoostPercent(level) {
 
 /**
  * StarBroker cooldown label for a level ("8m", "30s"), or null at
- * level 0. StarBroker has no numeric bonus — its bonus IS the shorter
- * cooldown — so the card shows this instead of "+0 STAR".
+ * level 0. StarBroker has no numeric bonus (its bonus IS the shorter
+ * cooldown), so the card shows this instead of "+0 STAR".
  */
 function starBrokerInfo(level) {
   const cooldown = starBrokerCooldownSeconds(level);
@@ -193,8 +193,11 @@ export function OpenSourceCard({
             title={`${project.name} v.${currentLevel}.0`}
             description={project.description}
           >
-            {/* An owned Bridge Round has no next version to price. */}
-            {!(isBridge && isMaxed) && (
+            {/* A maxed card has no next version to price (issue #191):
+                the row is dropped, and the card already reads MAXED OUT.
+                A round-capped card is not maxed, so it keeps pointing at
+                the gated level. (An owned Bridge Round is maxed too.) */}
+            {!isMaxed && (
               <JsDocLine
                 tag="@param"
                 type="LOC"
@@ -202,7 +205,7 @@ export function OpenSourceCard({
               />
             )}
 
-            {/* current bonus, if any — for Constellation, the star info;
+            {/* current bonus, if any: for Constellation, the star info;
                 for StarBroker, the cooldown (no numeric bonus); for a
                 doubling upgrade, the output multiplier */}
             {isBridge ? (
@@ -220,7 +223,7 @@ export function OpenSourceCard({
                 type="STAR"
                 value={
                   currentLevel > 0
-                    ? `Stars every ${starInfo.interval.min}–${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
+                    ? `Stars every ${starInfo.interval.min} to ${starInfo.interval.max}s · ${starInfo.effectNames.join(" · ")}`
                     : "No stars yet. Chart the first one"
                 }
                 valueClassName="text-green-400"
@@ -285,7 +288,7 @@ export function OpenSourceCard({
                 <JsDocLine
                   tag="@returns"
                   type="Bonus"
-                  value={`${starNext.newEffectName ? `Unlocks ${starNext.newEffectName}` : ""}${starNext.newEffectName && starNext.fasterSpawns ? " · " : ""}${starNext.fasterSpawns ? `Stars spawn faster (${starNext.nextInterval.min}–${starNext.nextInterval.max}s)` : ""}`}
+                  value={`${starNext.newEffectName ? `Unlocks ${starNext.newEffectName}` : ""}${starNext.newEffectName && starNext.fasterSpawns ? " · " : ""}${starNext.fasterSpawns ? `Stars spawn faster (every ${starNext.nextInterval.min} to ${starNext.nextInterval.max}s)` : ""}`}
                   valueClassName="text-green-400"
                 />
               ) : isStarBroker ? (
