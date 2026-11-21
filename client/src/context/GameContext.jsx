@@ -285,6 +285,17 @@ function recordHypeShips(state, ships, cashCents) {
   );
 }
 
+/**
+ * Opening the Farm tab clears its birth badge (issue #204): when a tab
+ * change lands on the farm, unseenBirths goes to 0. Any other tab, or a
+ * state with no farm, is returned unchanged.
+ */
+function withFarmVisit(state) {
+  if (state.activeTab !== "farm" || !state.farm) return state;
+  const farm = shared.farmSeen(state.farm);
+  return farm === state.farm ? state : { ...state, farm };
+}
+
 function gameReducer(state, action) {
   // Store-only intermission (issue #188): while the post-sale
   // intermission is open, every game action is inert (no tick, click,
@@ -303,15 +314,17 @@ function gameReducer(state, action) {
         console.warn(`Invalid tab: ${tab}. Defaulting to shop.`);
       }
       // A manual tab switch drops any highlight no card picked up, so
-      // it cannot flash by surprise later (issue #173).
-      return { ...clearHighlight(state), activeTab };
+      // it cannot flash by surprise later (issue #173). Opening the Farm
+      // tab clears its birth badge (issue #204).
+      return withFarmVisit({ ...clearHighlight(state), activeTab });
     }
 
     // Follow an email link (issue #173): switch to the target's tab
     // and record the highlight its card consumes. Payload: { target }.
     // A missing or malformed target is a no-op.
     case "NAVIGATE_TO_TARGET": {
-      return navigateToTarget(state, action.payload?.target);
+      // An email link to the farm opens it, so it clears the badge too.
+      return withFarmVisit(navigateToTarget(state, action.payload?.target));
     }
 
     // The linked card scrolled into view and flashed: clear the
@@ -701,7 +714,11 @@ function gameReducer(state, action) {
       if (!farm.owned) return { ...state, farmBreedDue: false };
       const newState = {
         ...state,
-        farm: shared.applyFarmBreedKids(farm, action.payload?.kids),
+        // Issue #204: the placed kids count toward the Farm tab badge,
+        // except while the player is on the Farm tab watching them.
+        farm: shared.applyFarmBirths(farm, action.payload?.kids, {
+          watching: state.activeTab === "farm",
+        }),
         farmBreedDue: false,
       };
       const latched = {

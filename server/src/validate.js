@@ -506,9 +506,16 @@ function checkStateShape(state) {
     state.farm === null ||
     typeof state.farm !== "object" ||
     Array.isArray(state.farm) ||
-    !hasExactKeys(state.farm, ["owned", "stalls", "unlockedTypes"])
+    !hasExactKeys(state.farm, ["owned", "stalls", "unlockedTypes", "unseenBirths"])
   ) {
-    return "farm must be an object with owned, stalls, and unlockedTypes";
+    return "farm must be an object with owned, stalls, unlockedTypes, and unseenBirths";
+  }
+  // Issue #204: the Farm tab badge count, a non-negative whole number.
+  if (
+    !Number.isSafeInteger(state.farm.unseenBirths) ||
+    state.farm.unseenBirths < 0
+  ) {
+    return "farm.unseenBirths must be a non-negative integer";
   }
   if (typeof state.farm.owned !== "boolean") {
     return "farm.owned must be a boolean";

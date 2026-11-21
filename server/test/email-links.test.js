@@ -542,9 +542,11 @@ test("the components use the one shared mechanism", () => {
   assert.match(anchor, /scrollIntoView/);
   assert.match(anchor, /highlight-flash/);
   const context = read("context/GameContext.jsx");
-  assert.match(context, /case "NAVIGATE_TO_TARGET": \{\s*return navigateToTarget\(/);
+  // Wrapped in the Farm tab visit (issue #204: opening the farm clears
+  // its birth badge); the navigation itself is still the shared helper.
+  assert.match(context, /case "NAVIGATE_TO_TARGET": \{[^}]*?return withFarmVisit\(navigateToTarget\(/);
   assert.match(context, /case "CONSUME_HIGHLIGHT": \{\s*return consumeHighlight\(/);
-  assert.match(context, /return \{ \.\.\.clearHighlight\(state\), activeTab \};/);
+  assert.match(context, /return withFarmVisit\(\{ \.\.\.clearHighlight\(state\), activeTab \}\);/);
   const email = read("components/Email.jsx");
   assert.match(email, /emailDetailModel\(selectedEmail\)/);
   assert.match(email, /type: "NAVIGATE_TO_TARGET"/);
