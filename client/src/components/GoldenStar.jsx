@@ -1131,6 +1131,8 @@ export function GoldenStar() {
           icon={ft.icon}
           x={ft.x}
           y={ft.y}
+          // Star claim labels (issue #189): readable, front, above the finger.
+          variant="star"
           onAnimationEnd={() => handleAnimationEnd(ft.id)}
         />
       ))}
