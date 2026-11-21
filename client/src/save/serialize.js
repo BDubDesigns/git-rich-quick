@@ -30,6 +30,7 @@ import {
   sanitizeAchievementsState,
   normalizeSubtracterallState,
   nightShiftLevelOf,
+  farmUnseenBirths,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
 
@@ -135,6 +136,8 @@ export function stateToSaveState(clientState) {
         lighting: stall.lighting ?? "warm",
       })),
       unlockedTypes: [...(clientState.farm?.unlockedTypes ?? [])],
+      // Issue #204: the Farm tab badge count.
+      unseenBirths: farmUnseenBirths(clientState.farm),
     },
     // Golden-star schedule (client-rolled now). The wall-clock time
     // the next natural star is due (null = no star scheduled) and the
@@ -324,6 +327,7 @@ export function saveStateToGameFields(saveState) {
             lighting: "warm",
           })),
           unlockedTypes: [],
+          unseenBirths: 0,
         };
       }
       const stalls = (farm.stalls ?? []).map((stall) => ({
@@ -337,6 +341,8 @@ export function saveStateToGameFields(saveState) {
         owned: farm.owned ?? false,
         stalls,
         unlockedTypes,
+        // Issue #204: a farm from before the birth badge reads 0.
+        unseenBirths: farmUnseenBirths(farm),
       };
     })(),
     // Golden-star schedule (client-rolled now). A save from before

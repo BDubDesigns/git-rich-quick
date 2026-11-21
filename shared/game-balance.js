@@ -1917,6 +1917,8 @@ export function emptyFarmState() {
       lighting: "warm",
     })),
     unlockedTypes: [],
+    // Issue #204: llamas born since the player last opened the Farm tab.
+    unseenBirths: 0,
   };
 }
 
@@ -1934,7 +1936,61 @@ export function initialFarmState() {
       lighting: "warm",
     })),
     unlockedTypes: [],
+    unseenBirths: 0,
   };
+}
+
+/**
+ * The Farm tab badge (issue #204, Brandon: "if 2 llamas are born it
+ * should show 2 ... next round of another 1 is born it should show
+ * three if I haven't been to the farm yet so I know when I can sell").
+ * farm.unseenBirths counts llamas born since the player last opened the
+ * Farm tab. It lives in the farm, so it saves and reloads with it and
+ * resets with the rest of the farm on a sale (emptyFarmState).
+ */
+
+/** A farm's unseen-birth count, guarded: missing, NaN or negative reads 0. */
+export function farmUnseenBirths(farm) {
+  const n = Math.floor(Number(farm?.unseenBirths));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** How many kids a breed result actually placed: stalls that went from empty to a llama. */
+export function farmBirthsPlaced(before, after) {
+  const prev = before?.stalls ?? [];
+  const next = after?.stalls ?? [];
+  let placed = 0;
+  for (let i = 0; i < next.length; i += 1) {
+    if ((prev[i]?.llama ?? null) === null && (next[i]?.llama ?? null) !== null) {
+      placed += 1;
+    }
+  }
+  return placed;
+}
+
+/**
+ * Apply a breed result (applyFarmBreedKids, unchanged) and count its
+ * births for the badge. Only kids actually placed count. Births while
+ * the player is `watching` (on the Farm tab, looking at the stalls) are
+ * not counted, and the count stays 0 there: the badge is never nonzero
+ * while the Farm tab is open.
+ */
+export function applyFarmBirths(farm, kids, { watching = false } = {}) {
+  const before = farm ?? emptyFarmState();
+  const after = applyFarmBreedKids(before, kids);
+  return {
+    ...after,
+    unseenBirths: watching
+      ? 0
+      : farmUnseenBirths(before) + farmBirthsPlaced(before, after),
+  };
+}
+
+/** The farm after the player opens the Farm tab: the badge clears. */
+export function farmSeen(farm) {
+  const base = farm ?? emptyFarmState();
+  if (farmUnseenBirths(base) === 0 && base.unseenBirths === 0) return base;
+  return { ...base, unseenBirths: 0 };
 }
 
 /**
@@ -6073,6 +6129,8 @@ export function normalizeSaveState(state) {
         LLAMA_TYPES.includes(type)
       );
     }
+    // Issue #204: a farm from before the birth badge has no count.
+    if (farm.unseenBirths === undefined) farm.unseenBirths = 0;
     next.farm = farm;
   }
   // Golden-star timers (client-rolled now): a save from before this
