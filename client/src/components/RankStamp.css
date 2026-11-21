@@ -1,0 +1,93 @@
+/* Rank stamp (issue #217, Slice 5 of #210): a permanent store purchase,
+   on the bought track's panel. Transform and opacity only, every layer
+   pointer-events: none, contained in the panel (no z-index layer).
+   The rank line's gold bump is the Slice 2 stat bump (StatBump.css). */
+
+/* The border flash: a gold border and glow over the panel's own border,
+   fading out over 450ms (the panel border itself never animates). */
+.rank-flash {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid #facc15;
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  animation: rank-flash 450ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes rank-flash {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Funding Rounds only: ROUND CLOSED, a smaller Slice 3 stamp (red ink,
+   rotated -8 degrees), slammed in, held, gone by 1.2s. It sits in the
+   panel's bottom-right corner, beside the buy button, so it never
+   covers the rank line it is celebrating. */
+.round-closed-chip {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: rgba(239, 68, 68, 0.9);
+  border: 2px solid currentColor;
+  padding: 2px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transform: rotate(-8deg) scale(1.6);
+  animation: round-closed 1200ms linear forwards;
+}
+
+@keyframes round-closed {
+  0% {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1.6);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  15% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(0.96);
+  }
+  22% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1);
+  }
+}
+
+/* Reduced motion: the flash shows whole for 450ms then goes; the chip
+   appears and disappears with no scale or rotation. */
+@media (prefers-reduced-motion: reduce) {
+  .rank-flash {
+    animation: rank-stamp-still 450ms steps(1, end) forwards;
+  }
+
+  .round-closed-chip {
+    transform: none;
+    animation: rank-stamp-still 1200ms steps(1, end) forwards;
+  }
+}
+
+@keyframes rank-stamp-still {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
