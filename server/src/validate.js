@@ -499,7 +499,7 @@ function checkStateShape(state) {
   }
   // Llama farm (issue #79). The farm is one object: owned (boolean),
   // stalls (exactly FARM_CONFIG.stallCount entries, each { llama,
-  // lighting } with a llama that is null or a known type id and a
+  // lighting, locked } with a llama that is null or a known type id and a
   // lighting that is a known color), and unlockedTypes (known type ids
   // only, no duplicates). Sell prices float with production, so nothing
   // is stored on a stall. A save written by the stored-value build
@@ -539,10 +539,24 @@ function checkStateShape(state) {
       Array.isArray(stall) ||
       !(
         hasExactKeys(stall, ["llama", "lighting"]) ||
-        hasExactKeys(stall, ["llama", "lighting", "sellCents"])
+        hasExactKeys(stall, ["llama", "lighting", "sellCents"]) ||
+        hasExactKeys(stall, ["llama", "lighting", "locked"]) ||
+        hasExactKeys(stall, ["llama", "lighting", "locked", "sellCents"])
       )
     ) {
       return "farm stalls must be objects with llama and lighting";
+    }
+    // Issue #240: the llama lock. normalizeSaveState backfills it
+    // (unlocked) before this check; a stale client that predates the
+    // lock sends no key, and that is tolerated too. When present it is
+    // a boolean, and only a llama can be locked.
+    if ("locked" in stall) {
+      if (typeof stall.locked !== "boolean") {
+        return "farm stall locked must be a boolean";
+      }
+      if (stall.locked && stall.llama === null) {
+        return "farm stall is locked but holds no llama";
+      }
     }
     if (stall.llama !== null && !LLAMA_TYPES.includes(stall.llama)) {
       return `farm stall has an unknown llama type: ${stall.llama}`;

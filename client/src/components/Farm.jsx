@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { FaLock } from "react-icons/fa";
 import { useGameContext } from "../context/useGameContext.js";
 import {
   getBaseLocPerSecond,
@@ -35,6 +36,7 @@ import {
   farmEligibleBreedingStalls,
   farmLlamaCount,
   farmPurchaseCostCents,
+  farmSellAllPreview,
   formatEstimateDuration,
   llamaBuyPriceCents,
   llamaSellPriceCents,
@@ -66,6 +68,12 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
  *
  * There is no llama icon in react-icons, so the stalls render the
  * llama emoji. It is a game about llamas; the emoji is the point.
+ *
+ * Issue #240: a llama can be locked from its stall's chip (parents, the
+ * Mama, a layout's buffers). Sell All, in the farm panel, sells every
+ * llama that is not locked in one tap; its button reads the count and
+ * the total before you tap it. Selling one llama from its chip works
+ * the same, locked or not.
  */
 export function Farm() {
   const { state, dispatch } = useGameContext();
@@ -174,6 +182,18 @@ export function Farm() {
     clearSelection();
   };
 
+  // Issue #240: lock or unlock the selected llama. The chip stays open.
+  const handleToggleLock = () => {
+    if (selectedStall === null) return;
+    dispatch({ type: "TOGGLE_LLAMA_LOCK", payload: { stallIndex: selectedStall } });
+  };
+
+  // Issue #240: sell every unlocked llama in one action.
+  const handleSellAll = () => {
+    dispatch({ type: "SELL_UNLOCKED_LLAMAS" });
+    clearSelection();
+  };
+
   if (!farm.owned && !isFarmUnlockMet(state)) {
     return (
       <SectionLayout sectionId="farm">
@@ -244,6 +264,9 @@ export function Farm() {
   const selectedSellCents = selectedLlama
     ? llamaSellPriceCents(selectedLlama, pricingRate)
     : null;
+  const selectedLocked = selectedLlama !== null && selected?.locked === true;
+  // Issue #240: what Sell All will do, priced like the single Sell.
+  const sellAll = farmSellAllPreview(farm.stalls, pricingRate);
   const selectedLighting = selected
     ? (FARM_LIGHTING[selected.lighting] ?? FARM_LIGHTING.warm)
     : null;
@@ -271,6 +294,32 @@ export function Farm() {
                 : "No empty stall sits between two llamas right now, so nothing can breed. Move some llamas into a nest."}{" "}
             Click a stall to select it.
           </p>
+          {/* Issue #240: Sell All sells every llama that is not locked.
+              The label says what it will do; nothing sellable disables it. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={handleSellAll}
+              disabled={sellAll.count === 0}
+              aria-label={
+                sellAll.count > 0
+                  ? `Sell all ${sellAll.count} unlocked ${
+                      sellAll.count === 1 ? "llama" : "llamas"
+                    } for ${formatMoney(sellAll.totalCents)}`
+                  : undefined
+              }
+            >
+              {sellAll.count > 0
+                ? `Sell ${sellAll.count} unlocked for ${formatMoney(sellAll.totalCents)}`
+                : llamaCount === 0
+                  ? "Sell All (no llamas)"
+                  : "Sell All (every llama is locked)"}
+            </Button>
+            {llamaCount > 0 && (
+              <p className="m-0 text-xs text-gray-400">
+                Lock a llama in its stall to keep it out of Sell All.
+              </p>
+            )}
+          </div>
           <PricingNote rate={pricingRate} />
         </Panel>
       </HighlightAnchor>
@@ -331,7 +380,9 @@ export function Farm() {
                 stall.llama
                   ? `Stall ${index + 1}: ${LLAMA_TYPE_NAMES[stall.llama]}, sells for ${formatMoney(
                       llamaSellPriceCents(stall.llama, pricingRate)
-                    )}, ${lighting.label} lighting${isSelected ? ", selected" : ""}`
+                    )}, ${lighting.label} lighting${stall.locked ? ", locked" : ""}${
+                      isSelected ? ", selected" : ""
+                    }`
                   : `Stall ${index + 1}: empty, ${lighting.label} lighting${
                       isEligible ? ", can breed" : ""
                     }${isSelected ? ", selected" : ""}${
@@ -339,6 +390,12 @@ export function Farm() {
                     }`
               }
             >
+              {stall.llama && stall.locked && (
+                <FaLock
+                  className="absolute top-1 right-1 text-xs text-yellow-300"
+                  aria-hidden="true"
+                />
+              )}
               {birth?.newType && (
                 <span key={`new-${births.seq}`} className="birth-new-type" aria-hidden="true" />
               )}
@@ -383,6 +440,9 @@ export function Farm() {
                       {selectedStall + 1}. Sells for{" "}
                       {formatMoney(selectedSellCents ?? 0)}. The price follows
                       your shipping income, so it rises as your team grows.
+                      {selectedLocked
+                        ? " Locked: Sell All skips this llama."
+                        : ""}
                     </p>
                     {moving ? (
                       <p className="m-0 text-sm text-yellow-300">
@@ -399,6 +459,16 @@ export function Farm() {
                           disabled={llamaCount >= FARM_CONFIG.stallCount}
                         >
                           Move
+                        </Button>
+                        <Button
+                          onClick={handleToggleLock}
+                          aria-label={
+                            selectedLocked
+                              ? `Unlock this ${LLAMA_TYPE_NAMES[selectedLlama]}`
+                              : `Lock this ${LLAMA_TYPE_NAMES[selectedLlama]} so Sell All skips it`
+                          }
+                        >
+                          {selectedLocked ? "Unlock" : "Lock"}
                         </Button>
                         <Button onClick={() => handleCycleLighting(selectedStall)}>
                           Lighting: {selectedLighting.label}
