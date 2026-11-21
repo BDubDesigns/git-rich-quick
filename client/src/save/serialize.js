@@ -17,7 +17,6 @@
 
 import {
   EMPLOYEE_TYPES,
-  FARM_CONFIG,
   FREELANCE_PROJECT_KEYS,
   OPEN_SOURCE_IDS,
   deriveUnlockedCosmetics,
@@ -31,6 +30,8 @@ import {
   normalizeSubtracterallState,
   nightShiftLevelOf,
   farmUnseenBirths,
+  emptyFarmState,
+  farmIsStarterStall,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
 
@@ -136,6 +137,8 @@ export function stateToSaveState(clientState) {
         llama: stall.llama ?? null,
         lighting: stall.lighting ?? "warm",
         locked: Boolean(stall.llama) && stall.locked === true,
+        // Issue #241: closed stalls. A stall with no flag reads open.
+        open: stall.open !== false,
       })),
       unlockedTypes: [...(clientState.farm?.unlockedTypes ?? [])],
       // Issue #204: the Farm tab badge count.
@@ -326,21 +329,24 @@ export function saveStateToGameFields(saveState) {
       if (!farm || typeof farm !== "object" || Array.isArray(farm)) {
         return {
           owned: false,
-          stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
-            llama: null,
-            lighting: "warm",
-            locked: false,
-          })),
+          stalls: emptyFarmState().stalls,
           unlockedTypes: [],
           unseenBirths: 0,
         };
       }
       // Issue #240: a save from before the lock loads every llama
       // unlocked; an empty stall is never locked.
-      const stalls = (farm.stalls ?? []).map((stall) => ({
+      // Issue #241: a save from before closed stalls has no `open`. An
+      // owned barn keeps all its stalls open; an unbought one gets the
+      // starter shape, the same rule as the server's normalizeSaveState.
+      const stalls = (farm.stalls ?? []).map((stall, index) => ({
         llama: stall?.llama ?? null,
         lighting: stall?.lighting ?? "warm",
         locked: Boolean(stall?.llama) && stall?.locked === true,
+        open:
+          typeof stall?.open === "boolean"
+            ? stall.open
+            : farm.owned === true || farmIsStarterStall(index),
       }));
       const unlockedTypes = Array.isArray(farm.unlockedTypes)
         ? [...farm.unlockedTypes]
@@ -468,6 +474,11 @@ export function bigActionFields(saveState) {
     farmLocks: JSON.stringify(
       (saveState.farm?.stalls ?? []).map((stall) => stall.locked === true)
     ),
+    // Issue #241: opening a closed stall is a cash purchase, so it
+    // saves promptly, like buying the barn.
+    farmOpenStalls: (saveState.farm?.stalls ?? []).filter(
+      (stall) => stall.open !== false
+    ).length,
     // Release Manager assignments: changing an assignment is a
     // deliberate player choice (like an equip), so it saves promptly.
     // Compared as a string because any change (one project's count)
@@ -666,6 +677,8 @@ export function bigActionIncreased(prev, next) {
   if ((next.farmLighting ?? "") !== (prev.farmLighting ?? "")) return true;
   if ((next.farmLayout ?? "") !== (prev.farmLayout ?? "")) return true;
   if ((next.farmLocks ?? "") !== (prev.farmLocks ?? "")) return true;
+  // Issue #241: a stall was opened.
+  if ((next.farmOpenStalls ?? 0) > (prev.farmOpenStalls ?? 0)) return true;
   // Release Manager assignments: any change (one project's count) is
   // a big action, like an equip.
   if (

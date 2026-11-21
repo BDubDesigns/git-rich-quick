@@ -1477,6 +1477,14 @@ export const FARM_CONFIG = Object.freeze({
   /** Columns in the stall grid (used for orthogonal adjacency). */
   gridCols: 3,
   /**
+   * Issue #241: the stalls a fresh barn opens with. The grid is
+   * row-major (index = row x gridCols + col), so 4 is the centre and
+   * 1, 3, 5, 7 are its four sides: a plus shape. The other stalls (the
+   * four corners, 0, 2, 6, 8) start closed and are opened one at a
+   * time for cash (LLAMA_ECONOMY.stallOpenSeconds).
+   */
+  starterStalls: Object.freeze([1, 3, 4, 5, 7]),
+  /**
    * How often the breeding check runs, in seconds. The client rolls
    * (shared.rollFarmBreeding) on this interval. 60s, not 5s — a kid
    * every few minutes at the v1 odds, not a kid every few seconds.
@@ -1635,9 +1643,11 @@ export function farmLlamaCount(stalls) {
 export function farmEligibleBreedingStalls(stalls) {
   const eligible = [];
   for (let i = 0; i < stalls.length; i++) {
-    if (stalls[i].llama) continue;
+    // Issue #241: a closed stall does not exist for breeding. It is
+    // never a nest, and it never counts as a neighbour.
+    if (stalls[i].llama || !farmStallIsOpen(stalls[i])) continue;
     const llamaNeighbours = farmStallNeighbours(i).filter(
-      (n) => stalls[n].llama
+      (n) => stalls[n].llama && farmStallIsOpen(stalls[n])
     );
     if (llamaNeighbours.length >= 2) eligible.push(i);
   }
@@ -1673,9 +1683,10 @@ export function farmMaxKidsPerWindow(prevStalls) {
  */
 export function rollFarmKid(stallIndex, stalls, unlockedTypes, rng = Math.random) {
   const stall = stalls[stallIndex];
-  if (!stall || stall.llama) return null;
+  if (!stall || stall.llama || !farmStallIsOpen(stall)) return null;
   const lighting = FARM_LIGHTING[stall.lighting] ?? FARM_LIGHTING.warm;
   const parentTypes = farmStallNeighbours(stallIndex)
+    .filter((n) => farmStallIsOpen(stalls[n]))
     .map((n) => stalls[n].llama)
     .filter(Boolean);
   if (parentTypes.length < 2) return null;
@@ -1745,6 +1756,15 @@ export const LLAMA_ECONOMY = Object.freeze({
   minPricingLocPerSecond: 10,
   /** The barn: seconds of S. */
   barnSeconds: 60,
+  /**
+   * THE STALL-OPENING TUNING KNOB (issue #241). Opening a closed
+   * stall (a corner) costs seconds of S, by how many closed stalls this
+   * barn has already opened: the 1st costs 60, the 2nd 90, the 3rd 135,
+   * the 4th 200. The price depends on the count, not on which corner.
+   * One entry per closed stall (stallCount minus starterStalls; a test
+   * pins that). Retune here only; every displayed price reads this.
+   */
+  stallOpenSeconds: Object.freeze([60, 90, 135, 200]),
   /** Buy price per type, in seconds of S. */
   typeSeconds: Object.freeze({
     mama: 20,
@@ -1852,6 +1872,89 @@ export function llamaSellPriceCents(type, buffedLocPerSec) {
 }
 
 /**
+ * Closed stalls (issue #241). A fresh barn opens FARM_CONFIG.starterStalls
+ * (a plus shape); every other stall starts closed and is opened one at
+ * a time for cash. A stall carries `open` (boolean). A closed stall
+ * holds no llama, takes no buy, move or kid, has no lighting control,
+ * and does not exist for breeding (never a nest, never a neighbour).
+ * A stall with no `open` key (a shape from before this) reads open.
+ * Not the llama lock (issue #240): that protects a llama from Sell All.
+ */
+export function farmStallIsOpen(stall) {
+  return stall?.open !== false;
+}
+
+/** Whether stall `index` is one a fresh barn opens with. */
+export function farmIsStarterStall(index) {
+  return FARM_CONFIG.starterStalls.includes(index);
+}
+
+/** How many stalls in the barn are open. */
+export function farmOpenStallCount(stalls) {
+  return (stalls ?? []).filter(farmStallIsOpen).length;
+}
+
+/**
+ * How many closed stalls this barn has opened so far: the open stalls
+ * that are not starter stalls. This picks the next price.
+ */
+export function farmStallsOpenedCount(stalls) {
+  return (stalls ?? []).filter(
+    (stall, index) => farmStallIsOpen(stall) && !farmIsStarterStall(index)
+  ).length;
+}
+
+/**
+ * The price of opening the NEXT closed stall, in whole cents:
+ * stallOpenSeconds[opened so far] x S at buffed P. Null when nothing is
+ * left to open. Every closed stall shows this same price, since the
+ * price follows the count, not the corner.
+ */
+export function farmStallOpenPriceCents(stalls, buffedLocPerSec) {
+  const seconds = LLAMA_ECONOMY.stallOpenSeconds[farmStallsOpenedCount(stalls)];
+  if (seconds === undefined || farmOpenStallCount(stalls) >= (stalls ?? []).length) {
+    return null;
+  }
+  return Math.round(seconds * cashBasisCentsPerSecond(buffedLocPerSec));
+}
+
+/**
+ * Open a closed stall for cash (issue #241, pure; the OPEN_FARM_STALL
+ * reducer calls it). Returns `{ farm, money, price }`, or null when the
+ * open is not allowed: farm not owned, a bad index, a stall that is
+ * already open, or too little money. The price is read at the moment
+ * of purchase, like the barn and the llamas.
+ */
+export function applyFarmStallOpen({ farm, money, stallIndex, buffedLocPerSec }) {
+  if (!farm?.owned || !Array.isArray(farm.stalls)) return null;
+  if (
+    !Number.isInteger(stallIndex) ||
+    stallIndex < 0 ||
+    stallIndex >= FARM_CONFIG.stallCount
+  ) {
+    return null;
+  }
+  const stall = farm.stalls[stallIndex];
+  if (!stall || farmStallIsOpen(stall)) return null;
+  const price = farmStallOpenPriceCents(farm.stalls, buffedLocPerSec);
+  if (!(price > 0) || !(money >= price)) return null;
+  const stalls = farm.stalls.map((entry, i) =>
+    i === stallIndex ? { ...entry, open: true } : entry
+  );
+  return { farm: { ...farm, stalls }, money: money - price, price };
+}
+
+/** A fresh stall: empty, warm, unlocked, open if it is a starter stall. */
+function freshFarmStall(index) {
+  return {
+    llama: null,
+    lighting: "warm",
+    locked: false,
+    open: farmIsStarterStall(index),
+  };
+}
+
+/**
  * Move a llama from one stall to an EMPTY stall (pure). The lighting
  * stays with the stall (it is the stall's mood, not the llama's). The
  * lock (issue #240) goes with the llama: a locked llama is still locked
@@ -1869,7 +1972,9 @@ export function moveFarmLlama(farm, fromIndex, toIndex) {
   }
   const from = farm.stalls[fromIndex];
   const to = farm.stalls[toIndex];
-  if (!from?.llama || !to || to.llama !== null) return null;
+  if (!from?.llama || !to || to.llama !== null || !farmStallIsOpen(to)) {
+    return null;
+  }
   const stalls = farm.stalls.map((stall, i) => {
     if (i === fromIndex) return { ...stall, llama: null, locked: false };
     if (i === toIndex) {
@@ -2022,6 +2127,8 @@ export function applyFarmBreedKids(farm, kids) {
       continue;
     }
     if (stalls[kid.stallIndex].llama !== null) continue;
+    // Issue #241: a closed stall never gets a kid.
+    if (!farmStallIsOpen(stalls[kid.stallIndex])) continue;
     stalls[kid.stallIndex] = {
       ...stalls[kid.stallIndex],
       llama: kid.type,
@@ -2053,11 +2160,11 @@ export function keptLlamaDiscoveries(unlockedTypes) {
 export function emptyFarmState(keptTypes = []) {
   return {
     owned: false,
-    stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
-      llama: null,
-      lighting: "warm",
-      locked: false,
-    })),
+    // Issue #241: the plus shape, the barn a purchase would open, so a
+    // sale closes the corners again with the rest of the farm.
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, (_, i) =>
+      freshFarmStall(i)
+    ),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     // Issue #204: llamas born since the player last opened the Farm tab.
     unseenBirths: 0,
@@ -2075,11 +2182,11 @@ export function emptyFarmState(keptTypes = []) {
 export function initialFarmState(keptTypes = []) {
   return {
     owned: true,
-    stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
-      llama: null,
-      lighting: "warm",
-      locked: false,
-    })),
+    // Issue #241: the barn opens the starter stalls (a plus shape);
+    // the corners start closed.
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, (_, i) =>
+      freshFarmStall(i)
+    ),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     unseenBirths: 0,
   };
@@ -6257,9 +6364,21 @@ export function normalizeSaveState(state) {
     if (!Array.isArray(farm.stalls)) {
       farm.stalls = emptyFarmState().stalls;
     } else {
-      farm.stalls = farm.stalls.map((stall) => {
+      // Issue #241: a stall from before closed stalls has no `open`. An
+      // owned barn keeps every stall it has (all open), so nobody loses
+      // a llama or a layout; an unbought barn gets the starter shape,
+      // like a fresh one. A present value is kept as is (a non-boolean
+      // is left for the shape check to reject).
+      const openDefault = (index) =>
+        farm.owned === true ? true : farmIsStarterStall(index);
+      farm.stalls = farm.stalls.map((stall, index) => {
         if (!stall || typeof stall !== "object" || Array.isArray(stall)) {
-          return { llama: null, lighting: "warm", locked: false };
+          return {
+            llama: null,
+            lighting: "warm",
+            locked: false,
+            open: openDefault(index),
+          };
         }
         // Rebuilt from llama, lighting and locked only, so a `sellCents`
         // key written by the stored-value build (issue #244) is dropped:
@@ -6277,6 +6396,7 @@ export function normalizeSaveState(state) {
               : stall.locked === undefined
                 ? false
                 : stall.locked,
+          open: stall.open === undefined ? openDefault(index) : stall.open,
         };
       });
     }

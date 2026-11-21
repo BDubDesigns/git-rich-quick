@@ -107,6 +107,13 @@ body {
   border-width: 2px;
 }
 
+/* Issue #241: a closed stall (not open yet) gets no light wash and a
+   dashed border, so it reads as space the barn does not use yet. */
+.panel.stall--closed {
+  background-color: var(--panel-background-color);
+  border-style: dashed;
+}
+
 .primary-text {
   color: var(--primary-text-color);
 }

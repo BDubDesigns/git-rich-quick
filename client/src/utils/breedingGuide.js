@@ -14,6 +14,7 @@ import {
   LLAMA_ECONOMY,
   LLAMA_TYPE_NAMES,
   farmKidChance,
+  formatEstimateDuration,
 } from "../../../shared/game-balance.js";
 
 /** A 0 to 1 chance as a whole percent string (0.08 reads as 8 percent). */
@@ -50,9 +51,10 @@ export function breedingGuideSections() {
       heading: "Making kids",
       lines: [
         `Every ${seconds} seconds the barn runs a breeding check. The countdown above the stalls shows when the next one lands.`,
-        "A kid can only appear in an EMPTY stall with at least 2 llamas right beside it: up, down, left or right. Corners do not count.",
+        "A kid can only appear in an EMPTY stall with at least 2 llamas right beside it: up, down, left or right. Diagonals do not count.",
         "Each empty stall rolls on its own, with its own lighting. The lights on the parents' stalls do not matter.",
         "A kid born on one check only counts as a neighbour from the next check.",
+        closedStallsGuideLine(),
       ],
     },
     {
@@ -73,6 +75,18 @@ export function breedingGuideSections() {
       ],
     },
   ];
+}
+
+/**
+ * Issue #241: one line on closed stalls, with the counts and the
+ * opening prices read from FARM_CONFIG and LLAMA_ECONOMY.
+ */
+export function closedStallsGuideLine() {
+  const starter = FARM_CONFIG.starterStalls.length;
+  const closed = FARM_CONFIG.stallCount - starter;
+  const prices = LLAMA_ECONOMY.stallOpenSeconds.map(formatEstimateDuration);
+  const priceList = `${prices.slice(0, -1).join(", ")}, then ${prices[prices.length - 1]}`;
+  return `The barn opens ${starter} stalls. The ${closed} corners start closed: a closed stall holds no llama and is not a neighbour. Tap one to open it. Each costs more than the last: ${priceList} of shipping income.`;
 }
 
 /**

@@ -109,7 +109,7 @@ test("an old save with no lock key loads with every llama unlocked, and normaliz
   const old = { ...saveAt(100), farm: barnFarm(LAYOUT, { legacy: true }) };
   const normalized = normalizeSaveState(old);
   for (const stall of normalized.farm.stalls) {
-    assert.deepEqual(Object.keys(stall).sort(), ["lighting", "llama", "locked"]);
+    assert.deepEqual(Object.keys(stall).sort(), ["lighting", "llama", "locked", "open"]);
     assert.equal(stall.locked, false);
   }
   assert.deepEqual(normalized.farm.stalls.map((s) => s.llama), barnFarm(LAYOUT).stalls.map((s) => s.llama));
@@ -162,8 +162,16 @@ test("the validator accepts old and new stall shapes in every mix", () => {
 });
 
 test("fresh barns and sold barns start with every stall unlocked", () => {
-  for (const stall of [...initialFarmState().stalls, ...emptyFarmState().stalls]) {
-    assert.deepEqual(stall, { llama: null, lighting: "warm", locked: false });
+  for (const stalls of [initialFarmState().stalls, emptyFarmState().stalls]) {
+    for (const [i, stall] of stalls.entries()) {
+      // Issue #241: only the starter stalls are open in a fresh barn.
+      assert.deepEqual(stall, {
+        llama: null,
+        lighting: "warm",
+        locked: false,
+        open: FARM_CONFIG.starterStalls.includes(i),
+      });
+    }
   }
 });
 
@@ -205,8 +213,8 @@ test("the lock goes with the llama on a move; the stall it left is unlocked", ()
 
 test("a bought or born llama arrives unlocked", () => {
   const farm = initialFarmState();
-  const bought = applyLlamaBuy({ farm, money: 1e15, stallIndex: 0, type: "classic", buffedLocPerSec: 100 });
-  assert.equal(bought.farm.stalls[0].locked, false);
+  const bought = applyLlamaBuy({ farm, money: 1e15, stallIndex: 1, type: "classic", buffedLocPerSec: 100 });
+  assert.equal(bought.farm.stalls[1].locked, false);
   const bred = applyFarmBirths(barnFarm(LAYOUT, { locked: [0, 1] }), [{ stallIndex: 2, type: "classic" }]);
   assert.equal(bred.stalls[2].llama, "classic");
   assert.equal(bred.stalls[2].locked, false);
