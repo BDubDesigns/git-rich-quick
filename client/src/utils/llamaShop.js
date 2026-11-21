@@ -7,10 +7,13 @@
  * type the shop sells (shared llamaShopTypes: the base types plus every
  * bred type this farm has discovered), and the cash for the type's
  * llamaBuyPriceCents at the player's buffed LOC/s. Prices come only
- * from the shared helper; nothing here changes them.
+ * from the shared helper; nothing here changes them. The bought llama
+ * stores its sell value on the stall (issue #244): half of the price
+ * actually paid, never recomputed.
  */
 import {
   FARM_CONFIG,
+  boughtLlamaSellCents,
   llamaBuyPriceCents,
   llamaShopTypes,
 } from "../../../shared/game-balance.js";
@@ -32,12 +35,13 @@ export function applyLlamaBuy({ farm, money, stallIndex, type, buffedLocPerSec }
   }
   const stall = farm.stalls?.[stallIndex];
   if (!stall || stall.llama !== null) return null;
-  // Llama economy v2 (issue #129): the price is time at the player's
-  // buffed LOC/s, priced at the moment of purchase.
+  // The price is seconds of S at the player's buffed LOC/s, priced at
+  // the moment of purchase.
   const price = llamaBuyPriceCents(type, buffedLocPerSec);
   if (!(price > 0) || money < price) return null;
+  const sellCents = boughtLlamaSellCents(price);
   const stalls = farm.stalls.map((entry, i) =>
-    i === stallIndex ? { ...entry, llama: type } : entry
+    i === stallIndex ? { ...entry, llama: type, sellCents } : entry
   );
   const unlockedTypes = (farm.unlockedTypes ?? []).includes(type)
     ? [...(farm.unlockedTypes ?? [])]

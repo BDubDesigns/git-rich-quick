@@ -133,7 +133,7 @@ test("the reducer counts on breed (not while watching) and clears on opening the
   const context = src("context/GameContext.jsx");
   assert.match(
     context,
-    /farm: shared\.applyFarmBirths\(farm, action\.payload\?\.kids, \{\s*watching: isSectionOnScreen\(state, "farm"\),\s*\}\)/
+    /farm: shared\.applyFarmBirths\(farm, action\.payload\?\.kids, \{\s*watching: isSectionOnScreen\(state, "farm"\),\s*buffedLocPerSec: getBaseLocPerSecond\(state\),\s*\}\)/
   );
   // Issue #174: on screen in any pane counts (the nav goes through showSection).
   assert.match(context, /return withFarmVisit\(showSection\(clearHighlight\(state\), activeTab\)\);/);

@@ -32,11 +32,10 @@ import {
   evaluateAchievements,
   farmKidChance,
   farmLlamaCountsByType,
-  farmProductionValueCentsPerSecond,
+  cashBasisCentsPerSecond,
   farmPurchaseCostCents,
   initialSaveState,
   llamaBuyPriceCents,
-  llamaSellPriceCents,
   moveFarmLlama,
   normalizeSaveState,
   recordLlamaBought,
@@ -97,29 +96,29 @@ test("R is 60 cents per LOC, derived from the To Do List App", () => {
   assert.equal(bestCentsPerLoc(), 60);
 });
 
-test("B is P x R, with P floored at the pricing minimum and NaN-guarded", () => {
-  assert.equal(farmProductionValueCentsPerSecond(100), 6000);
+test("S is P x 21 cents, with P floored at the pricing minimum and NaN-guarded", () => {
+  assert.equal(cashBasisCentsPerSecond(100), 2100);
   assert.equal(
-    farmProductionValueCentsPerSecond(0),
-    LLAMA_ECONOMY.minPricingLocPerSecond * 60
+    cashBasisCentsPerSecond(0),
+    LLAMA_ECONOMY.minPricingLocPerSecond * 21
   );
   assert.equal(
-    farmProductionValueCentsPerSecond(Number.NaN),
-    LLAMA_ECONOMY.minPricingLocPerSecond * 60
+    cashBasisCentsPerSecond(Number.NaN),
+    LLAMA_ECONOMY.minPricingLocPerSecond * 21
   );
-  assert.equal(farmProductionValueCentsPerSecond(-5), 600);
+  assert.equal(cashBasisCentsPerSecond(-5), 210);
 });
 
-test("the barn is 180 x B (3 minutes of production)", () => {
-  assert.equal(LLAMA_ECONOMY.barnSeconds, 180);
-  assert.equal(farmPurchaseCostCents(100), 180 * 6000);
+test("the barn is 60 x S (issue #244)", () => {
+  assert.equal(LLAMA_ECONOMY.barnSeconds, 60);
+  assert.equal(farmPurchaseCostCents(100), 60 * 2100);
 });
 
-test("every llama costs minutes of production, more advanced types cost more", () => {
+test("every llama costs seconds of S, more advanced types cost more", () => {
   for (const type of LLAMA_TYPES) {
     const seconds = LLAMA_ECONOMY.typeSeconds[type];
-    assert.ok(seconds >= 60, `${type} costs at least a minute`);
-    assert.ok(seconds < 3600, `${type} costs less than an hour`);
+    assert.ok(seconds >= 20, `${type} costs at least 20 seconds`);
+    assert.ok(seconds <= 300, `${type} costs at most 5 minutes`);
   }
   const order = ["classic", "drama", "spaghetti", "quantum", "blockchain", "ai"];
   for (let i = 1; i < order.length; i += 1) {
@@ -131,21 +130,8 @@ test("every llama costs minutes of production, more advanced types cost more", (
   // The Mama Llama does not cost much: the cheapest type.
   const cheapest = Math.min(...Object.values(LLAMA_ECONOMY.typeSeconds));
   assert.equal(LLAMA_ECONOMY.typeSeconds.mama, cheapest);
-  assert.equal(llamaBuyPriceCents("classic", 100), 90 * 6000);
+  assert.equal(llamaBuyPriceCents("classic", 100), 30 * 2100);
   assert.equal(llamaBuyPriceCents("unicorn", 100), 0);
-});
-
-test("a llama sells for half its CURRENT buy value, not the price paid", () => {
-  const paid = llamaBuyPriceCents("classic", 100);
-  assert.equal(llamaSellPriceCents("classic", 100), Math.floor(paid / 2));
-  // Production doubles: the value (and the sale) doubles with it.
-  assert.equal(llamaSellPriceCents("classic", 200), paid);
-  for (const type of LLAMA_TYPES) {
-    assert.equal(
-      llamaSellPriceCents(type, 1234),
-      Math.floor(llamaBuyPriceCents(type, 1234) * 0.5)
-    );
-  }
 });
 
 test("prices read the BUFFED rate: achievements and Founder raise them", () => {
@@ -165,7 +151,7 @@ test("prices read the BUFFED rate: achievements and Founder raise them", () => {
   );
   assert.equal(
     farmPurchaseCostCents(buffedLocPerSecond(buffed)),
-    180 * 242 * 60
+    60 * 242 * 21
   );
 });
 
@@ -249,7 +235,7 @@ test("server: a sale (llama gone, sale recorded, money up) is accepted", () => {
   const before = farmState({ 0: "classic", 1: "drama" });
   const after = {
     ...before,
-    money: before.money + llamaSellPriceCents("classic", 0),
+    money: before.money + 1000,
     farm: { ...before.farm, stalls: before.farm.stalls.map((s, i) => (i === 0 ? { ...s, llama: null } : s)) },
     achievements: recordLlamaSold(before.achievements, "classic"),
   };

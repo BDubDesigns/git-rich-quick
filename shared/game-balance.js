@@ -1501,9 +1501,9 @@ export const LLAMA_TYPES = Object.freeze([
 
 /**
  * The types for sale in the shop: the two base types and the Mama
- * Llama (issue #129). Bred types are never for sale in the shop; they
- * come only from breeding (they still have a value, and sell for half
- * of it). The Mama Llama is shop-only: breeding never discovers one.
+ * Llama (issue #129). A bred type joins the shop only once discovered
+ * (llamaShopTypes, issue #203). The Mama Llama is shop-only: breeding
+ * never discovers one.
  */
 export const LLAMA_BASE_TYPES = Object.freeze(["classic", "drama", "mama"]);
 
@@ -1713,37 +1713,85 @@ export function farmKidChance(lightingId, parentTypes) {
 }
 
 /**
- * Llama economy v2 (issue #129). Every farm price is TIME at the
- * player's production, never fixed dollars, so prices keep pace as
- * the player grows:
+ * The cash economy (issue #244, the design on issue #200). Every cash
+ * price is TIME of shipping income at the player's production, never
+ * fixed dollars, so prices keep pace as the player grows:
  *
- *   R = best cents per LOC = 60 (the To Do List App: 50 LOC for $30,
- *       the cheapest project at the best rate; derived from BALANCE
- *       below so it can never drift).
  *   P = the player's passive LOC/s, BUFFED: buffedLocPerSecond, with
  *       the Founder multiplier and the achievement buff (issue #132)
  *       in, temporary star and SUBTRACTERALL multipliers out. Never
- *       raw base LOC/s.
- *   B = P x R, cents per second of production value.
+ *       raw base LOC/s. Floored at minPricingLocPerSecond for pricing
+ *       only, so nothing is ever free.
+ *   S = P x 21 cents, cents per second of ship-everything income. 21
+ *       is the worst rate on the freelance ladder (the Quantum To-Do
+ *       List), derived from BALANCE below the same way bestCentsPerLoc
+ *       derives 60: what a player earns shipping all production
+ *       through the biggest gig. Every cash price reads S from
+ *       cashBasisCentsPerSecond, the one helper.
  *
- * A price is `seconds x B`. The barn is 3 minutes of production (the
- * earlier Farm Economy anchor, 180 x B). Every llama costs minutes,
- * never seconds or hours, rising with the type: the cheap Mama Llama
- * is 1 minute, a Classic 1.5 (the old 30 x B anchor was 30 seconds,
- * raised to minutes per the issue), an AI Llama 15. A llama sells for half its
- * CURRENT buy price: the value is not locked at purchase, so as P
- * rises the price and the sell value of every type rise with it.
+ * Farm buy side: a price is `seconds x S`. The barn is 60 seconds, a
+ * Mama 20, a Classic 30, an AI Llama 300.
  *
- * P is floored at minPricingLocPerSecond for pricing only, so the barn
- * and the llamas are never free for a player with no employees yet.
- * Tuning values, one line each; tune from play.
+ * Farm sell side: there is no floating sell price. Every llama stores
+ * its sell value in cents on its stall (stall.sellCents), written once
+ * when it enters the farm and never recomputed:
+ *   - bought: half of the price actually paid (boughtLlamaSellCents);
+ *   - born: its type's produce seconds x S at the moment of birth
+ *     (kidLlamaSellCents).
+ * Selling pays the stored value; moving keeps it. Nothing about a
+ * llama's value responds to P after it arrives, so there is no
+ * buy-low-sell-high on the player's own growth.
+ *
+ * Tuning values, one line each; retunes are constants only.
  */
 export const LLAMA_ECONOMY = Object.freeze({
   /** Floor on P for pricing (LOC/s), so nothing is ever free. */
   minPricingLocPerSecond: 10,
-  /** The barn: seconds of production value (180 x B, 3 minutes). */
-  barnSeconds: 180,
-  /** Buy price per type, in seconds of production value. */
+  /** The barn: seconds of S. */
+  barnSeconds: 60,
+  /** Buy price per type, in seconds of S. */
+  typeSeconds: Object.freeze({
+    mama: 20,
+    classic: 30,
+    drama: 40,
+    spaghetti: 80,
+    quantum: 120,
+    blockchain: 200,
+    ai: 300,
+  }),
+  /** A bought llama's stored sell value: this fraction of the price paid. */
+  boughtSellFraction: 0.5,
+  /**
+   * A kid's stored sell value, in seconds of S at its birth. A flat
+   * ladder (revision 2 on issue #200): rare kids are worth several
+   * common ones, but no kid is worth a bought llama.
+   */
+  kidProduceSeconds: Object.freeze({
+    mama: 1,
+    classic: 1.5,
+    drama: 2,
+    spaghetti: 3,
+    quantum: 4,
+    blockchain: 5,
+    ai: 6,
+  }),
+  /** Kid chance multiplier for a stall beside a Mama Llama. */
+  mamaKidChanceMultiplier: 3,
+  /** The kid chance never goes above this, Mama or not. */
+  maxKidChance: 0.9,
+});
+
+/**
+ * The one-time par stamp for a llama saved before stored sell values
+ * shipped (issue #244, Brandon's no-wipe decision on issue #200). Such
+ * a llama is stamped once, on its first load under this code, at what
+ * it would have sold for the moment before the build: half of its buy
+ * price under the old rules, which priced a type at these seconds of
+ * production value (P x bestCentsPerLoc, 60 cents). Nobody gains,
+ * nobody loses; from the stamp on the llama keeps that value like any
+ * other. Used only by stampLegacyLlamaSellValues, never by a live price.
+ */
+export const LEGACY_LLAMA_PAR = Object.freeze({
   typeSeconds: Object.freeze({
     mama: 60,
     classic: 90,
@@ -1753,12 +1801,7 @@ export const LLAMA_ECONOMY = Object.freeze({
     blockchain: 600,
     ai: 900,
   }),
-  /** A llama sells for this fraction of its current buy price. */
   sellFraction: 0.5,
-  /** Kid chance multiplier for a stall beside a Mama Llama. */
-  mamaKidChanceMultiplier: 3,
-  /** The kid chance never goes above this, Mama or not. */
-  maxKidChance: 0.9,
 });
 
 /**
@@ -1775,47 +1818,148 @@ export function bestCentsPerLoc() {
 }
 
 /**
- * B: cents per second of production value at buffed LOC/s `p` (floored
- * at minPricingLocPerSecond, NaN-guarded).
+ * The worst cents per LOC any freelance project pays (21, the Quantum
+ * To-Do List): the rate of shipping everything through the biggest
+ * gig. Derived from BALANCE the same way as bestCentsPerLoc.
  */
-export function farmProductionValueCentsPerSecond(buffedLocPerSec) {
-  const p = Number(buffedLocPerSec);
-  const rate = Number.isFinite(p) && p > 0 ? p : 0;
-  return (
-    Math.max(LLAMA_ECONOMY.minPricingLocPerSecond, rate) * bestCentsPerLoc()
-  );
+export function worstCentsPerLoc() {
+  let worst = Infinity;
+  for (const key of FREELANCE_PROJECT_KEYS) {
+    const project = BALANCE.freelanceProjects[key];
+    worst = Math.min(worst, project.reward / project.loc);
+  }
+  return worst;
 }
 
-/** The barn's price in whole cents: barnSeconds x B. */
+/** P for pricing: buffed LOC/s floored at minPricingLocPerSecond, NaN-guarded. */
+function pricingLocPerSecond(buffedLocPerSec) {
+  const p = Number(buffedLocPerSec);
+  const rate = Number.isFinite(p) && p > 0 ? p : 0;
+  return Math.max(LLAMA_ECONOMY.minPricingLocPerSecond, rate);
+}
+
+/**
+ * S: cents per second of ship-everything income at buffed LOC/s `p`
+ * (P floored at minPricingLocPerSecond, NaN-guarded). THE cash basis:
+ * the barn, every llama, every kid's value and every Night Shift level
+ * are priced in seconds of this.
+ */
+export function cashBasisCentsPerSecond(buffedLocPerSec) {
+  return pricingLocPerSecond(buffedLocPerSec) * worstCentsPerLoc();
+}
+
+/** The barn's price in whole cents: barnSeconds x S. */
 export function farmPurchaseCostCents(buffedLocPerSec) {
   return Math.round(
-    LLAMA_ECONOMY.barnSeconds * farmProductionValueCentsPerSecond(buffedLocPerSec)
+    LLAMA_ECONOMY.barnSeconds * cashBasisCentsPerSecond(buffedLocPerSec)
   );
 }
 
 /**
  * What a llama of `type` costs right now, in whole cents: typeSeconds x
- * B. 0 for an unknown type. Bred types have a price too (it is what
- * they are worth), they just are not for sale in the shop.
+ * S. 0 for an unknown type. Bred types have a price too; they join the
+ * shop once discovered (llamaShopTypes).
  */
 export function llamaBuyPriceCents(type, buffedLocPerSec) {
   const seconds = LLAMA_ECONOMY.typeSeconds[type];
   if (!seconds) return 0;
-  return Math.round(
-    seconds * farmProductionValueCentsPerSecond(buffedLocPerSec)
-  );
+  return Math.round(seconds * cashBasisCentsPerSecond(buffedLocPerSec));
 }
 
-/** What a llama of `type` sells for right now: half its current buy price. */
-export function llamaSellPriceCents(type, buffedLocPerSec) {
-  return Math.floor(
-    LLAMA_ECONOMY.sellFraction * llamaBuyPriceCents(type, buffedLocPerSec)
+/** The stored sell value of a bought llama: half of what was paid, whole cents. */
+export function boughtLlamaSellCents(pricePaidCents) {
+  const paid = Number(pricePaidCents);
+  if (!Number.isFinite(paid) || paid <= 0) return 0;
+  return Math.floor(LLAMA_ECONOMY.boughtSellFraction * paid);
+}
+
+/**
+ * The stored sell value of a kid of `type` born at buffed LOC/s `p`:
+ * produce seconds x S, whole cents. 0 for an unknown type.
+ */
+export function kidLlamaSellCents(type, buffedLocPerSec) {
+  const seconds = LLAMA_ECONOMY.kidProduceSeconds[type];
+  if (!seconds) return 0;
+  return Math.round(seconds * cashBasisCentsPerSecond(buffedLocPerSec));
+}
+
+/**
+ * The par stamp for a llama of `type` saved before stored values: half
+ * of its old-rules buy price at buffed LOC/s `p` (LEGACY_LLAMA_PAR),
+ * exactly what it would have sold for before this build. 0 for an
+ * unknown type.
+ */
+export function legacyLlamaParSellCents(type, buffedLocPerSec) {
+  const seconds = LEGACY_LLAMA_PAR.typeSeconds[type];
+  if (!seconds) return 0;
+  const oldBuy = Math.round(
+    seconds * pricingLocPerSecond(buffedLocPerSec) * bestCentsPerLoc()
+  );
+  return Math.floor(LEGACY_LLAMA_PAR.sellFraction * oldBuy);
+}
+
+/** A stored llama sell value is a non-negative safe integer (cents). */
+export function isLlamaSellCents(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * What the llama in `stall` sells for: its stored value. Null when the
+ * stall is empty or the value is missing or malformed, so a sale is
+ * refused rather than paid from anything else. There is no fallback
+ * to a current price: the float is gone.
+ */
+export function storedLlamaSellCents(stall) {
+  if (!stall?.llama) return null;
+  return isLlamaSellCents(stall.sellCents) ? stall.sellCents : null;
+}
+
+/** Whether any stall in `farm` has no stored sell value yet (a pre-#244 save). */
+export function farmNeedsSellStamp(farm) {
+  return (
+    Array.isArray(farm?.stalls) &&
+    farm.stalls.some(
+      (stall) => stall && typeof stall === "object" && stall.sellCents === undefined
+    )
   );
 }
 
 /**
+ * Stamp every llama in `farm` that has no stored sell value (a save
+ * from before stored values shipped) at par: legacyLlamaParSellCents
+ * at buffed LOC/s `p`, the P of the save being loaded. An empty stall
+ * with no value gets null. A present value is never touched (a stamp
+ * happens exactly once, then persists with the save), and a
+ * present-but-malformed one is left for the shape check to reject.
+ * Pure; returns the farm unchanged when it has no stalls array. The
+ * server (normalizeSaveState) and the client (saveStateToGameFields)
+ * both call this with buffedLocPerSecond of the same save, so the
+ * stamp is identical on both.
+ */
+export function stampLegacyLlamaSellValues(farm, buffedLocPerSec) {
+  if (!farm || typeof farm !== "object" || !Array.isArray(farm.stalls)) {
+    return farm;
+  }
+  let changed = false;
+  const stalls = farm.stalls.map((stall) => {
+    if (!stall || typeof stall !== "object" || stall.sellCents !== undefined) {
+      return stall;
+    }
+    changed = true;
+    return {
+      ...stall,
+      sellCents: stall.llama
+        ? legacyLlamaParSellCents(stall.llama, buffedLocPerSec)
+        : null,
+    };
+  });
+  return changed ? { ...farm, stalls } : farm;
+}
+
+/**
  * Move a llama from one stall to an EMPTY stall (pure). The lighting
- * stays with the stall (it is the stall's mood, not the llama's).
+ * stays with the stall (it is the stall's mood, not the llama's); the
+ * llama's stored sell value goes with the llama.
  * Returns the new farm, or null when the move is not allowed: farm
  * not owned, bad indices, the same stall, no llama in `from`, or
  * `to` occupied.
@@ -1831,8 +1975,10 @@ export function moveFarmLlama(farm, fromIndex, toIndex) {
   const to = farm.stalls[toIndex];
   if (!from?.llama || !to || to.llama !== null) return null;
   const stalls = farm.stalls.map((stall, i) => {
-    if (i === fromIndex) return { ...stall, llama: null };
-    if (i === toIndex) return { ...stall, llama: from.llama };
+    if (i === fromIndex) return { ...stall, llama: null, sellCents: null };
+    if (i === toIndex) {
+      return { ...stall, llama: from.llama, sellCents: from.sellCents };
+    }
     return { ...stall };
   });
   return { ...farm, stalls };
@@ -1907,12 +2053,15 @@ export function farmKidsFromRoll(oldStalls, roll) {
  * Apply a FARM_BREED_RESULT payload to a farm: place each kid in its
  * stall (only if the stall is still empty — a llama bought into that
  * stall after the roll wins, so the roll and the state can never
- * disagree) and add new types to the unlocked list. Pure — the
- * FARM_BREED_RESULT reducer calls this. A malformed kids payload
- * (anything but an array) is treated as no kids instead of throwing:
- * a bad breed payload must never blank the game.
+ * disagree) and add new types to the unlocked list. Each kid stores
+ * its sell value at birth (issue #244): kidLlamaSellCents at buffed
+ * LOC/s `buffedLocPerSec`, the P at the moment it is born, never
+ * recomputed. Pure: the FARM_BREED_RESULT reducer calls this. A
+ * malformed kids payload (anything but an array) is treated as no
+ * kids instead of throwing: a bad breed payload must never blank the
+ * game.
  */
-export function applyFarmBreedKids(farm, kids) {
+export function applyFarmBreedKids(farm, kids, buffedLocPerSec) {
   const base = farm ?? emptyFarmState();
   const stalls = base.stalls.map((stall) => ({ ...stall }));
   const unlockedTypes = [...(base.unlockedTypes ?? [])];
@@ -1930,6 +2079,7 @@ export function applyFarmBreedKids(farm, kids) {
     stalls[kid.stallIndex] = {
       ...stalls[kid.stallIndex],
       llama: kid.type,
+      sellCents: kidLlamaSellCents(kid.type, buffedLocPerSec),
     };
     if (!unlockedTypes.includes(kid.type)) {
       unlockedTypes.push(kid.type);
@@ -1961,6 +2111,7 @@ export function emptyFarmState(keptTypes = []) {
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
+      sellCents: null,
     })),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     // Issue #204: llamas born since the player last opened the Farm tab.
@@ -1982,6 +2133,7 @@ export function initialFarmState(keptTypes = []) {
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
+      sellCents: null,
     })),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     unseenBirths: 0,
@@ -2017,15 +2169,19 @@ export function farmBirthsPlaced(before, after) {
 }
 
 /**
- * Apply a breed result (applyFarmBreedKids, unchanged) and count its
- * births for the badge. Only kids actually placed count. Births while
- * the player is `watching` (on the Farm tab, looking at the stalls) are
- * not counted, and the count stays 0 there: the badge is never nonzero
- * while the Farm tab is open.
+ * Apply a breed result (applyFarmBreedKids, with the kids' values set
+ * at `buffedLocPerSec`) and count its births for the badge. Only kids
+ * actually placed count. Births while the player is `watching` (on the
+ * Farm tab, looking at the stalls) are not counted, and the count
+ * stays 0 there: the badge is never nonzero while the Farm tab is open.
  */
-export function applyFarmBirths(farm, kids, { watching = false } = {}) {
+export function applyFarmBirths(
+  farm,
+  kids,
+  { watching = false, buffedLocPerSec = 0 } = {}
+) {
   const before = farm ?? emptyFarmState();
-  const after = applyFarmBreedKids(before, kids);
+  const after = applyFarmBreedKids(before, kids, buffedLocPerSec);
   return {
     ...after,
     unseenBirths: watching
@@ -3171,8 +3327,10 @@ export function formatEstimateDuration(seconds) {
  *       Blocker, Project Managers and the Engineering Handbook in;
  *       star buffs and SUBTRACTERALL out. So prestige and achievements
  *       apply to offline LOC, exactly as they do to passive LOC.
- *   B = P x R (R = 60 cents per LOC, bestCentsPerLoc), the same
- *       production value the llama economy prices from.
+ *   S = P x 21 cents (cashBasisCentsPerSecond), ship-everything
+ *       income: the one cash basis the farm prices from too. Prices
+ *       are minutes of S (issue #244; they were minutes of production
+ *       value at 60 cents, which put them out of reach, issue #195).
  *
  * Settlement is SERVER-authoritative: the server settles on load,
  * from its own clock and the state it already accepted (see
@@ -3196,37 +3354,37 @@ export const NIGHT_SHIFT_CONFIG = Object.freeze({
   minAwaySeconds: 5 * 60,
   /** Per level (index 0 is level 1): the share of P credited while
    *  away, the hours counted per absence, the price in seconds of
-   *  production value (B), and the gate (live P and a live employee
+   *  ship-everything income (S), and the gate (live P and a live employee
    *  count). Each level also needs the one before it. */
   levels: Object.freeze([
     Object.freeze({
       rate: 0.1,
       capHours: 4,
-      priceSeconds: 20 * 60,
+      priceSeconds: 10 * 60,
       gate: Object.freeze({ minLocPerSecond: 100, employeeType: "junior", employeeCount: 10 }),
     }),
     Object.freeze({
       rate: 0.2,
       capHours: 8,
-      priceSeconds: 30 * 60,
+      priceSeconds: 15 * 60,
       gate: Object.freeze({ minLocPerSecond: 1_000, employeeType: "senior", employeeCount: 5 }),
     }),
     Object.freeze({
       rate: 0.3,
       capHours: 12,
-      priceSeconds: 45 * 60,
+      priceSeconds: 20 * 60,
       gate: Object.freeze({ minLocPerSecond: 10_000, employeeType: "projectManager", employeeCount: 10 }),
     }),
     Object.freeze({
       rate: 0.4,
       capHours: 16,
-      priceSeconds: 60 * 60,
+      priceSeconds: 30 * 60,
       gate: Object.freeze({ minLocPerSecond: 100_000, employeeType: "releaseManager", employeeCount: 10 }),
     }),
     Object.freeze({
       rate: 0.5,
       capHours: 24,
-      priceSeconds: 90 * 60,
+      priceSeconds: 45 * 60,
       gate: Object.freeze({ minLocPerSecond: 1_000_000, employeeType: "senior", employeeCount: 25 }),
     }),
   ]),
@@ -3276,7 +3434,7 @@ export function nightShiftHoursOfProduction(level, awayHours) {
 
 /**
  * The price of buying `level` (1..5), in whole cents, at buffed P:
- * priceSeconds x B. Quoted at the CURRENT P, like the barn and the
+ * priceSeconds x S (cashBasisCentsPerSecond, issue #244). Quoted at the CURRENT P, like the barn and the
  * llamas (P floored at minPricingLocPerSecond so it is never free).
  * 0 for a level that does not exist.
  */
@@ -3284,7 +3442,7 @@ export function nightShiftPriceCents(level, buffedLocPerSec) {
   const config = nightShiftLevelConfig(level);
   if (!config) return 0;
   return Math.round(
-    config.priceSeconds * farmProductionValueCentsPerSecond(buffedLocPerSec)
+    config.priceSeconds * cashBasisCentsPerSecond(buffedLocPerSec)
   );
 }
 
@@ -6163,10 +6321,15 @@ export function normalizeSaveState(state) {
         if (!stall || typeof stall !== "object" || Array.isArray(stall)) {
           return { llama: null, lighting: "warm" };
         }
-        return {
+        const filled = {
           llama: stall.llama === undefined ? null : stall.llama,
           lighting: stall.lighting === undefined ? "warm" : stall.lighting,
         };
+        // Issue #244: a stored sell value is kept as sent. A missing
+        // one is stamped at par below, once the rest of the save (and
+        // so its P) is normalized.
+        if (stall.sellCents !== undefined) filled.sellCents = stall.sellCents;
+        return filled;
       });
     }
     if (!Array.isArray(farm.unlockedTypes)) {
@@ -6276,6 +6439,13 @@ export function normalizeSaveState(state) {
   // MISSING keys are filled; a present-but-wrong value is left alone
   // so the shape check rejects it.
   next.achievements = normalizeAchievementsState(next.achievements);
+  // Issue #244 (no wipe): a llama saved before stored sell values is
+  // stamped once at par, at this save's own buffed P. Last, so P reads
+  // the normalized employees, levels, ranks and achievements. A stamped
+  // value is never re-stamped, so this stays idempotent.
+  if (farmNeedsSellStamp(next.farm)) {
+    next.farm = stampLegacyLlamaSellValues(next.farm, buffedLocPerSecond(next));
+  }
   return next;
 }
 
@@ -7037,9 +7207,9 @@ export function buildFarmPurchasedEmail() {
       `their notice of quitting, so technically they are still ` +
       `employees. HR has questions. You do not have answers.\n\n` +
       `Buy some llamas, move them in, set the lights, and let them ` +
-      `breed. Sell the kids for cash: a llama goes for half of what ` +
-      `it would cost you today, and that price grows with your ` +
-      `team. Get a Mama Llama. Trust us on the Mama Llama.`,
+      `breed. Sell the kids for cash: a kid's price is set the day ` +
+      `it is born, and a llama you bought sells back for half of ` +
+      `what you paid. Get a Mama Llama. Trust us on the Mama Llama.`,
   });
 }
 

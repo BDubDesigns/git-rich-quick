@@ -31,6 +31,10 @@ import {
   normalizeSubtracterallState,
   nightShiftLevelOf,
   farmUnseenBirths,
+  buffedLocPerSecond,
+  farmNeedsSellStamp,
+  normalizeSaveState,
+  stampLegacyLlamaSellValues,
 } from "../../../shared/game-balance.js";
 import { unreadEmailCount } from "../email/email.js";
 
@@ -126,14 +130,16 @@ export function stateToSaveState(clientState) {
     // equipped map is slot -> cosmeticId and changes freely.
     unlockedCosmetics: [...(clientState.unlockedCosmetics ?? [])],
     equippedCosmetics: { ...(clientState.equippedCosmetics ?? {}) },
-    // Llama farm (issue #79). Owned, stalls (llama + lighting per
-    // stall), and the unlocked types. Copied per stall so the save
-    // never shares a reference with the live state.
+    // Llama farm (issue #79). Owned, stalls (llama, lighting, and the
+    // llama's stored sell value per stall, issue #244), and the
+    // unlocked types. Copied per stall so the save never shares a
+    // reference with the live state.
     farm: {
       owned: clientState.farm?.owned ?? false,
       stalls: (clientState.farm?.stalls ?? []).map((stall) => ({
         llama: stall.llama ?? null,
         lighting: stall.lighting ?? "warm",
+        sellCents: stall.llama ? (stall.sellCents ?? null) : null,
       })),
       unlockedTypes: [...(clientState.farm?.unlockedTypes ?? [])],
       // Issue #204: the Farm tab badge count.
@@ -316,7 +322,11 @@ export function saveStateToGameFields(saveState) {
     // no farm field — default it to the empty (unbought) farm here,
     // the same way the server's normalizeSaveState does on save. A
     // farm that predates the unlocked-types field gets its types
-    // derived from the llamas actually in the stalls.
+    // derived from the llamas actually in the stalls. A llama that
+    // predates stored sell values (issue #244) is stamped once at par
+    // by the same shared helper and the same P (buffedLocPerSecond of
+    // the normalized save) the server's normalizeSaveState uses, so the
+    // stamp is identical on both and persists with the next save.
     farm: (() => {
       const farm = saveState.farm;
       if (!farm || typeof farm !== "object" || Array.isArray(farm)) {
@@ -325,14 +335,22 @@ export function saveStateToGameFields(saveState) {
           stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
             llama: null,
             lighting: "warm",
+            sellCents: null,
           })),
           unlockedTypes: [],
           unseenBirths: 0,
         };
       }
-      const stalls = (farm.stalls ?? []).map((stall) => ({
+      const stamped = farmNeedsSellStamp(farm)
+        ? stampLegacyLlamaSellValues(
+            farm,
+            buffedLocPerSecond(normalizeSaveState(saveState))
+          )
+        : farm;
+      const stalls = (stamped.stalls ?? []).map((stall) => ({
         llama: stall?.llama ?? null,
         lighting: stall?.lighting ?? "warm",
+        sellCents: stall?.llama ? (stall?.sellCents ?? null) : null,
       }));
       const unlockedTypes = Array.isArray(farm.unlockedTypes)
         ? [...farm.unlockedTypes]

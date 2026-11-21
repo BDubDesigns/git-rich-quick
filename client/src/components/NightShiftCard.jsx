@@ -1,7 +1,7 @@
 /**
  * Night Shift (issue #149): the offline-production upgrade, on the Hire
  * tab. One Panel showing the current level's rate and cap, the next
- * level's price (minutes of production plus the cash figure, quoted at
+ * level's price (minutes of shipping income plus the cash figure, quoted at
  * the current LOC/s), its gate with the same unlock progress bars as
  * every other unlock, and the "8 hours away gets you X hours of
  * production" line for the current and next level.
@@ -96,7 +96,7 @@ export function NightShiftCard() {
             {overnightLine(next.level)}
           </p>
           <p className="m-0 text-sm">
-            Price: {priceMinutes} minutes of production (
+            Price: {priceMinutes} minutes of shipping income (
             {formatMoney(next.priceCents)} at your current LOC/s).
           </p>
           <ProgressBar

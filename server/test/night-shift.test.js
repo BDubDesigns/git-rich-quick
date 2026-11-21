@@ -68,17 +68,17 @@ function company(overrides = {}) {
 
 // --- The numbers ---
 
-test("config: rates 10 to 50%, caps 4 to 24h, prices 20 to 90 minutes of B, the proposed gates", () => {
+test("config: rates 10 to 50%, caps 4 to 24h, prices 10 to 45 minutes of S (issue #244), the proposed gates", () => {
   assert.equal(NIGHT_SHIFT_CONFIG.maxLevel, 5);
   assert.equal(NIGHT_SHIFT_CONFIG.minAwaySeconds, 300);
   assert.deepEqual(
     NIGHT_SHIFT_CONFIG.levels.map((l) => [l.rate, l.capHours, l.priceSeconds / 60]),
     [
-      [0.1, 4, 20],
-      [0.2, 8, 30],
-      [0.3, 12, 45],
-      [0.4, 16, 60],
-      [0.5, 24, 90],
+      [0.1, 4, 10],
+      [0.2, 8, 15],
+      [0.3, 12, 20],
+      [0.4, 16, 30],
+      [0.5, 24, 45],
     ]
   );
   assert.deepEqual(
@@ -91,8 +91,8 @@ test("config: rates 10 to 50%, caps 4 to 24h, prices 20 to 90 minutes of B, the 
       { minLocPerSecond: 1_000_000, employeeType: "senior", employeeCount: 25 },
     ]
   );
-  // The whole track is 245 minutes of B.
-  assert.equal(NIGHT_SHIFT_CONFIG.levels.reduce((a, l) => a + l.priceSeconds, 0), 245 * 60);
+  // The whole track is 120 minutes of S (issue #244; was 245 minutes of B).
+  assert.equal(NIGHT_SHIFT_CONFIG.levels.reduce((a, l) => a + l.priceSeconds, 0), 120 * 60);
 });
 
 test("the feel table: hours of production for 2h, 8h, and 24h away", () => {
@@ -111,14 +111,15 @@ test("the feel table: hours of production for 2h, 8h, and 24h away", () => {
 });
 
 test("prices are time at current LOC/s: the proposal's cash figures at each gate", () => {
-  // priceSeconds x P x 60 cents per LOC.
-  assert.equal(nightShiftPriceCents(1, 100), 7_200_000); // $72,000
-  assert.equal(nightShiftPriceCents(2, 1_000), 108_000_000); // $1.08M
-  assert.equal(nightShiftPriceCents(3, 10_000), 1_620_000_000); // $16.2M
-  assert.equal(nightShiftPriceCents(4, 100_000), 21_600_000_000); // $216M
-  assert.equal(nightShiftPriceCents(5, 1_000_000), 324_000_000_000); // $3.24B
-  // Brandon's 3,660 LOC/s: L1 is $2.64M.
-  assert.equal(Math.round(nightShiftPriceCents(1, 3_660) / 1e6) / 100, 2.64);
+  // priceSeconds x P x 21 cents per LOC (S, issue #244): the figures
+  // at the gates from the #200 proposal.
+  assert.equal(nightShiftPriceCents(1, 100), 1_260_000); // $12,600 (was $72,000)
+  assert.equal(nightShiftPriceCents(2, 1_000), 18_900_000); // $189,000 (was $1.08M)
+  assert.equal(nightShiftPriceCents(3, 10_000), 252_000_000); // $2.52M (was $16.2M)
+  assert.equal(nightShiftPriceCents(4, 100_000), 3_780_000_000); // $37.8M (was $216M)
+  assert.equal(nightShiftPriceCents(5, 1_000_000), 56_700_000_000); // $567M (was $3.24B)
+  // #195's save (P = 3,282,751): L1 is $413.6M.
+  assert.equal(Math.round(nightShiftPriceCents(1, 3_282_751) / 1e7) / 10, 413.6);
   // The price scales with P, so waiting never makes it cheaper in time.
   assert.equal(nightShiftPriceCents(1, 2_000), 2 * nightShiftPriceCents(1, 1_000));
   // Never free: P floors at 10 for pricing, and NaN reads as 0.
