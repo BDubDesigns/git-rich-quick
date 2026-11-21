@@ -5,6 +5,7 @@ import {
   floatingTextRise,
   floatingTextVariant,
 } from "../utils/floatingTextVariants.js";
+import { useStarLabelNudge } from "../hooks/useStarLabelNudge.js";
 
 // FloatingText component displays animated text that floats up from a given position
 // Props:
@@ -31,6 +32,11 @@ export function FloatingText({
   const origin = floatingTextOrigin(x, y);
   // The full 100px rise, shortened only when the top edge is closer.
   const rise = floatingTextRise(variant, y);
+  // Issue #209: the star label alone gets the minimum sideways nudge
+  // that keeps it on screen at an edge (the origin stays the tap). The
+  // click float never runs it.
+  const isStar = variant === "star";
+  const starNudgeRef = useStarLabelNudge(isStar);
 
   // The star label wraps (at most the viewport width); the click float stays one line.
   const wrapClass = config.wrap
@@ -39,6 +45,7 @@ export function FloatingText({
 
   return (
     <div
+      ref={isStar ? starNudgeRef : undefined}
       // Tailwind classes: prevent selection, disable pointer events, position fixed,
       // the variant's animation and font size, bold green text, flex layout with gap.
       // The dark translucent pill (issue #49) gives the text contrast
