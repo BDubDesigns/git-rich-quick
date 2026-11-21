@@ -19,6 +19,8 @@ export function NavButton({
   Icon,
   imageSrc,
   isActive,
+  // Issue #174: on screen in a desktop side pane (an outline ring).
+  isPinned = false,
   badgeCount = 0,
   onClick,
 }) {
@@ -31,14 +33,14 @@ export function NavButton({
       key={id}
       onClick={onClick}
       className="flex flex-col items-center gap-1 bg-transparent"
-      title={label}
-      aria-label={label}
+      title={isPinned ? `${label} (on screen)` : label}
+      aria-label={isPinned ? `${label}, on screen in a side pane` : label}
     >
       <span
         className={`relative transition-all hover:scale-110 hover:shadow-[0_0_15px_5px_rgba(250,250,250,0.5)] w-12 h-12 rounded-full flex items-center justify-center ${
           isActive
             ? "bg-blue-400 text-white"
-            : "bg-blue-900 text-gray-300 hover:bg-blue-800"
+            : `bg-blue-900 text-gray-300 hover:bg-blue-800${isPinned ? " ring-2 ring-blue-400" : ""}`
         }`}
       >
         {imageSrc ? (

@@ -259,6 +259,40 @@ body {
   white-space: nowrap;
 }
 
+/* Choosable panes (issue #174): the description toggle's chevron turns
+   to point at the description it reveals (snaps under reduced motion),
+   and an open row's "Open (side)" tag reads "Swap" on hover or focus. */
+.info-toggle-chevron {
+  display: inline-block;
+  transition: transform 150ms ease-out;
+}
+
+.info-toggle-chevron--open {
+  transform: rotate(90deg);
+}
+
+.pane-picker-tag-swap {
+  display: none;
+}
+
+.pane-picker-row:hover .pane-picker-tag-open,
+.pane-picker-row:focus .pane-picker-tag-open {
+  display: none;
+}
+
+.pane-picker-row:hover .pane-picker-tag-swap,
+.pane-picker-row:focus .pane-picker-tag-swap {
+  display: inline;
+  color: #c5c53f;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .info-toggle-chevron {
+    transition: none;
+  }
+}
+
+
 /* Email deep links (issue #173): the card an email link lands on
    flashes once. HighlightAnchor adds the class for 1.6s; the outline
    (it never changes layout) fades from the link blue to nothing. With
@@ -406,3 +440,4 @@ body {
     border-top: 2px solid #0078d4;
   }
 }
+

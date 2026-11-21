@@ -65,6 +65,17 @@ import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
 import {
+  DEFAULT_SIDE_PANES,
+  DESKTOP_START_SECTION,
+  SIDE_PANES_STORAGE_KEY,
+  chooseSectionForPane,
+  isSectionOnScreen,
+  normalizeCenter,
+  readSidePanes,
+  setLayoutMode,
+  showSection,
+} from "../navigation/panes.js";
+import {
   STAT_GAIN_NEVER_ACTIONS,
   nextStatGain,
   statGainFlags,
@@ -114,12 +125,15 @@ const initialState = {
   // withAchievements), and the tiers earned are a permanent LOC buff
   // (shared.buffedLocMultiplier).
   achievements: shared.zeroAchievementsState(),
-  activeTab: "shop", // can be "shop", "projects", or "openSource"
-  // Desktop pane configuration (hardcoded now, will be dynamic later)
-  selectedPanes: {
-    left: "shop",
-    right: "projects",
-  },
+  // The focus section: the one mobile pane, and the desktop center
+  // pane (issue #174). On desktop it is never a side pane's section.
+  activeTab: "shop",
+  // Choosable panes (issue #174): the two pinned desktop side panes,
+  // a device preference (localStorage grq:sidePanes, read at start by
+  // initGameState), never saved. layoutMode is "desktop" or "mobile",
+  // set from App's media query (SET_LAYOUT_MODE). See navigation/panes.js.
+  sidePanes: { ...DEFAULT_SIDE_PANES },
+  layoutMode: "mobile",
   // Click tracking for CPS calculation
   clickHistory: [], // Array of timestamps: [{ timestamp: Date.now(), count: 1 }, ...]
   currentCPS: 0, // Cached CPS for display
@@ -298,7 +312,9 @@ function recordHypeShips(state, ships, cashCents) {
  * state with no farm, is returned unchanged.
  */
 function withFarmVisit(state) {
-  if (state.activeTab !== "farm" || !state.farm) return state;
+  // Issue #174: the Farm counts as visited wherever it is on screen
+  // (the center, a desktop side pane, or the one mobile pane).
+  if (!isSectionOnScreen(state, "farm") || !state.farm) return state;
   const farm = shared.farmSeen(state.farm);
   return farm === state.farm ? state : { ...state, farm };
 }
@@ -321,9 +337,29 @@ function gameReducer(state, action) {
         console.warn(`Invalid tab: ${tab}. Defaulting to shop.`);
       }
       // A manual tab switch drops any highlight no card picked up, so
-      // it cannot flash by surprise later (issue #173). Opening the Farm
-      // tab clears its birth badge (issue #204).
-      return withFarmVisit({ ...clearHighlight(state), activeTab });
+      // it cannot flash by surprise later (issue #173). Then the nav's
+      // one rule (issue #174, showSection): on desktop a section already
+      // on screen never moves (a side pane's bar flashes), an off-screen
+      // one opens in the center. Opening the Farm clears its birth
+      // badge (issue #204).
+      return withFarmVisit(showSection(clearHighlight(state), activeTab));
+    }
+
+    // Choosable panes (issue #174): the media query changed. Payload:
+    // { mode: "desktop" | "mobile" }. Turning desktop moves a center
+    // that collides with a side pane to the first free section.
+    case "SET_LAYOUT_MODE": {
+      return withFarmVisit(setLayoutMode(state, action.payload?.mode));
+    }
+
+    // Choosable panes (issue #174): the pane picker. Payload:
+    // { pane: "left" | "center" | "right", sectionId }. A section open
+    // in another pane swaps with this pane's; any pending highlight is
+    // dropped. Desktop only.
+    case "CHOOSE_PANE_SECTION": {
+      return withFarmVisit(
+        chooseSectionForPane(state, action.payload?.pane, action.payload?.sectionId)
+      );
     }
 
     // Follow an email link (issue #173): switch to the target's tab
@@ -710,7 +746,7 @@ function gameReducer(state, action) {
         // Issue #204: the placed kids count toward the Farm tab badge,
         // except while the player is on the Farm tab watching them.
         farm: shared.applyFarmBirths(farm, action.payload?.kids, {
-          watching: state.activeTab === "farm",
+          watching: isSectionOnScreen(state, "farm"),
         }),
         farmBreedDue: false,
       };
@@ -1154,7 +1190,7 @@ function gameReducer(state, action) {
         ...state,
         emails,
         emailNotification:
-          state.activeTab === "email"
+          isSectionOnScreen(state, "email")
             ? state.emailNotification
             : { emailId: mail.id },
       };
@@ -1271,7 +1307,7 @@ function gameReducer(state, action) {
         ...state,
         emails,
         emailNotification:
-          state.activeTab === "email"
+          isSectionOnScreen(state, "email")
             ? state.emailNotification
             : { emailId: added.id },
       };
@@ -1305,8 +1341,9 @@ function gameReducer(state, action) {
       );
       if (!email) return state;
       return {
-        ...state,
-        activeTab: "email",
+        // Issue #174: shown through the nav's one rule, so an inbox
+        // pinned in a side pane opens the mail there.
+        ...showSection(state, "email"),
         selectedEmailId: emailId,
         emails: markEmailRead(state.emails, emailId),
         emailNotification:
@@ -1652,7 +1689,7 @@ function withEmailTriggers(prevState, newState, starClaim = null) {
     ...newState,
     emails,
     emailNotification:
-      newState.activeTab === "email"
+      isSectionOnScreen(newState, "email")
         ? newState.emailNotification
         : { emailId: newEmailId },
   };
@@ -1675,6 +1712,9 @@ const ACHIEVEMENT_SKIP_ACTIONS = new Set([
   "RESTORE_SAVE",
   // The numbers react (issue #214): presentation only.
   "STAT_GAIN",
+  // Choosable panes (issue #174): view state only.
+  "SET_LAYOUT_MODE",
+  "CHOOSE_PANE_SECTION",
 ]);
 
 /**
@@ -1714,7 +1754,7 @@ function withAchievements(state) {
     achievements,
     emails,
     emailNotification:
-      added && state.activeTab !== "email"
+      added && !isSectionOnScreen(state, "email")
         ? { emailId: added.id }
         : state.emailNotification,
   };
@@ -1763,9 +1803,41 @@ function statGainReading(state) {
   };
 }
 
+/**
+ * The reducer's starting state (issue #174): the side panes from the
+ * device's localStorage (sanitized, so junk or a throwing storage is
+ * the default Hire / Projects) and the layout mode from the same
+ * media query App watches, with the desktop invariant applied, so the
+ * first render already has three different sections.
+ *
+ * @private
+ */
+function initGameState(base) {
+  let stored = null;
+  let desktop = false;
+  try {
+    stored = localStorage.getItem(SIDE_PANES_STORAGE_KEY);
+  } catch {
+    stored = null;
+  }
+  try {
+    desktop = window.matchMedia("(min-width: 1024px)").matches;
+  } catch {
+    desktop = false;
+  }
+  // A fresh desktop load opens the center on Open Source, as it always
+  // has (normalizeCenter moves it on only if a side pane holds it).
+  return normalizeCenter({
+    ...base,
+    activeTab: desktop ? DESKTOP_START_SECTION : base.activeTab,
+    sidePanes: readSidePanes(stored),
+    layoutMode: desktop ? "desktop" : "mobile",
+  });
+}
+
 // GameProvider component to wrap the app and provide game state
 export function GameProvider({ children }) {
-  const [state, dispatch] = useReducer(rootReducer, initialState);
+  const [state, dispatch] = useReducer(rootReducer, initialState, initGameState);
   const stateRef = useRef(state);
   const [saveStatus, setSaveStatus] = useState("loading");
   const [savePlayerId, setSavePlayerId] = useState(null);
@@ -1787,6 +1859,22 @@ export function GameProvider({ children }) {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  // Choosable panes (issue #174): the side panes are a device
+  // preference. Written back whenever they change; storage that throws
+  // (private mode, blocked site data) is ignored.
+  const sideLeft = state.sidePanes?.left;
+  const sideRight = state.sidePanes?.right;
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        SIDE_PANES_STORAGE_KEY,
+        JSON.stringify({ left: sideLeft, right: sideRight })
+      );
+    } catch {
+      // A device preference is best-effort.
+    }
+  }, [sideLeft, sideRight]);
 
   // The save engine (guest-only, Slice 2). Created once; the provider owns
   // it because it owns the reducer state the engine reads and restores.

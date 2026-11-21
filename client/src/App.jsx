@@ -7,15 +7,8 @@ import { calculateTickCredit } from "./context/gameLogic";
 // Import save player id key (splash gating: a returning player has one)
 import { PLAYER_ID_KEY } from "./save/api.js";
 // Import components
-import { Shop } from "./components/Shop";
-import { Projects } from "./components/Projects";
-import { OpenSource } from "./components/OpenSource";
-import { Farm } from "./components/Farm";
-import { Achievements } from "./components/Achievements";
-import { Settings } from "./components/Settings";
-import { Email } from "./components/Email";
 import { GameLayout } from "./components/GameLayout";
-import { ScrollAffordanceFrame } from "./components/ScrollAffordances.jsx";
+import { Pane } from "./components/Pane.jsx";
 import { GoldenStar } from "./components/GoldenStar";
 import { SplashScreen } from "./components/SplashScreen.jsx";
 import { IntermissionScreen } from "./components/IntermissionScreen.jsx";
@@ -98,9 +91,18 @@ function App() {
 
     return () => clearInterval(interval);
   }, [dispatch]);
-  // Local state to manage active tab (employees, projects, upgrades)
-  // Detect desktop screen size
+  // Detect desktop screen size. The reducer holds the layout mode
+  // (issue #174: it decides which sections are on screen, which the
+  // new-mail notification and the Farm badge read), so the media
+  // query is reported to it, and the panes render from it.
   const isDesktop = useMediaQuery("(min-width: 1024px)");
+  useEffect(() => {
+    dispatch({
+      type: "SET_LAYOUT_MODE",
+      payload: { mode: isDesktop ? "desktop" : "mobile" },
+    });
+  }, [isDesktop, dispatch]);
+  const desktop = state.layoutMode === "desktop";
 
   // First run: the splash replaces the whole game until `npm start`
   // dismisses it. The save engine still mints/loads in the background
@@ -122,58 +124,21 @@ function App() {
       {/* Golden star (GitNub Constellation): fixed-positioned, spawns on
           its own timer when the player has a Constellation level. */}
       <GoldenStar />
-      {isDesktop ? (
-        // Desktop: 3-pane grid layout. Each pane is a
-        // ScrollAffordanceFrame: the pane scrolls on its own and the
-        // up/down arrows (RuneSpace #345 pattern) sit on its visible
-        // box, so a pane whose content hides above or below says so.
+      {desktop ? (
+        // Desktop (issue #174): three panes, three different sections.
+        // The side panes are pinned (the pane picker on their title
+        // bars changes them); the center is activeTab (the nav, email
+        // links and the picker change it). Each section owns its own
+        // scroller and pinned title bar (SectionLayout).
         <div className="grid grid-cols-3 gap-4 h-full">
-          {/* Left pane: Always Shop */}
-          <ScrollAffordanceFrame
-            scrollerClassName="h-full overflow-y-auto"
-            className="min-h-0"
-          >
-            <Shop />
-          </ScrollAffordanceFrame>
-
-          {/* Center pane: Dynamic (controlled by activeTab). Shop and
-              Projects are NOT rendered here — they live in the fixed side
-              panes, and rendering them here duplicated them (Shop showed
-              in the left and center panes, Projects in the center and
-              right). When the active tab is Shop or Projects, the center
-              falls back to Open Source so the pane is never empty. */}
-          <ScrollAffordanceFrame
-            scrollerClassName="h-full overflow-y-auto"
-            className="min-h-0"
-          >
-            {state.activeTab === "openSource" && <OpenSource />}
-            {(state.activeTab === "shop" ||
-              state.activeTab === "projects") && <OpenSource />}
-            {state.activeTab === "farm" && <Farm />}
-            {state.activeTab === "achievements" && <Achievements />}
-            {state.activeTab === "settings" && <Settings />}
-            {state.activeTab === "email" && <Email />}
-          </ScrollAffordanceFrame>
-
-          {/* Right pane: Always Projects */}
-          <ScrollAffordanceFrame
-            scrollerClassName="h-full overflow-y-auto"
-            className="min-h-0"
-          >
-            <Projects />
-          </ScrollAffordanceFrame>
+          <Pane position="left" desktop />
+          <Pane position="center" desktop />
+          <Pane position="right" desktop />
         </div>
       ) : (
-        // Mobile: Single pane (current behavior, unchanged)
-        <div>
-          {state.activeTab === "shop" && <Shop />}
-          {state.activeTab === "projects" && <Projects />}
-          {state.activeTab === "openSource" && <OpenSource />}
-          {state.activeTab === "farm" && <Farm />}
-          {state.activeTab === "achievements" && <Achievements />}
-          {state.activeTab === "settings" && <Settings />}
-          {state.activeTab === "email" && <Email />}
-        </div>
+        // Mobile: one pane, the nav's section, with its title bar
+        // pinned the same way. No picker: the nav is the picker.
+        <Pane position="center" desktop={false} />
       )}
     </GameLayout>
   );

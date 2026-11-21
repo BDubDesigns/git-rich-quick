@@ -10,7 +10,7 @@
  * The 19 game fields are saved, including the timed golden-star buffs
  * (activeStarEffects), the star schedule timers (nextStarAtMs /
  * lastStarBuyAtMs), the in-game inbox (emails, issue #31), and the
- * cosmetics (unlockedCosmetics / equippedCosmetics, issue #11). UI state (activeTab, selectedPanes,
+ * cosmetics (unlockedCosmetics / equippedCosmetics, issue #11). UI state (activeTab, sidePanes, layoutMode,
  * clickHistory, currentCPS, uiState) is NOT saved and is reset to the
  * initial values on restore.
  */

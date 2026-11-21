@@ -546,7 +546,8 @@ test("the components use the one shared mechanism", () => {
   // its birth badge); the navigation itself is still the shared helper.
   assert.match(context, /case "NAVIGATE_TO_TARGET": \{[^}]*?return withFarmVisit\(navigateToTarget\(/);
   assert.match(context, /case "CONSUME_HIGHLIGHT": \{\s*return consumeHighlight\(/);
-  assert.match(context, /return withFarmVisit\(\{ \.\.\.clearHighlight\(state\), activeTab \}\);/);
+  // Issue #174: the tab switch goes through showSection (the panes' one rule).
+  assert.match(context, /return withFarmVisit\(showSection\(clearHighlight\(state\), activeTab\)\);/);
   const email = read("components/Email.jsx");
   assert.match(email, /emailDetailModel\(selectedEmail\)/);
   assert.match(email, /type: "NAVIGATE_TO_TARGET"/);

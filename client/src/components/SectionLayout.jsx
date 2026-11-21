@@ -2,15 +2,22 @@ import { SECTIONS_CONFIG } from "../context/gameConfig.js";
 import { useGameContext } from "../context/useGameContext.js";
 import { SectionTitleBar } from "./SectionTitleBar.jsx";
 import { CodeComment } from "./CodeComment.jsx";
+import { ScrollAffordanceFrame } from "./ScrollAffordances.jsx";
 
 /**
- * SectionLayout: Container wrapper for page/tab content.
+ * SectionLayout: the frame every section renders in.
  *
- * Handles:
- * - Section config lookup (displayName, description)
- * - Description visibility state
- * - Toggle handler
- * - Standard page structure (title bar, comment, content container)
+ * Issue #174: the section owns its pane's scroll. A full-height column:
+ *
+ *   SectionTitleBar          (fixed height, never scrolls; the picker
+ *                             hangs off it, outside the scroller)
+ *   ScrollAffordanceFrame    (flex-1: the description comment and the
+ *                             content scroll here, with the up/down
+ *                             arrows on this area only)
+ *
+ * So the title bar is pinned structurally (not CSS sticky): it is
+ * above its own scroller. A deep link's scrollIntoView centers the
+ * card in that scroller, never behind the bar.
  *
  * Usage:
  *   <SectionLayout sectionId="shop">
@@ -36,16 +43,22 @@ export function SectionLayout({ sectionId, children }) {
   };
 
   return (
-    <div className="primary-text">
+    <div className="primary-text h-full min-h-0 flex flex-col">
       <SectionTitleBar
+        sectionId={sectionId}
         title={sectionConfig.displayName}
         isDescriptionVisible={isDescriptionVisible}
         onToggle={handleToggleDescription}
       />
-      {isDescriptionVisible && (
-        <CodeComment>{sectionConfig.description}</CodeComment>
-      )}
-      <div className="flex flex-col gap-2">{children}</div>
+      <ScrollAffordanceFrame
+        className="flex-1 min-h-0"
+        scrollerClassName="h-full overflow-y-auto"
+      >
+        {isDescriptionVisible && (
+          <CodeComment>{sectionConfig.description}</CodeComment>
+        )}
+        <div className="flex flex-col gap-2 pb-2">{children}</div>
+      </ScrollAffordanceFrame>
     </div>
   );
 }
