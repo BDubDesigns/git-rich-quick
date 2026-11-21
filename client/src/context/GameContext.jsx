@@ -12,6 +12,7 @@ import {
 import { serverNowMs } from "../save/serverClock.js";
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
+import { nextAutoShipPulse } from "../utils/shipFeel.js";
 // Tap-latency diagnostics (PR #101): the instrument that records slow
 // Commit taps so a "taps don't register" report can be diagnosed from
 // evidence. Framework-free like SaveSync; the provider owns it.
@@ -64,7 +65,6 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
-import { nextAutoShipPulse } from "../utils/shipFeel.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -1418,6 +1418,8 @@ function gameReducer(state, action) {
         ...saveStateToGameFields(saveState),
         clickHistory: [],
         currentCPS: 0,
+        // Shipped (issue #219): a restore never pulses the Cash readout.
+        autoShipPulse: null,
         // Transient email UI state is reset on restore: the selected /
         // notified email may not exist in the restored inbox (a 409
         // revert), so it must not linger.
@@ -1426,8 +1428,6 @@ function gameReducer(state, action) {
         // The numbers react (issue #214): a load or restore is never a
         // gain, and clears any pending one.
         statGain: null,
-        // Shipped (issue #219): a restore never pulses the Cash readout.
-        autoShipPulse: null,
       };
     }
 
