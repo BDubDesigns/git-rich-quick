@@ -1,25 +1,25 @@
 /**
- * FloatingText variants (issue #189), as pure data so the server test
- * suite can pin them without React or CSS.
+ * FloatingText variants, as pure data so the server test suite can pin
+ * them without React or CSS (issue #189, reworked by hotfix #202).
  *
- * - default: the click and Contribute float. Tuned for high-rate click
- *   spam in issue #106: 1.25s rise of 36px, text-xl, spawned 30px above
- *   the tap, up to 6 alive at once. Unchanged by #189, on purpose.
- * - star: the star claim label (gold, red and chain stars). A rare,
- *   high-value event the player wants to READ, so it is the opposite
- *   trade: it paints above the star layer, lives about 2.75s with full
- *   opacity for most of the run, uses a larger font, and spawns well
- *   above the tap point so the player's thumb does not cover it.
+ * The rule (#202, Brandon, Nov 20): "Originate at the tap site but
+ * quickly move up and slow down as it gets further up. And a little
+ * bigger and the z index." So every float is placed AT its origin
+ * point: the pill is centered on (x, y), from those coordinates only.
+ * Nothing measures, clamps or offsets it. Clearing the finger is the
+ * animation's job: a strong ease-out rise of about 100px.
  *
- * Why size and offset stay star-only (Brandon's #189 comment asked to
- * apply them to the default too unless that fights the click tuning):
- * it does. On a phone the Commit button sits directly under the
- * Clicks/sec meter and the nav panel. The default float already rises
- * from 30px above the tap into that space; a real thumb-clearing offset
- * would spawn every click float on top of the meter and the tabs and
- * rise into the game content, and a larger font grows the six-float
- * cluster. That is exactly the pile-up #106 removed. So the default
- * keeps its size and offset, and the star variant gets both.
+ * - default: the click and Contribute float (and the passive LOC/s
+ *   float). Keeps the issue #106 spam protections: 1.25s lifetime and
+ *   at most 6 alive (useFloatingText). Only the trajectory changed: it
+ *   rises 100px, fast then decelerating, and fades over the last part.
+ * - star: the star claim label (gold, red and chain stars). Keeps its
+ *   readable 2.75s shape, opacity held through 80% and a short fade at
+ *   the end, but does its 100px of rising early (the first 35%) and
+ *   fast, then holds clear of the finger while it is read and fades.
+ *
+ * Both paint above the star layer (.golden-star z-index 50) and below
+ * the rotate prompt (1000). The star label sits above the click floats.
  */
 export const FLOATING_TEXT_VARIANTS = Object.freeze({
   default: Object.freeze({
@@ -27,28 +27,28 @@ export const FLOATING_TEXT_VARIANTS = Object.freeze({
     animationClass: "animate-float-up",
     /** Total lifetime, ms (the CSS animation-duration). */
     durationMs: 1250,
-    /** How far above the tap point the pill's top edge spawns, px. */
-    offsetAbovePx: 30,
-    /** Tailwind font size class. */
-    fontClass: "text-xl",
-    /** Stacking: auto, as before (the click layer has nothing above it). */
-    zIndex: null,
-    /** Single line, as before. */
+    /** Total rise, px (the end of the CSS rise keyframes). */
+    risePx: 100,
+    /**
+     * One step up from text-xl (#202: "a little bigger"). text-2xl
+     * (24px) shipped: checked in play at 10 taps a second, the six-float
+     * cluster spreads along the 100px rise instead of stacking.
+     */
+    fontClass: "text-2xl",
+    /** Above the star layer (50), below the star labels and the rotate prompt. */
+    zIndex: 60,
+    /** Single line. */
     wrap: false,
-    /** The pill background (issue #49), as before. */
+    /** The pill background (issue #49). */
     pillClass: "bg-black/60",
   }),
   star: Object.freeze({
     animationClass: "animate-float-star",
     durationMs: 2750,
-    /**
-     * Clears an adult thumb pad (about 1.5 to 2cm, 60 to 75 CSS px on a
-     * phone) above the tap point, with room to spare.
-     */
-    offsetAbovePx: 110,
+    risePx: 100,
     fontClass: "text-2xl",
-    /** Above the star layer (.golden-star is z-index 50). */
-    zIndex: 60,
+    /** Above the click floats and the star layer, below the rotate prompt. */
+    zIndex: 70,
     /** Long labels ("Sprint! Senior Developer x12 for 60s") wrap. */
     wrap: true,
     /**
@@ -59,26 +59,36 @@ export const FLOATING_TEXT_VARIANTS = Object.freeze({
   }),
 });
 
-/** Keep the pill this far from every viewport edge, px. */
-export const FLOATING_TEXT_EDGE_MARGIN_PX = 8;
-
 /** The variant config for a name, falling back to the default. */
 export function floatingTextVariant(name) {
   return FLOATING_TEXT_VARIANTS[name] ?? FLOATING_TEXT_VARIANTS.default;
 }
 
 /**
- * The pill's top edge for a tap at `y`. The default spawns its fixed
- * offset above the tap, exactly as before #189 (no clamp: unchanged
- * behavior). The star variant spawns `offsetAbovePx` above the tap; when
- * that would leave the viewport (a star near the top of the screen) it
- * spawns the same distance BELOW the tap instead, so it still clears the
- * finger and is never off screen.
+ * Where the pill is placed: exactly the origin point (the tap). The
+ * pill is centered on it by the CSS `translate` property, which
+ * composes with the rise animation's `transform`. No variant, edge or
+ * size changes it.
  */
-export function floatingTextTop(variantName, y) {
-  const variant = floatingTextVariant(variantName);
-  if (variantName !== "star") return y - variant.offsetAbovePx;
-  const above = y - variant.offsetAbovePx;
-  if (above >= FLOATING_TEXT_EDGE_MARGIN_PX) return above;
-  return y + variant.offsetAbovePx;
+export function floatingTextOrigin(x, y) {
+  return { left: x, top: y };
+}
+
+/**
+ * Room the pill's center keeps from the top edge at the end of its
+ * rise, px: half a one-line text-2xl pill (about 20px) plus a little.
+ */
+export const FLOATING_TEXT_TOP_ROOM_PX = 24;
+
+/**
+ * How far a float rises, px: the variant's full rise, or less when the
+ * origin is too close to the top of the screen for all of it (a star
+ * near the top, the passive float under the header stats), so the text
+ * ends on screen instead of above it. The ORIGIN never moves; only the
+ * rise is shortened. Fed to the CSS as --float-rise.
+ */
+export function floatingTextRise(variantName, y) {
+  const full = floatingTextVariant(variantName).risePx;
+  const safeY = Number.isFinite(y) ? y : 0;
+  return Math.max(0, Math.min(full, safeY - FLOATING_TEXT_TOP_ROOM_PX));
 }

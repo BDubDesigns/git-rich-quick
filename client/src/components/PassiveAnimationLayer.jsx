@@ -30,8 +30,9 @@ export function PassiveAnimationLayer({ locPerSecondRef }) {
       if (locPerSecondRef.current) {
         // Get the bounding rectangle of the CPS meter to calculate animation start position
         const rect = locPerSecondRef.current.getBoundingClientRect();
-        // Position the floating text near the top-left of the CPS meter
-        const startX = rect.left;
+        // Originate at the stat (hotfix #202): FloatingText centers the
+        // pill on this point, so pass the stat's horizontal center.
+        const startX = rect.left + rect.width / 2;
         const startY = rect.top + 20;
 
         // Create a code bracket icon to display alongside the LOC amount

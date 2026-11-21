@@ -1,59 +1,84 @@
+/* Floating text (hotfix #202). Every float originates AT its tap: the
+   component sets left/top to the tap point, and this centers the pill
+   on it. `translate` is its own property, so it composes with the rise
+   animation's `transform` instead of being overwritten by it. The
+   width is the pill's own (max-content), never squeezed by where it
+   spawns; a wrapping star label still caps at the viewport width. */
+.floating-text {
+  translate: -50% -50%;
+  width: max-content;
+}
+
+/* The strong ease-out both rises use: fast at first, decelerating as
+   it climbs (an exponential-style curve). The rise is --float-rise,
+   100px unless the tap is too close to the top of the screen for all
+   of it (set per float by the component; the origin never moves). */
+
+/* Click, Contribute and passive floats: 1.25s, the issue #106 spam
+   lifetime (with at most 6 alive, see useFloatingText). The rise is
+   100px over the whole run on the strong ease-out, so the text leaves
+   the thumb almost at once and slows near the top; the fade is a
+   separate animation, opaque until 55% and gone at the end. */
 @keyframes float-up {
   from {
-    /* Start at y0, original position, fully opaque */
-    opacity: 1;
     transform: translateY(0);
   }
   to {
-    /* End 36px up, fully transparent. Was 50px over 2s (issue #106):
-       the longer, taller rise drifted over the header stats, the
-       Clicks/sec label, and hire buttons, and at high tap rates the
-       floats piled into a dense cluster. Shorter and quicker keeps
-       the feedback readable without covering the UI above the button. */
+    transform: translateY(calc(-1 * var(--float-rise, 100px)));
+  }
+}
+
+@keyframes float-up-fade {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  100% {
     opacity: 0;
-    transform: translateY(-36px);
   }
 }
 
 .animate-float-up {
-  animation-name: float-up;
-  animation-duration: 1.25s;
-  animation-timing-function: ease-out; /* Start fast and end slow */
-  animation-fill-mode: forwards; /* Ensure that the element retains the final styles after the animation ends */
+  animation:
+    float-up 1.25s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+    float-up-fade 1.25s linear forwards;
 }
 
-/* Star claim labels (issue #189): a rare, high-value event the player
-   wants to read, so the opposite of the click-spam float above. About
-   2.75s total, fully opaque for the first 80% (2.2s) while it rises a
-   modest 20px, then a short fade with the last 12px of rise. Paints
-   above the star layer (z-index 60, set by the variant). The click and
-   Contribute float keeps float-up at 1.25s exactly. */
+/* Star claim labels: the readable 2.75s shape. The 100px rise happens
+   in the first 35% (about 0.96s) on the same strong ease-out, then the
+   label holds clear of the finger; opacity holds at 1 through 80%
+   (2.2s) and fades over the end. */
 @keyframes float-star {
   0% {
-    opacity: 1;
     transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
+  35%,
+  100% {
+    transform: translateY(calc(-1 * var(--float-rise, 100px)));
+  }
+}
+
+@keyframes float-star-fade {
+  0%,
   80% {
     opacity: 1;
-    transform: translateY(-20px);
   }
   100% {
     opacity: 0;
-    transform: translateY(-32px);
   }
 }
 
 .animate-float-star {
-  animation-name: float-star;
-  animation-duration: 2.75s;
-  animation-timing-function: ease-out;
-  animation-fill-mode: forwards;
+  animation:
+    float-star 2.75s linear forwards,
+    float-star-fade 2.75s linear forwards;
 }
 
 .animate-float-up svg,
 .animate-float-star svg {
   /* Ensure icons stay appropriately sized */
-  width: 1.25em; /* 1.25x the font size (text-xl = 20px, so icon ≈ 25px) */
+  width: 1.25em; /* 1.25x the font size (text-2xl = 24px, so icon = 30px) */
   height: 1.25em;
   display: flex; /* SVGs are inline-block; flex helps with alignment */
   flex-shrink: 0; /* Prevent SVG from squishing */
