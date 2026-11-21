@@ -46,6 +46,7 @@ import {
   isFarmUnlockMet,
   flatEmployeeCounts,
   flatOpenSourceLevels,
+  getReleaseManagerEconomics,
 } from "./gameLogic.js";
 import {
   addEmail,
@@ -63,6 +64,11 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
+import {
+  STAT_GAIN_NEVER_ACTIONS,
+  nextStatGain,
+  statGainFlags,
+} from "../utils/statGain.js";
 
 // Initial state of the game
 // All monetary values are in CENTS to avoid floating-point errors
@@ -1376,6 +1382,9 @@ function gameReducer(state, action) {
         // revert), so it must not linger.
         emailNotification: null,
         selectedEmailId: null,
+        // The numbers react (issue #214): a load or restore is never a
+        // gain, and clears any pending one.
+        statGain: null,
       };
     }
 
@@ -1664,6 +1673,8 @@ const ACHIEVEMENT_SKIP_ACTIONS = new Set([
   "CLOSE_EMAIL",
   "DISMISS_EMAIL_NOTIFICATION",
   "RESTORE_SAVE",
+  // The numbers react (issue #214): presentation only.
+  "STAT_GAIN",
 ]);
 
 /**
@@ -1716,11 +1727,40 @@ function withAchievements(state) {
  * @private
  */
 function rootReducer(state, action) {
-  const next = gameReducer(state, action);
+  const next = withStatGain(state, gameReducer(state, action), action);
   if (next === state || ACHIEVEMENT_SKIP_ACTIONS.has(action.type)) {
     return next;
   }
   return withAchievements(next);
+}
+
+/**
+ * The numbers react (issue #214): after an action, decide which header
+ * stats bump (utils/statGain.js) and record it as state.statGain, a
+ * transient field (never saved). Ticks, clicks and restores are never
+ * examined, so they never bump; a STAT_GAIN action (the Starting
+ * Capital grant) carries its gain in the payload and changes nothing
+ * else.
+ *
+ * @private
+ */
+function withStatGain(prev, next, action) {
+  // Ticks, clicks and restores: never examined (and never measured).
+  if (STAT_GAIN_NEVER_ACTIONS.includes(action.type)) return next;
+  if (next === prev && action.type !== "STAT_GAIN") return next;
+  const flags = statGainFlags(action, statGainReading(prev), statGainReading(next));
+  const statGain = nextStatGain(next.statGain, flags, Date.now());
+  return statGain === (next.statGain ?? null) ? next : { ...next, statGain };
+}
+
+/** The values the gain rules read: LOC, Money and their current production. */
+function statGainReading(state) {
+  return {
+    loc: state.linesOfCode,
+    money: state.money,
+    rate: calculateLOCPerSecond(state),
+    moneyRate: getReleaseManagerEconomics(state).cashPerSecond,
+  };
 }
 
 // GameProvider component to wrap the app and provide game state
@@ -1860,7 +1900,16 @@ export function GameProvider({ children }) {
   // caller (PermanentStore) shows the result. A retried completion
   // reports success with alreadyCompleted: true, never a second grant.
   const completeIntermission = useCallback(async () => {
-    return saveSyncRef.current.completeIntermission();
+    const result = await saveSyncRef.current.completeIntermission();
+    // The numbers react (issue #214): the Starting Capital grant is the
+    // one gain the new company starts with. Only a fresh completion
+    // (never a retried one) with a grant bumps Money.
+    // The server reports the grant as { applied, cashCents }.
+    const grantCents = result?.grant?.applied ? Number(result.grant.cashCents) : 0;
+    if (result?.ok && !result.alreadyCompleted && grantCents > 0) {
+      dispatch({ type: "STAT_GAIN", payload: { money: grantCents } });
+    }
+    return result;
   }, []);
 
   // Ask the save engine for a prompt save after a golden-star claim
