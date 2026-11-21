@@ -75,6 +75,14 @@
     float-star-fade 2.75s linear forwards;
 }
 
+/* Star labels only (issue #209): the centering translate plus the
+   minimum sideways nudge (--star-nudge-x, 0 unless the centered pill
+   would overflow an edge; set by useStarLabelNudge). The click float's
+   .floating-text rule above is untouched. */
+.floating-text.animate-float-star {
+  translate: calc(-50% + var(--star-nudge-x, 0px)) -50%;
+}
+
 .animate-float-up svg,
 .animate-float-star svg {
   /* Ensure icons stay appropriately sized */
