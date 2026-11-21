@@ -378,3 +378,31 @@ body {
     animation: none;
   }
 }
+
+/* Phone portrait lock (issue #194). A full-screen prompt over the game
+   in phone landscape; hidden everywhere else. The media query must stay
+   identical to PHONE_LANDSCAPE_QUERY in src/utils/starViewport.js (a
+   test checks): landscape, at most 500px tall (phones are 320 to about
+   480 in landscape, the smallest tablet 744), on a touch-first device
+   (no hover, coarse pointer), so desktop windows and tablets never see
+   it. z-index 1000 is above every game layer (stars 50, star labels 60). */
+.rotate-prompt {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 500px) and (hover: none) and (pointer: coarse) {
+  .rotate-prompt {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+    background: #1e1e1e;
+    border-top: 2px solid #0078d4;
+  }
+}
