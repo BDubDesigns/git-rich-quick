@@ -29,11 +29,17 @@ import { getBaseLocPerSecond } from "../context/gameLogic.js";
 import * as shared from "../../../shared/game-balance.js";
 import { equityStripModel } from "../utils/equityStrip.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
+import { useEquitySweep } from "../hooks/useEquitySweep.js";
+import { splitStripText } from "../utils/equitySweep.js";
+import "./StatBump.css";
+import "./EquitySweep.css";
 
 export function EquityProgressStrip() {
   const { state, dispatch } = useGameContext();
   // Progress bar toggles (issue #128): the "equityStrip" toggle.
   const enabled = useProgressBarEnabled("equityStrip");
+  // Issue #220: a new sellable point sweeps the strip and bumps "+N Equity".
+  const sweep = useEquitySweep(state.equityGain);
   if (!enabled) return null;
   if (
     !shared.equityGoalVisible(
@@ -49,6 +55,7 @@ export function EquityProgressStrip() {
     state.lifetimeEquityEarned ?? 0,
     getBaseLocPerSecond(state)
   );
+  const { lead, rest } = splitStripText(strip.text);
 
   return (
     <div className="px-2">
@@ -70,7 +77,31 @@ export function EquityProgressStrip() {
           className="progress-strip-fill progress-strip-fill--equity"
           style={{ width: `${strip.fraction * 100}%` }}
         />
-        <span className="progress-strip-text">{strip.text}</span>
+        {sweep && (
+          <div
+            key={sweep.seq}
+            className={`equity-sweep${sweep.milestone ? " equity-sweep--milestone" : ""}`}
+            aria-hidden="true"
+          />
+        )}
+        <span className="progress-strip-text">
+          {lead ? (
+            // One inline run, so the space after "+N Equity" survives
+            // the strip's flex layout.
+            <span>
+              <span
+                key={sweep ? `lead-${sweep.seq}` : "lead"}
+                className={sweep ? "stat-value stat-bump stat-bump--money" : undefined}
+                data-value={lead}
+              >
+                {lead}
+              </span>
+              {rest}
+            </span>
+          ) : (
+            <>{strip.text}</>
+          )}
+        </span>
       </div>
     </div>
   );

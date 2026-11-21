@@ -64,6 +64,7 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
+import { nextEquityGain } from "../utils/equitySweep.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -1768,10 +1769,25 @@ function withAchievements(state) {
  */
 function rootReducer(state, action) {
   const next = withStatGain(state, gameReducer(state, action), action);
-  if (next === state || ACHIEVEMENT_SKIP_ACTIONS.has(action.type)) {
-    return next;
+  // Equity milestones (issue #220): a new sellable point sweeps the strip.
+  const swept = withEquityGain(state, next, action);
+  if (swept === state || ACHIEVEMENT_SKIP_ACTIONS.has(action.type)) {
+    return swept;
   }
-  return withAchievements(next);
+  return withAchievements(swept);
+}
+
+/**
+ * Equity milestones (issue #220): record state.equityGain when the
+ * claimable Equity rose in this action (once per step, however many
+ * points), utils/equitySweep.js. A restore is never a gain. Transient,
+ * never saved.
+ *
+ * @private
+ */
+function withEquityGain(prev, next, action) {
+  const equityGain = nextEquityGain(prev, next, action.type, Date.now());
+  return equityGain === (next.equityGain ?? null) ? next : { ...next, equityGain };
 }
 
 /**
