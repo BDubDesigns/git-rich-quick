@@ -135,13 +135,13 @@ test("no economy change from #203: the price table is the #244 table", () => {
   // The sell side floats again: one sellSeconds table, no stored values.
   assert.equal(LLAMA_ECONOMY.boughtSellFraction, undefined);
   assert.deepEqual({ ...LLAMA_ECONOMY.sellSeconds }, {
-    mama: 1,
-    classic: 1.5,
-    drama: 2,
-    spaghetti: 3,
-    quantum: 4,
-    blockchain: 5,
-    ai: 6,
+    mama: 4,
+    classic: 6,
+    drama: 8,
+    spaghetti: 16,
+    quantum: 24,
+    blockchain: 40,
+    ai: 60,
   });
 });
 

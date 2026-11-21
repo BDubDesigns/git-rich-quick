@@ -213,7 +213,7 @@ test("buy, barn and Night Shift numbers are unchanged from master (pinned at P =
 
 // --- The floating sell price ---
 
-const SELL_SECONDS = { mama: 1, classic: 1.5, drama: 2, spaghetti: 3, quantum: 4, blockchain: 5, ai: 6 };
+const SELL_SECONDS = { mama: 4, classic: 6, drama: 8, spaghetti: 16, quantum: 24, blockchain: 40, ai: 60 };
 
 test("a llama sells for sellSeconds x S at the current P, at every sampled P", () => {
   assert.deepEqual({ ...LLAMA_ECONOMY.sellSeconds }, SELL_SECONDS);
@@ -226,13 +226,13 @@ test("a llama sells for sellSeconds x S at the current P, at every sampled P", (
       );
     }
   }
-  // The Nov 20 save: a Classic sells for $2,901,150, an AI for $11,604,600.
-  assert.equal(llamaSellPriceCents("classic", 9_210_000), 290_115_000);
-  assert.equal(llamaSellPriceCents("ai", 9_210_000), 1_160_460_000);
+  // The Nov 20 save: a Classic sells for $11,604,600, an AI for $116,046,000.
+  assert.equal(llamaSellPriceCents("classic", 9_210_000), 1_160_460_000);
+  assert.equal(llamaSellPriceCents("ai", 9_210_000), 11_604_600_000);
   // Unknown types and the floor.
   assert.equal(llamaSellPriceCents("unicorn", 9_210_000), 0);
-  assert.equal(llamaSellPriceCents("classic", 0), 315); // 1.5 x 210
-  assert.equal(llamaSellPriceCents("classic", Number.NaN), 315);
+  assert.equal(llamaSellPriceCents("classic", 0), 1260); // 6 x 210
+  assert.equal(llamaSellPriceCents("classic", Number.NaN), 1260);
 });
 
 test("a llama's sell price rises when P rises", () => {
@@ -244,6 +244,12 @@ test("a llama's sell price rises when P rises", () => {
       last = price;
     }
     assert.equal(llamaSellPriceCents(type, 100_000), 100 * llamaSellPriceCents(type, 1_000), type);
+  }
+});
+
+test("every llama sells for one fifth of its buy price (Brandon, Nov 21)", () => {
+  for (const type of LLAMA_TYPES) {
+    assert.equal(LLAMA_ECONOMY.sellSeconds[type] * 5, LLAMA_ECONOMY.typeSeconds[type], type);
   }
 });
 
