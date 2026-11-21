@@ -161,10 +161,11 @@ export function SellCompany() {
       emailsKept: (state.emails ?? []).length,
       // Issue #237: discovered llama types survive the sale.
       discoveredTypesKept: (farm.unlockedTypes ?? []).length,
-      // SUBTRACTERALL (Slice 3): the phase at confirm time, so the
-      // closing screen reads the snapshot, not the reset live state.
-      subPhase: sub.phase,
-      subPhaseRemainingSeconds: Math.ceil(sub.phaseRemainingSeconds ?? 0),
+      // SUBTRACTERALL (issue #256): whether there was anything for the
+      // sale to wipe (a phase in progress or uses spent), read at
+      // confirm time so the closing screen reads the snapshot, not the
+      // reset live state.
+      subWiped: sub.phase !== "ready" || (sub.uses ?? 0) > 0,
     });
     setSaleError(null);
     setStep("confirm");
@@ -297,6 +298,9 @@ export function SellCompany() {
             {formatMultiplier(preview.founderBefore)}). Unspent Equity:{" "}
             {preview.unspentAfter}.
           </p>
+          {preview.subWiped && (
+            <p className="m-0 text-sm">{subFraming.saleNote}</p>
+          )}
           <div>
             <Button type="button" onClick={() => setStep("overview")}>
               Keep Building
@@ -346,9 +350,9 @@ export function SellCompany() {
           <p className="m-0 text-sm">
             The company changes hands. The founder&apos;s obligations do
             not.{" "}
-            {preview.subPhase === "ready"
-              ? `${subFraming.name}: no active phase. The new company starts the count again at zero.`
-              : `${subFraming.name} ${(preview.subPhase === "burst" ? subFraming.burstLabel : subFraming.withdrawalLabel).toLowerCase()} survives the sale: ${shared.formatSubtracterallSeconds(preview.subPhaseRemainingSeconds)} remaining. The new company starts the count again at zero, but it cannot be used until the phase ends.`}{" "}
+            {preview.subWiped
+              ? subFraming.saleNote
+              : `${subFraming.name}: no active phase. The new company starts the count again at zero.`}{" "}
             After the sale, the permanent store opens: spend Equity on
             permanent upgrades before starting the next company.
           </p>

@@ -391,7 +391,25 @@ test("the use count resets on sale: the next company starts at use 1", () => {
   assert.equal(next.phaseRemainingSeconds, 180);
 });
 
-test("a sale mid-withdrawal keeps the withdrawal and its terms; the count still resets", () => {
+test("issue #256: a sale mid-Burst wipes SUBTRACTERALL to the zero state", () => {
+  const pre = {
+    ...initialSaveState(),
+    totalLinesOfCode: 10_000_000,
+    linesOfCode: 1_000_000,
+    subtracterall: subWith({ phase: "burst", phaseRemainingSeconds: 90.5, uses: 3, activeUse: 3 }),
+  };
+  const post = applyPrestigeSale(pre, randomUUID());
+  assert.deepEqual(post.subtracterall, zeroSubtracterallState());
+  // No 3x carries into the new company, and it can be used at once.
+  assert.equal(subtracterallPhaseMultiplier(post.subtracterall), 1);
+  assert.equal(subtracterallCanActivate(post.subtracterall, 100), true);
+  // The next use is use 1: the full 180s burst.
+  const next = subtracterallActivate(post.subtracterall);
+  assert.equal(next.activeUse, 1);
+  assert.equal(next.phaseRemainingSeconds, 180);
+});
+
+test("issue #256: a sale mid-Withdrawal wipes SUBTRACTERALL to the zero state", () => {
   const pre = {
     ...initialSaveState(),
     totalLinesOfCode: 10_000_000,
@@ -399,34 +417,48 @@ test("a sale mid-withdrawal keeps the withdrawal and its terms; the count still 
     subtracterall: subWith({ phase: "withdrawal", phaseRemainingSeconds: 200, uses: 4, activeUse: 4 }),
   };
   const post = applyPrestigeSale(pre, randomUUID());
-  assert.deepEqual(post.subtracterall, { phase: "withdrawal", phaseRemainingSeconds: 200, uses: 0, activeUse: 4 });
-  // Still use 4's crash: 0.3645x, and no activation over it.
-  near(subtracterallPhaseMultiplier(post.subtracterall), 0.3645);
-  assert.equal(subtracterallCanActivate(post.subtracterall, 100), false);
-  // When it ends, the new company's first use is use 1.
-  const ended = advanceSubtracterall(post.subtracterall, 100, 200).state;
-  assert.equal(ended.phase, "ready");
-  assert.equal(subtracterallActivate(ended).activeUse, 1);
+  assert.deepEqual(post.subtracterall, zeroSubtracterallState());
+  // Use 4's 0.3645x crash does not follow the founder out.
+  assert.equal(subtracterallPhaseMultiplier(post.subtracterall), 1);
+  assert.equal(subtracterallCanActivate(post.subtracterall, 100), true);
+  assert.equal(subtracterallActivate(post.subtracterall).activeUse, 1);
 });
 
-test("criterion 9 (server): selling during withdrawal returns the surviving phase", async () => {
+test("issue #256: the Overtime reskin setting persists across the sale; only the state resets", () => {
+  for (const overtimeReskin of [true, false]) {
+    const pre = {
+      ...initialSaveState(),
+      totalLinesOfCode: 10_000_000,
+      linesOfCode: 1_000_000,
+      overtimeReskin,
+      subtracterall: subWith({ phase: "withdrawal", phaseRemainingSeconds: 50, uses: 2, activeUse: 2 }),
+    };
+    const post = applyPrestigeSale(pre, randomUUID());
+    assert.equal(post.overtimeReskin, overtimeReskin);
+    assert.deepEqual(post.subtracterall, zeroSubtracterallState());
+  }
+});
+
+test("criterion 9 (server, issue #256): selling during withdrawal returns the zero state, and it stays after a reload", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
     const pre = await setState(srv, playerId, {
       linesOfCode: 1_000_000,
       totalLinesOfCode: 10_000_000,
+      overtimeReskin: true,
       subtracterall: subWith({ phase: "withdrawal", phaseRemainingSeconds: 150.5, uses: 2, activeUse: 2 }),
     });
     const res = await sell(srv.base, playerId, pre);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(body.state.subtracterall, {
-      phase: "withdrawal",
-      phaseRemainingSeconds: 150.5,
-      uses: 0,
-      activeUse: 2,
-    });
+    assert.deepEqual(body.state.subtracterall, zeroSubtracterallState());
+    assert.equal(body.state.overtimeReskin, true);
+    const load = await fetch(`${srv.base}/api/load?playerId=${playerId}`);
+    assert.equal(load.status, 200);
+    const loaded = (await load.json()).state;
+    assert.deepEqual(loaded.subtracterall, zeroSubtracterallState());
+    assert.equal(loaded.overtimeReskin, true);
   } finally {
     await srv.stop();
   }
@@ -455,6 +487,30 @@ test("the Overtime reskin changes only the words, and never says dose", () => {
     assert.match(framing.scalingNote, /longer and harsher/);
     for (const text of Object.values(framing)) assert.ok(!text.includes("\u2014"), text);
   }
+});
+
+test("issue #256: the sale note reads rehab / wellness clinic in each framing, never dose in Overtime", () => {
+  const plain = SUBTRACTERALL_FRAMING.subtracterall.saleNote;
+  const overtime = SUBTRACTERALL_FRAMING.overtime.saleNote;
+  assert.match(plain, /checks into rehab/);
+  assert.match(plain, /SUBTRACTERALL ready/);
+  assert.match(overtime, /checks into a wellness clinic/);
+  assert.match(overtime, /Overtime ready/);
+  assert.doesNotMatch(overtime, /dose|rehab|withdrawal/i);
+  for (const text of [plain, overtime]) {
+    assert.doesNotMatch(text, /surviv/i);
+    assert.ok(!/[\u2013\u2014]/.test(text), text);
+  }
+  // The sale screens read the note from the framing, and the old
+  // survive-the-sale copy is gone from the sale screen and the card.
+  const src = (path) =>
+    readFileSync(new URL(`../../client/src/components/${path}`, import.meta.url), "utf8");
+  const sale = src("SellCompany.jsx");
+  const card = src("SubtracterallCard.jsx");
+  assert.equal(sale.match(/subFraming\.saleNote/g)?.length, 2);
+  assert.doesNotMatch(sale, /survives the sale|cannot be used until the phase ends/);
+  assert.doesNotMatch(card, /survives selling|does not end it/);
+  assert.ok(!/[\u2013\u2014]/.test(card));
 });
 
 test("the card and strip are Panel-based, use the framing, and carry no em dash", () => {

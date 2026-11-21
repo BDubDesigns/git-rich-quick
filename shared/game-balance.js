@@ -3673,9 +3673,13 @@ export function buildNightShiftEmail(report) {
  *   uses: uses this company (0 = none yet; the next use is uses + 1).
  *     Resets to 0 on sale.
  *   activeUse: the use number n of the phase in progress (0 when
- *     Ready). It sets the phase's durations and multiplier, and it is
- *     why a phase that survives a sale keeps its exact terms even
- *     though `uses` resets.
+ *     Ready). It sets the phase's durations and multiplier.
+ *
+ * Selling the company wipes all of it (issue #256, Brandon Nov 21):
+ * the founder checks into rehab (a wellness clinic in the Overtime
+ * reskin) on the way out, so the new company starts with the zero
+ * state: Ready, no time left, no uses. Nothing is left running into
+ * the store-only intermission, so nothing there needs pausing.
  *
  * Copy rules: no em dashes in any player-facing string. The Overtime
  * framing never says "dose": the action is mandating overtime and the
@@ -3784,6 +3788,8 @@ export const SUBTRACTERALL_FRAMING = Object.freeze({
     scalingNote:
       "Each dose makes the next burst shorter and the next withdrawal longer and harsher. There is no limit, and no way back up: the returns only diminish.",
     resetNote: "Selling the company resets the count to zero.",
+    saleNote:
+      "The founder checks into rehab on the way out. The new company starts clean, with SUBTRACTERALL ready.",
   }),
   overtime: Object.freeze({
     name: "Overtime",
@@ -3797,6 +3803,8 @@ export const SUBTRACTERALL_FRAMING = Object.freeze({
     scalingNote:
       "Each round of overtime makes the next one shorter and the burnout after it longer and harsher. There is no limit, and no way back up: the returns only diminish.",
     resetNote: "Selling the company resets the count to zero.",
+    saleNote:
+      "The founder checks into a wellness clinic on the way out, fully expensed. The new company starts rested, with Overtime ready.",
   }),
 });
 
@@ -3977,9 +3985,8 @@ export function subtracterallApplyClick(sub, healthy) {
  * Structure (Slice 3-proof): start from the pre-sale state and
  * overwrite ONLY the explicit company-local allowlist below. Any
  * field NOT on the list survives the sale by default. SUBTRACTERALL
- * (issue #150): the use count is company-local and resets to 0 in the
- * list below; a phase in progress survives with its exact remaining
- * time and terms (activeUse), so selling never cures a withdrawal.
+ * (issue #256): the whole state is company-local and resets to the
+ * zero state in the list below, a phase in progress included.
  *
  * RESETS (company-local): cash and spendable LOC; all hired
  * employees including managers; run upgrades, project progression
@@ -3994,8 +4001,8 @@ export function subtracterallApplyClick(sub, healthy) {
  * farm RESETS, it does not survive as a collection), EXCEPT its
  * discovered types (farm.unlockedTypes, issue #237: discovery is
  * knowledge, not inventory, so the herd book survives the sale);
- * the SUBTRACTERALL use count (issue #150: the new company starts at
- * use 1; a phase in progress is NOT reset and survives the sale).
+ * SUBTRACTERALL (issue #256: the founder checks into rehab, so the
+ * new company starts Ready at use 1 with no phase in progress).
  *
  * PERSISTS: Lifetime LOC and earned/unspent Equity; achievements and
  * cosmetic unlocks (without regranting rewards); the inbox (its
@@ -4079,15 +4086,12 @@ export function applyPrestigeSale(preSaleState, saleId) {
     activeStarEffects: [],
     // Issue #237: the farm resets, but the discovered types carry over.
     farm: emptyFarmState(preSaleState.farm?.unlockedTypes),
-    // SUBTRACTERALL (issue #150): the use count resets, so the new
-    // company starts again at use 1. A phase in progress SURVIVES the
-    // sale with its exact remaining time and its terms (activeUse):
-    // selling does not cure a withdrawal, and activating again stays
-    // disabled until the surviving phase ends.
-    subtracterall: {
-      ...normalizeSubtracterallState(preSaleState.subtracterall),
-      uses: 0,
-    },
+    // SUBTRACTERALL (issue #256): selling wipes it. The founder
+    // checks into rehab (a wellness clinic in the Overtime reskin) on
+    // the way out, so a Burst or Withdrawal in progress ends and the
+    // use count resets: the new company starts Ready at use 1. The
+    // reskin setting (overtimeReskin) is a preference and persists.
+    subtracterall: zeroSubtracterallState(),
     favoriteOpenSourceProjects: favorites,
     // Night Shift (issue #149): an upgrade like any other, so it
     // RESETS on sale (the Nov 15 rule). The Night Shift Contract

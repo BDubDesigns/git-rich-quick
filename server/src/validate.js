@@ -367,8 +367,9 @@ function checkStateShape(state) {
   // progress. The Overtime reskin is a boolean setting. The server
   // bounds the shape only: it never polices how the LOC was earned
   // (the burst is honest production, not cheating), and it never
-  // resets a phase here: a sale may not cure a withdrawal, and
-  // neither may a load. There is no use cap.
+  // resets a phase here: a load may not cure a withdrawal. Only a
+  // sale wipes the state (issue #256), and the server does that
+  // itself in applyPrestigeSale. There is no use cap.
   const sub = state.subtracterall;
   if (
     !sub ||
@@ -393,8 +394,10 @@ function checkStateShape(state) {
     return "subtracterall activeUse must be a non-negative integer";
   }
   // A phase in progress belongs to a real use (1 or more); Ready has
-  // none. The active use may exceed `uses` only after a sale, which
-  // resets the count while the phase carries on.
+  // none. Since issue #256 a sale resets the phase along with the
+  // count, so activeUse no longer outruns `uses` after a sale. The
+  // bound stays loose on purpose: a save stored before #256 may still
+  // carry a phase that survived a sale, and it must keep loading.
   if ((sub.phase === "ready") !== (sub.activeUse === 0)) {
     return "subtracterall activeUse must be 0 exactly when the phase is ready";
   }
