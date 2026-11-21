@@ -22,6 +22,8 @@ export function NavButton({
   // Issue #174: on screen in a desktop side pane (an outline ring).
   isPinned = false,
   badgeCount = 0,
+  // Issue #218: a new key bumps the badge once (scale 1 to 1.25 to 1).
+  badgeBumpKey = 0,
   onClick,
 }) {
   // Alias so the prop counts as used: a destructured prop rendered
@@ -56,7 +58,10 @@ export function NavButton({
             corner, pushed mostly outside the circle so it clears the
             envelope image. Hidden at zero. */}
         {badgeCount > 0 && (
-          <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] leading-5 text-center font-bold pointer-events-none ring-2 ring-white">
+          <span
+            key={badgeBumpKey}
+            className={`absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] leading-5 text-center font-bold pointer-events-none ring-2 ring-white${badgeBumpKey ? " nav-badge-bump" : ""}`}
+          >
             {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         )}
