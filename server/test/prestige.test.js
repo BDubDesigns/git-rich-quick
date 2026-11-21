@@ -163,6 +163,22 @@ async function sell(base, playerId, state, saleId) {
   return post(base, "/api/save/sell", sellBody(playerId, state, saleId));
 }
 
+/**
+ * Start the next company: complete the post-sale intermission. Since
+ * issue #188 the intermission is store-only, so nothing a test earns
+ * "in the new company" counts until it has been started.
+ */
+async function startNextCompany(srv, playerId, state) {
+  srv.advance(2000);
+  const res = await post(srv.base, "/api/save/intermission/complete", {
+    playerId,
+    state,
+    actionsSinceLastSave: zeroActions(),
+  });
+  assert.equal(res.status, 200);
+  return (await res.json()).state;
+}
+
 // --- Pure Equity math (criteria 15, 16, 17) ---
 
 test("entitled Equity follows floor(cbrt(lifetime LOC / 10M)) (issue #170)", () => {
@@ -518,11 +534,12 @@ test("criterion 2: sale at 10M awards one Equity; a later sale at 80M cumulative
     assert.equal(firstBody.sale.gainedEquity, 1);
     assert.equal(firstBody.state.lifetimeEquityEarned, 1);
 
-    // Earn to 80M cumulative in the new company (a normal save from
-    // the post-sale baseline, past the rate limit).
+    // Start the new company, then earn to 80M cumulative in it (a
+    // normal save from the post-sale baseline, past the rate limit).
+    const started = await startNextCompany(srv, playerId, firstBody.state);
     srv.advance(2000);
     const grown = {
-      ...firstBody.state,
+      ...started,
       linesOfCode: 70_000_000,
       totalLinesOfCode: 80_000_000,
     };
@@ -617,7 +634,11 @@ test("a sale with no new Equity is a 409, and a second sale with a new id and no
     });
     const first = await sell(srv.base, playerId, rich);
     assert.equal(first.status, 200);
-    const postState = (await first.json()).state;
+    const postState = await startNextCompany(
+      srv,
+      playerId,
+      (await first.json()).state
+    );
     const second = await sell(srv.base, playerId, postState);
     assert.equal(second.status, 409);
     assert.equal((await second.json()).rule, "SALE");
@@ -716,10 +737,12 @@ test("criterion 8 (sale + offline): sale then reload settles with no lost or dup
     assert.equal(loaded.lifetimeEquityEarned, 2);
     assert.equal(loaded.linesOfCode, 0);
 
-    // A later normal save validates against the post-sale baseline
-    // and grows from it: production after the sale is credited once.
+    // Once the next company starts, a normal save validates against
+    // the post-sale baseline and grows from it: production after the
+    // sale is credited once.
+    const started = await startNextCompany(srv, playerId, loaded);
     srv.advance(2000);
-    const grown = { ...loaded, linesOfCode: 500, totalLinesOfCode: 80_000_500 };
+    const grown = { ...started, linesOfCode: 500, totalLinesOfCode: 80_000_500 };
     const saved = await post(srv.base, "/api/save", {
       playerId,
       state: grown,

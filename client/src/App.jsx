@@ -18,6 +18,7 @@ import { GameLayout } from "./components/GameLayout";
 import { ScrollAffordanceFrame } from "./components/ScrollAffordances.jsx";
 import { GoldenStar } from "./components/GoldenStar";
 import { SplashScreen } from "./components/SplashScreen.jsx";
+import { IntermissionScreen } from "./components/IntermissionScreen.jsx";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 
 /** localStorage key for the splash dismissal (same `grq:` prefix as the
@@ -77,6 +78,9 @@ function App() {
       // in a withdrawal), not the healthy rate — calculateTickCredit
       // runs the same shared advance function as the reducer, so the
       // display and the balance can never disagree.
+      // Store-only intermission (issue #188): no tick at all while the
+      // intermission is open (the reducer refuses it anyway).
+      if (stateRef.current.prestigeIntermission) return;
       const locAmount = calculateTickCredit(stateRef.current);
 
       // Dispatch the game tick
@@ -104,6 +108,13 @@ function App() {
   // ready the moment the splash goes away.
   if (showSplash) {
     return <SplashScreen onStart={dismissSplash} />;
+  }
+
+  // Store-only intermission (issue #188): after a sale, the permanent
+  // store and its Start the next company action are the whole screen
+  // until the next company starts. No tabs, no Commit Code, no stars.
+  if (state.prestigeIntermission) {
+    return <IntermissionScreen />;
   }
 
   return (

@@ -26,6 +26,8 @@ import {
   normalizeSaveState,
   settleNightShift,
   wipedSaveState,
+  intermissionOpen,
+  pinIntermissionProgress,
 } from "../../shared/game-balance.js";
 import { METRICS_SAMPLING, deriveMetricsSnapshot } from "./metrics.js";
 import {
@@ -622,10 +624,17 @@ export function createStore(pool) {
             lastGood: prev,
           };
         }
+        // Store-only intermission (issue #188): while the stored state
+        // has the intermission open, the company-progress fields stay
+        // at the stored post-sale values, whatever the client sent.
+        // Not a rejection: the save (and its rate limit) is otherwise
+        // unchanged, so an honest client, which sends the same values,
+        // sees no difference.
+        const stored = pinIntermissionProgress(prev.state, body.state);
         await client.query(
           `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
           [
-            JSON.stringify(body.state),
+            JSON.stringify(stored),
             new Date(nowMs).toISOString(),
             playerId,
           ]
@@ -633,8 +642,8 @@ export function createStore(pool) {
         await client.query("COMMIT");
         // Telemetry (issue #152): after the commit, best effort. The
         // save is already stored; a snapshot failure cannot undo it.
-        await recordMetricsSnapshot(pool, playerId, body.state, nowMs);
-        return { status: "ok", state: body.state, savedAtMs: nowMs };
+        await recordMetricsSnapshot(pool, playerId, stored, nowMs);
+        return { status: "ok", state: stored, savedAtMs: nowMs };
       } catch (err) {
         try {
           await client.query("ROLLBACK");
@@ -728,6 +737,20 @@ export function createStore(pool) {
             },
           };
         }
+        // Store-only intermission (issue #188): a company can only be
+        // sold once it has been started. With the intermission open
+        // there is no company to sell, and any LOC the client claims
+        // was earned in the intermission, which does not count. (A
+        // retried sale already returned above, before this check.)
+        if (intermissionOpen(prevState)) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: "PRESTIGE",
+            detail: "the post-sale intermission is open: start the next company first",
+            lastGood: prev,
+          };
+        }
         // The sent pre-sale state must be a valid successor of the
         // stored state (shape, monotonicity, consistency — the same
         // trust boundary as a normal save). The sale cannot mint
@@ -815,8 +838,10 @@ export function createStore(pool) {
      * Like the sale, the sent state is first validated as an ordinary
      * successor of the stored state (same trust boundary as a normal
      * save, minus the rate limit — a buy right after a save is not a
-     * flood), so unsaved intermission progress (clicks) is preserved
-     * instead of being overwritten by the stored snapshot. The
+     * flood). The intermission is store-only (issue #188), so the
+     * company-progress fields are pinned to the stored post-sale
+     * values (pinIntermissionProgress): clicks or production a
+     * client claims for the intermission are discarded. The
      * purchase is then validated (rank order, funds from the STORED
      * Equity books) and applied to the sent state in the same
      * transaction, against the locked row.
@@ -888,9 +913,9 @@ export function createStore(pool) {
         }
         // The sent state must be a valid successor of the stored
         // state (shape, monotonicity, consistency). The purchase
-        // itself is applied below, on top of the sent state — never
-        // on the stored snapshot, or unsaved intermission progress
-        // would be lost with the restore.
+        // itself is applied below, on top of the sent state with its
+        // company progress pinned to the stored values (issue #188:
+        // nothing accrues in the intermission).
         const verdict = validateSave(prev, body, nowMs, {
           skipRateLimit: true,
         });
@@ -903,14 +928,15 @@ export function createStore(pool) {
             lastGood: prev,
           };
         }
+        const pinnedState = pinIntermissionProgress(prevState, sentState);
         const nextState = {
-          ...sentState,
+          ...pinnedState,
           permanentStoreRanks: {
-            ...sentState.permanentStoreRanks,
+            ...pinnedState.permanentStoreRanks,
             [body.storeId]: body.rank,
           },
           equitySpent:
-            (sentState.equitySpent ?? 0) + buyVerdict.price,
+            (pinnedState.equitySpent ?? 0) + buyVerdict.price,
         };
         await client.query(
           `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
@@ -957,8 +983,12 @@ export function createStore(pool) {
      * clear the intermission. `body` is `{ playerId, state,
      * actionsSinceLastSave }`, the client's freshest state. Like the
      * sale and the store buy, the sent state is first validated as
-     * an ordinary successor (minus the rate limit), so unsaved
-     * intermission progress is preserved.
+     * an ordinary successor (minus the rate limit). The new company
+     * is built from the sent state with its company progress pinned
+     * to the stored post-sale values (issue #188), so nothing a
+     * client claims to have accrued in the intermission carries into
+     * the new company; only the grant and the Night Shift Contract
+     * level are added, exactly as before.
      *
      * The grant uses the rank the player ends the intermission with
      * and the frozen R and q from the sale (see
@@ -1031,7 +1061,9 @@ export function createStore(pool) {
             lastGood: prev,
           };
         }
-        const nextState = completePrestigeIntermission(sentState);
+        const nextState = completePrestigeIntermission(
+          pinIntermissionProgress(prevState, sentState)
+        );
         await client.query(
           `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
           [
