@@ -11,13 +11,19 @@ import { formatCondition } from "../utils/formatCondition.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 /** The JSDoc wrapper: title line, description, then the tag lines
- *  (or any other block content) the caller passes as children. */
-export function JsDocBlock({ title, description, children }) {
+ *  (or any other block content) the caller passes as children.
+ *  `titleAfter` (optional) is a node rendered right after the title
+ *  text, inside the title line (the Open Source card's rolling version,
+ *  issue #216). */
+export function JsDocBlock({ title, titleAfter = null, description, children }) {
   return (
     <div className="text-xs font-mono">
       <span className="comment-text">{`/** `}</span>
       <br />
-      <span className="text-sm font-bold">{brandNodes(title)}</span>
+      <span className="text-sm font-bold">
+        {brandNodes(title)}
+        {titleAfter}
+      </span>
       <br />
       {description ? (
         <>

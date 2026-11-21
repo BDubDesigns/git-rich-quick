@@ -12,6 +12,7 @@ import {
 import { serverNowMs } from "../save/serverClock.js";
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
+import { nextAutoShipPulse } from "../utils/shipFeel.js";
 // Tap-latency diagnostics (PR #101): the instrument that records slow
 // Commit taps so a "taps don't register" report can be diagnosed from
 // evidence. Framework-free like SaveSync; the provider owns it.
@@ -64,6 +65,8 @@ import {
 import { GameContext } from "./gameContext.js";
 import { applyLlamaBuy } from "../utils/llamaShop.js";
 import { isActionBlockedDuringIntermission } from "./intermissionGate.js";
+import { birthRecord } from "../utils/llamaBirths.js";
+import { nextContribution } from "../utils/versionRoll.js";
 import {
   DEFAULT_SIDE_PANES,
   DESKTOP_START_SECTION,
@@ -605,7 +608,9 @@ function gameReducer(state, action) {
       const newState = {
         ...state,
         money: state.money - barnCost,
-        farm: shared.initialFarmState(),
+        // Issue #237: a barn re-bought after a sale keeps the types
+        // the earlier companies discovered.
+        farm: shared.initialFarmState(farm.unlockedTypes),
       };
       const latched = {
         ...newState,
@@ -742,7 +747,7 @@ function gameReducer(state, action) {
     case "FARM_BREED_RESULT": {
       const farm = state.farm ?? shared.emptyFarmState();
       if (!farm.owned) return { ...state, farmBreedDue: false };
-      const newState = {
+      const bred = {
         ...state,
         // Issue #204: the placed kids count toward the Farm tab badge,
         // except while the player is on the Farm tab watching them.
@@ -750,6 +755,12 @@ function gameReducer(state, action) {
           watching: isSectionOnScreen(state, "farm"),
         }),
         farmBreedDue: false,
+      };
+      const newState = {
+        ...bred,
+        // Issue #218: what this result pops (the placed stalls, a new
+        // type's outline, the badge bump). Transient, never saved.
+        lastBirths: birthRecord(farm, bred.farm, state.lastBirths, Date.now()),
       };
       const latched = {
         ...newState,
@@ -954,6 +965,9 @@ function gameReducer(state, action) {
         money: shipMoney,
         freelanceProjectsCompleted: shipCompleted,
         autoShipsCompleted: shipAuto,
+        // Issue #219: a tick that auto-shipped pulses the shipping
+        // strip's Cash readout (no chip). Transient, never saved.
+        autoShipPulse: nextAutoShipPulse(state.autoShipPulse, autoShipCount, Date.now()),
         achievements: recordHypeShips(state, autoShipCount, autoShipCash),
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
@@ -1029,6 +1043,15 @@ function gameReducer(state, action) {
       // deduct LOC cost and increase project level
       const contributed = {
         ...state,
+        // Version bump (issue #216): the card for this project rolls
+        // its version once. Transient UI state, never saved.
+        lastContribution: nextContribution(
+          state.lastContribution,
+          projectId,
+          projectState.level,
+          projectState.level + 1,
+          Date.now()
+        ),
         linesOfCode: state.linesOfCode - cost,
         openSourceProjects: {
           ...state.openSourceProjects,
@@ -1415,6 +1438,8 @@ function gameReducer(state, action) {
         ...saveStateToGameFields(saveState),
         clickHistory: [],
         currentCPS: 0,
+        // Shipped (issue #219): a restore never pulses the Cash readout.
+        autoShipPulse: null,
         // Transient email UI state is reset on restore: the selected /
         // notified email may not exist in the restored inbox (a 409
         // revert), so it must not linger.
@@ -1423,6 +1448,10 @@ function gameReducer(state, action) {
         // The numbers react (issue #214): a load or restore is never a
         // gain, and clears any pending one.
         statGain: null,
+        // Llama births (issue #218): a restore never pops or bumps.
+        lastBirths: null,
+        // Version bump (issue #216): a restore never rolls a card.
+        lastContribution: null,
       };
     }
 

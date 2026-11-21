@@ -159,6 +159,8 @@ export function SellCompany() {
       farmLlamas,
       cosmeticsKept: (state.unlockedCosmetics ?? []).length,
       emailsKept: (state.emails ?? []).length,
+      // Issue #237: discovered llama types survive the sale.
+      discoveredTypesKept: (farm.unlockedTypes ?? []).length,
       // SUBTRACTERALL (Slice 3): the phase at confirm time, so the
       // closing screen reads the snapshot, not the reset live state.
       subPhase: sub.phase,
@@ -336,6 +338,9 @@ export function SellCompany() {
             {preview.cosmeticsKept} cosmetic unlock
             {preview.cosmeticsKept === 1 ? "" : "s"},{" "}
             {preview.emailsKept} email{preview.emailsKept === 1 ? "" : "s"}
+            {preview.discoveredTypesKept > 0
+              ? `, ${preview.discoveredTypesKept} discovered llama type${preview.discoveredTypesKept === 1 ? "" : "s"}`
+              : ""}
             , and your preferences.
           </p>
           <p className="m-0 text-sm">

@@ -557,12 +557,14 @@ function checkStateShape(state) {
     seenLlamaTypes.add(type);
   }
   if (!state.farm.owned) {
-    // An unbought farm has no llamas and no types: a save that claims
-    // llamas without owning the farm is malformed.
+    // An unbought farm has no llamas: a save that claims llamas
+    // without owning the farm is malformed. Discovered types survive a
+    // sale (issue #237), so an unbought farm may hold types once a
+    // company has been sold; before the first sale it has none.
     if (state.farm.stalls.some((stall) => stall.llama !== null)) {
       return "farm has llamas but is not owned";
     }
-    if (state.farm.unlockedTypes.length > 0) {
+    if (state.farm.unlockedTypes.length > 0 && state.saleCount < 1) {
       return "farm has unlocked types but is not owned";
     }
   } else {
