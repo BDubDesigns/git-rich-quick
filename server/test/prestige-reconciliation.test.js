@@ -33,8 +33,8 @@
  * 8. Burst ending, crash ending, star expiry, sale, and offline
  *    intervals settle in timestamp order without lost or duplicated
  *    production.
- * 9. Sale/reload during either drug phase preserves its state; a
- *    new company cannot activate over an existing withdrawal.
+ * 9. A reload during either drug phase preserves its state. A sale
+ *    wipes it (issue #256): the new company starts Ready at use 1.
  * 10. Offline output matches an equivalent online employee-only
  *     interval under the same offline rules; absence beyond the
  *     credit cap does not shorten a withdrawal. (Issue #150
@@ -297,7 +297,7 @@ test("criterion 10: normalizeSaveState is time-independent: the load path cannot
 
 // --- Criterion 9: sale during a burst (server level) ---
 
-test("criterion 9 (server): selling during a burst keeps the burst and resets the use count", async () => {
+test("criterion 9 (server, issue #256): selling during a burst wipes SUBTRACTERALL to the zero state", async () => {
   const srv = await startTestServer();
   try {
     const playerId = await mintPlayer(srv.base);
@@ -321,17 +321,11 @@ test("criterion 9 (server): selling during a burst keeps the burst and resets th
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.state.lifetimeEquityEarned, 1);
-    // The burst carries on with its own terms (use 3); the new
-    // company's count starts again at 0, so its next use is use 1.
-    assert.deepEqual(body.state.subtracterall, {
-      phase: "burst",
-      phaseRemainingSeconds: 25,
-      uses: 0,
-      activeUse: 3,
-    });
-    // The new company cannot activate over the surviving burst.
-    assert.equal(subtracterallCanActivate(body.state.subtracterall, 100), false);
-    // A reload after the sale returns the same surviving burst.
+    // The founder checks into rehab: the burst ends with the sale and
+    // the count resets, so the new company starts Ready at use 1.
+    assert.deepEqual(body.state.subtracterall, zeroSubtracterallState());
+    assert.equal(subtracterallCanActivate(body.state.subtracterall, 100), true);
+    // A reload after the sale returns the same zero state.
     const loaded = await loadState(srv.base, playerId);
     assert.deepEqual(loaded.subtracterall, body.state.subtracterall);
   } finally {

@@ -135,15 +135,15 @@ export function SubtracterallCard() {
           <p className="m-0 text-sm">{framing.withdrawalDescription}</p>
           <p className="m-0 text-sm">
             {framing.withdrawalLabel}: {times(active.withdrawalMultiplier)}{" "}
-            LOC for {remaining} more. Selling the company does not end it.
+            LOC for {remaining} more. Selling the company ends it.
           </p>
         </>
       ) : confirming ? (
         <>
           <p className="m-0 text-sm">{termsSentence(next, framing)}</p>
           <p className="m-0 text-sm">
-            The {framing.withdrawalLabel.toLowerCase()} survives selling the
-            company.
+            Selling the company ends the{" "}
+            {framing.withdrawalLabel.toLowerCase()} and resets the count.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={handleActivate}>
