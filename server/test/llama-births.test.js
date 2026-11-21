@@ -120,7 +120,7 @@ test("the reducer records the births on FARM_BREED_RESULT; a restore clears them
   const breed = context.slice(context.indexOf('case "FARM_BREED_RESULT": {'), context.indexOf('case "COMPLETE_PROJECT": {'));
   assert.match(breed, /lastBirths: birthRecord\(farm, bred\.farm, state\.lastBirths, Date\.now\(\)\),/);
   // Breeding itself is the unchanged shared helper (its #204 pin passes untouched).
-  assert.match(breed, /farm: shared\.applyFarmBirths\(farm, action\.payload\?\.kids, \{\s*watching: isSectionOnScreen\(state, "farm"\),\s*buffedLocPerSec: getBaseLocPerSecond\(state\),\s*\}\),/);
+  assert.match(breed, /farm: shared\.applyFarmBirths\(farm, action\.payload\?\.kids, \{\s*watching: isSectionOnScreen\(state, "farm"\),\s*\}\),/);
   const restore = context.slice(context.indexOf('case "RESTORE_SAVE": {'), context.indexOf("// if action type doesn't make sense"));
   assert.match(restore, /lastBirths: null,/);
   assert.ok(!src("save/serialize.js").includes("lastBirths"));

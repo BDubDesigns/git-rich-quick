@@ -36,9 +36,8 @@ import {
   farmLlamaCount,
   farmPurchaseCostCents,
   formatEstimateDuration,
-  kidLlamaSellCents,
   llamaBuyPriceCents,
-  storedLlamaSellCents,
+  llamaSellPriceCents,
 } from "../../../shared/game-balance.js";
 import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 
@@ -50,9 +49,8 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
  * Click a stall to select it. Its controls open at the stall (issue
  * #230): a chip right under the stall's row, and the section scrolls
  * so the stall and the chip are in view together. A selected llama can
- * be sold (for its
- * own stored value, issue #244), moved to an empty stall, or have its
- * stall's lighting changed. A selected empty stall can have a llama bought
+ * be sold (for its type's current sell price), moved to an empty
+ * stall, or have its stall's lighting changed. A selected empty stall can have a llama bought
  * into it, or its lighting changed. The empty stall's own lighting
  * sets the breeding odds for a kid appearing there, and a Mama Llama
  * next door makes kids far more often. Breeding is rolled on the
@@ -61,10 +59,10 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
  * Every buy price is time at the player's BUFFED LOC/s
  * (getBaseLocPerSecond, the same rate the reducer charges from), so
  * the price on the button and the price the reducer charges can never
- * disagree, and both rise as the player grows. Sell values do not:
- * each llama shows the value stored on its stall when it arrived
- * (half of what was paid, or its produce value at birth), so two
- * llamas of one type can show different numbers.
+ * disagree, and both rise as the player grows. Sell prices float the
+ * same way: one price per type (llamaSellPriceCents, sellSeconds x S
+ * at the same buffed LOC/s), the same for a bought llama and a born
+ * one, so the number on a stall rises with production.
  *
  * There is no llama icon in react-icons, so the stalls render the
  * llama emoji. It is a game about llamas; the emoji is the point.
@@ -243,7 +241,9 @@ export function Farm() {
   const llamaCount = farmLlamaCount(farm.stalls);
   const selected = selectedStall !== null ? farm.stalls[selectedStall] : null;
   const selectedLlama = selected?.llama ?? null;
-  const selectedSellCents = storedLlamaSellCents(selected);
+  const selectedSellCents = selectedLlama
+    ? llamaSellPriceCents(selectedLlama, pricingRate)
+    : null;
   const selectedLighting = selected
     ? (FARM_LIGHTING[selected.lighting] ?? FARM_LIGHTING.warm)
     : null;
@@ -330,7 +330,7 @@ export function Farm() {
               aria-label={
                 stall.llama
                   ? `Stall ${index + 1}: ${LLAMA_TYPE_NAMES[stall.llama]}, sells for ${formatMoney(
-                      storedLlamaSellCents(stall) ?? 0
+                      llamaSellPriceCents(stall.llama, pricingRate)
                     )}, ${lighting.label} lighting${isSelected ? ", selected" : ""}`
                   : `Stall ${index + 1}: empty, ${lighting.label} lighting${
                       isEligible ? ", can breed" : ""
@@ -359,7 +359,7 @@ export function Farm() {
               </span>
               {stall.llama && (
                 <span className="text-xs text-gray-400">
-                  Sells for {formatMoney(storedLlamaSellCents(stall) ?? 0)}
+                  Sells for {formatMoney(llamaSellPriceCents(stall.llama, pricingRate))}
                 </span>
               )}
               <span className="text-xs" style={{ color: lighting.color }}>
@@ -381,9 +381,8 @@ export function Farm() {
                     <p className="m-0 text-sm">
                       <strong>{LLAMA_TYPE_NAMES[selectedLlama]}</strong> in stall{" "}
                       {selectedStall + 1}. Sells for{" "}
-                      {formatMoney(selectedSellCents ?? 0)}. This llama's price
-                      was set the day it arrived and stays put, even as your
-                      team grows and new llamas cost more.
+                      {formatMoney(selectedSellCents ?? 0)}. The price follows
+                      your shipping income, so it rises as your team grows.
                     </p>
                     {moving ? (
                       <p className="m-0 text-sm text-yellow-300">
@@ -392,10 +391,7 @@ export function Farm() {
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        <Button
-                          onClick={handleSellLlama}
-                          disabled={selectedSellCents === null}
-                        >
+                        <Button onClick={handleSellLlama}>
                           Sell ({formatMoney(selectedSellCents ?? 0)})
                         </Button>
                         <Button
@@ -415,8 +411,7 @@ export function Farm() {
                     <p className="m-0 text-sm">
                       Buy a llama for stall {selectedStall + 1}. The base types
                       are always for sale; a fancy type joins the shop once you
-                      have bred one. A llama you buy sells back for half of
-                      what you paid.
+                      have bred one.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {llamaShopTypes(farm.unlockedTypes).map((type) => {
@@ -484,8 +479,8 @@ export function Farm() {
                 ({forSale ? "buy" : "worth"}{" "}
                 {formatMoney(llamaBuyPriceCents(type, pricingRate))},{" "}
                 {formatEstimateDuration(LLAMA_ECONOMY.typeSeconds[type])} of
-                shipping; a kid born now sells for{" "}
-                {formatMoney(kidLlamaSellCents(type, pricingRate))})
+                shipping; sells for{" "}
+                {formatMoney(llamaSellPriceCents(type, pricingRate))})
               </span>
               {discovered ? (
                 <>: {LLAMA_TYPE_DESCRIPTIONS[type]}</>
@@ -502,16 +497,15 @@ export function Farm() {
   );
 }
 
-/** How the farm prices: buys are time at the player's buffed LOC/s, sells are stored. */
+/** How the farm prices: buys and sells are time at the player's buffed LOC/s, right now. */
 function PricingNote({ rate }) {
   const floored = rate < LLAMA_ECONOMY.minPricingLocPerSecond;
   return (
     <p className="m-0 text-xs text-gray-400">
-      Llama market: buy prices are time at your current{" "}
-      {formatNumber(rate)} LOC/s (achievement and Founder buffs included),
-      so they rise as you grow. Sell prices do not: a bought llama sells
-      for half of what you paid, and a kid for what it was worth the day
-      it was born.
+      Llama market: prices are time at your current {formatNumber(rate)}{" "}
+      LOC/s (achievement and Founder buffs included), so they rise as you
+      grow. A llama's sell price follows your shipping income too, the
+      same for one you bought and one born here.
       {floored
         ? ` Priced as if you made ${LLAMA_ECONOMY.minPricingLocPerSecond} LOC/s until you do; nothing here is free.`
         : ""}

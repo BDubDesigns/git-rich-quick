@@ -71,7 +71,7 @@ test("selecting a stall renders its controls in the chip, a full-width Panel ins
   assert.match(chip, /\{llamaShopTypes\(farm\.unlockedTypes\)\.map\(\(type\) => \{/);
   assert.match(chip, /Buy \{LLAMA_TYPE_NAMES\[type\]\} \(\{formatMoney\(price\)\}\)/);
   assert.equal((chip.match(/onClick=\{\(\) => handleCycleLighting\(selectedStall\)\}/g) ?? []).length, 2);
-  // The stored sell value still reads in the chip's copy.
+  // The current (floating) sell price still reads in the chip's copy.
   assert.match(chip, /Sells for\{" "\}\s*\{formatMoney\(selectedSellCents \?\? 0\)\}/);
   // The stall says it opens the chip.
   assert.match(grid, /aria-expanded=\{isSelected\}/);
@@ -123,10 +123,10 @@ test("reduced motion: the focus scroll jumps instead of gliding", () => {
   assert.match(farm, /const reduceMotion = window\.matchMedia\?\.\(/);
 });
 
-test("the existing farm wiring is untouched: births, stored values and selection", () => {
+test("the existing farm wiring is untouched: births, sell prices and selection", () => {
   assert.match(farm, /const births = useBirthPops\(state\.lastBirths\);/);
   assert.match(farm, /className=\{`stall relative flex/);
-  assert.match(farm, /Sells for \{formatMoney\(storedLlamaSellCents\(stall\) \?\? 0\)\}/);
+  assert.match(farm, /Sells for \{formatMoney\(llamaSellPriceCents\(stall\.llama, pricingRate\)\)\}/);
   assert.match(farm, /setSelectedStall\(\(current\) => \(current === stallIndex \? null : stallIndex\)\);/);
 });
 

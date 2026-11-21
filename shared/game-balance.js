@@ -1732,15 +1732,11 @@ export function farmKidChance(lightingId, parentTypes) {
  * Farm buy side: a price is `seconds x S`. The barn is 60 seconds, a
  * Mama 20, a Classic 30, an AI Llama 300.
  *
- * Farm sell side: there is no floating sell price. Every llama stores
- * its sell value in cents on its stall (stall.sellCents), written once
- * when it enters the farm and never recomputed:
- *   - bought: half of the price actually paid (boughtLlamaSellCents);
- *   - born: its type's produce seconds x S at the moment of birth
- *     (kidLlamaSellCents).
- * Selling pays the stored value; moving keeps it. Nothing about a
- * llama's value responds to P after it arrives, so there is no
- * buy-low-sell-high on the player's own growth.
+ * Farm sell side: one floating sell price per TYPE, the same for a
+ * bought llama and a born one: sellSeconds x S at the CURRENT P
+ * (llamaSellPriceCents). Nothing is stored on the stall; as P rises
+ * the sell price of every llama rises with it, and selling pays the
+ * price at the moment of sale.
  *
  * Tuning values, one line each; retunes are constants only.
  */
@@ -1759,14 +1755,15 @@ export const LLAMA_ECONOMY = Object.freeze({
     blockchain: 200,
     ai: 300,
   }),
-  /** A bought llama's stored sell value: this fraction of the price paid. */
-  boughtSellFraction: 0.5,
   /**
-   * A kid's stored sell value, in seconds of S at its birth. A flat
-   * ladder (revision 2 on issue #200): rare kids are worth several
-   * common ones, but no kid is worth a bought llama.
+   * THE SELL-PRICE TUNING KNOB. What a llama of each type sells for, in
+   * seconds of S at the player's CURRENT production. Bought and born
+   * llamas of one type share this price. Seeded from the flat kid
+   * produce ladder (revision 2 on issue #200): rare llamas are worth
+   * several common ones, and every type sells well below its buy price
+   * (typeSeconds) so buying to resell never pays. Retune here only.
    */
-  kidProduceSeconds: Object.freeze({
+  sellSeconds: Object.freeze({
     mama: 1,
     classic: 1.5,
     drama: 2,
@@ -1779,29 +1776,6 @@ export const LLAMA_ECONOMY = Object.freeze({
   mamaKidChanceMultiplier: 3,
   /** The kid chance never goes above this, Mama or not. */
   maxKidChance: 0.9,
-});
-
-/**
- * The one-time par stamp for a llama saved before stored sell values
- * shipped (issue #244, Brandon's no-wipe decision on issue #200). Such
- * a llama is stamped once, on its first load under this code, at what
- * it would have sold for the moment before the build: half of its buy
- * price under the old rules, which priced a type at these seconds of
- * production value (P x bestCentsPerLoc, 60 cents). Nobody gains,
- * nobody loses; from the stamp on the llama keeps that value like any
- * other. Used only by stampLegacyLlamaSellValues, never by a live price.
- */
-export const LEGACY_LLAMA_PAR = Object.freeze({
-  typeSeconds: Object.freeze({
-    mama: 60,
-    classic: 90,
-    drama: 120,
-    spaghetti: 240,
-    quantum: 360,
-    blockchain: 600,
-    ai: 900,
-  }),
-  sellFraction: 0.5,
 });
 
 /**
@@ -1866,100 +1840,21 @@ export function llamaBuyPriceCents(type, buffedLocPerSec) {
   return Math.round(seconds * cashBasisCentsPerSecond(buffedLocPerSec));
 }
 
-/** The stored sell value of a bought llama: half of what was paid, whole cents. */
-export function boughtLlamaSellCents(pricePaidCents) {
-  const paid = Number(pricePaidCents);
-  if (!Number.isFinite(paid) || paid <= 0) return 0;
-  return Math.floor(LLAMA_ECONOMY.boughtSellFraction * paid);
-}
-
 /**
- * The stored sell value of a kid of `type` born at buffed LOC/s `p`:
- * produce seconds x S, whole cents. 0 for an unknown type.
+ * What a llama of `type` sells for right now, in whole cents:
+ * sellSeconds x S at buffed LOC/s `p` (issue #244 follow-up: the price
+ * floats with production again, and a bought llama and a born one of
+ * the same type sell for the same). 0 for an unknown type.
  */
-export function kidLlamaSellCents(type, buffedLocPerSec) {
-  const seconds = LLAMA_ECONOMY.kidProduceSeconds[type];
+export function llamaSellPriceCents(type, buffedLocPerSec) {
+  const seconds = LLAMA_ECONOMY.sellSeconds[type];
   if (!seconds) return 0;
   return Math.round(seconds * cashBasisCentsPerSecond(buffedLocPerSec));
 }
 
 /**
- * The par stamp for a llama of `type` saved before stored values: half
- * of its old-rules buy price at buffed LOC/s `p` (LEGACY_LLAMA_PAR),
- * exactly what it would have sold for before this build. 0 for an
- * unknown type.
- */
-export function legacyLlamaParSellCents(type, buffedLocPerSec) {
-  const seconds = LEGACY_LLAMA_PAR.typeSeconds[type];
-  if (!seconds) return 0;
-  const oldBuy = Math.round(
-    seconds * pricingLocPerSecond(buffedLocPerSec) * bestCentsPerLoc()
-  );
-  return Math.floor(LEGACY_LLAMA_PAR.sellFraction * oldBuy);
-}
-
-/** A stored llama sell value is a non-negative safe integer (cents). */
-export function isLlamaSellCents(value) {
-  return Number.isSafeInteger(value) && value >= 0;
-}
-
-/**
- * What the llama in `stall` sells for: its stored value. Null when the
- * stall is empty or the value is missing or malformed, so a sale is
- * refused rather than paid from anything else. There is no fallback
- * to a current price: the float is gone.
- */
-export function storedLlamaSellCents(stall) {
-  if (!stall?.llama) return null;
-  return isLlamaSellCents(stall.sellCents) ? stall.sellCents : null;
-}
-
-/** Whether any stall in `farm` has no stored sell value yet (a pre-#244 save). */
-export function farmNeedsSellStamp(farm) {
-  return (
-    Array.isArray(farm?.stalls) &&
-    farm.stalls.some(
-      (stall) => stall && typeof stall === "object" && stall.sellCents === undefined
-    )
-  );
-}
-
-/**
- * Stamp every llama in `farm` that has no stored sell value (a save
- * from before stored values shipped) at par: legacyLlamaParSellCents
- * at buffed LOC/s `p`, the P of the save being loaded. An empty stall
- * with no value gets null. A present value is never touched (a stamp
- * happens exactly once, then persists with the save), and a
- * present-but-malformed one is left for the shape check to reject.
- * Pure; returns the farm unchanged when it has no stalls array. The
- * server (normalizeSaveState) and the client (saveStateToGameFields)
- * both call this with buffedLocPerSecond of the same save, so the
- * stamp is identical on both.
- */
-export function stampLegacyLlamaSellValues(farm, buffedLocPerSec) {
-  if (!farm || typeof farm !== "object" || !Array.isArray(farm.stalls)) {
-    return farm;
-  }
-  let changed = false;
-  const stalls = farm.stalls.map((stall) => {
-    if (!stall || typeof stall !== "object" || stall.sellCents !== undefined) {
-      return stall;
-    }
-    changed = true;
-    return {
-      ...stall,
-      sellCents: stall.llama
-        ? legacyLlamaParSellCents(stall.llama, buffedLocPerSec)
-        : null,
-    };
-  });
-  return changed ? { ...farm, stalls } : farm;
-}
-
-/**
  * Move a llama from one stall to an EMPTY stall (pure). The lighting
- * stays with the stall (it is the stall's mood, not the llama's); the
- * llama's stored sell value goes with the llama.
+ * stays with the stall (it is the stall's mood, not the llama's).
  * Returns the new farm, or null when the move is not allowed: farm
  * not owned, bad indices, the same stall, no llama in `from`, or
  * `to` occupied.
@@ -1975,10 +1870,8 @@ export function moveFarmLlama(farm, fromIndex, toIndex) {
   const to = farm.stalls[toIndex];
   if (!from?.llama || !to || to.llama !== null) return null;
   const stalls = farm.stalls.map((stall, i) => {
-    if (i === fromIndex) return { ...stall, llama: null, sellCents: null };
-    if (i === toIndex) {
-      return { ...stall, llama: from.llama, sellCents: from.sellCents };
-    }
+    if (i === fromIndex) return { ...stall, llama: null };
+    if (i === toIndex) return { ...stall, llama: from.llama };
     return { ...stall };
   });
   return { ...farm, stalls };
@@ -2053,15 +1946,13 @@ export function farmKidsFromRoll(oldStalls, roll) {
  * Apply a FARM_BREED_RESULT payload to a farm: place each kid in its
  * stall (only if the stall is still empty — a llama bought into that
  * stall after the roll wins, so the roll and the state can never
- * disagree) and add new types to the unlocked list. Each kid stores
- * its sell value at birth (issue #244): kidLlamaSellCents at buffed
- * LOC/s `buffedLocPerSec`, the P at the moment it is born, never
- * recomputed. Pure: the FARM_BREED_RESULT reducer calls this. A
+ * disagree) and add new types to the unlocked list. Pure: the
+ * FARM_BREED_RESULT reducer calls this. A
  * malformed kids payload (anything but an array) is treated as no
  * kids instead of throwing: a bad breed payload must never blank the
  * game.
  */
-export function applyFarmBreedKids(farm, kids, buffedLocPerSec) {
+export function applyFarmBreedKids(farm, kids) {
   const base = farm ?? emptyFarmState();
   const stalls = base.stalls.map((stall) => ({ ...stall }));
   const unlockedTypes = [...(base.unlockedTypes ?? [])];
@@ -2079,7 +1970,6 @@ export function applyFarmBreedKids(farm, kids, buffedLocPerSec) {
     stalls[kid.stallIndex] = {
       ...stalls[kid.stallIndex],
       llama: kid.type,
-      sellCents: kidLlamaSellCents(kid.type, buffedLocPerSec),
     };
     if (!unlockedTypes.includes(kid.type)) {
       unlockedTypes.push(kid.type);
@@ -2111,7 +2001,6 @@ export function emptyFarmState(keptTypes = []) {
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
-      sellCents: null,
     })),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     // Issue #204: llamas born since the player last opened the Farm tab.
@@ -2133,7 +2022,6 @@ export function initialFarmState(keptTypes = []) {
     stalls: Array.from({ length: FARM_CONFIG.stallCount }, () => ({
       llama: null,
       lighting: "warm",
-      sellCents: null,
     })),
     unlockedTypes: keptLlamaDiscoveries(keptTypes),
     unseenBirths: 0,
@@ -2169,19 +2057,14 @@ export function farmBirthsPlaced(before, after) {
 }
 
 /**
- * Apply a breed result (applyFarmBreedKids, with the kids' values set
- * at `buffedLocPerSec`) and count its births for the badge. Only kids
- * actually placed count. Births while the player is `watching` (on the
+ * Apply a breed result (applyFarmBreedKids) and count its births for
+ * the badge. Only kids actually placed count. Births while the player is `watching` (on the
  * Farm tab, looking at the stalls) are not counted, and the count
  * stays 0 there: the badge is never nonzero while the Farm tab is open.
  */
-export function applyFarmBirths(
-  farm,
-  kids,
-  { watching = false, buffedLocPerSec = 0 } = {}
-) {
+export function applyFarmBirths(farm, kids, { watching = false } = {}) {
   const before = farm ?? emptyFarmState();
-  const after = applyFarmBreedKids(before, kids, buffedLocPerSec);
+  const after = applyFarmBreedKids(before, kids);
   return {
     ...after,
     unseenBirths: watching
@@ -6321,15 +6204,13 @@ export function normalizeSaveState(state) {
         if (!stall || typeof stall !== "object" || Array.isArray(stall)) {
           return { llama: null, lighting: "warm" };
         }
-        const filled = {
+        // Rebuilt from llama and lighting only, so a `sellCents` key
+        // written by the stored-value build (issue #244) is dropped:
+        // sell prices float again and nothing is stored on a stall.
+        return {
           llama: stall.llama === undefined ? null : stall.llama,
           lighting: stall.lighting === undefined ? "warm" : stall.lighting,
         };
-        // Issue #244: a stored sell value is kept as sent. A missing
-        // one is stamped at par below, once the rest of the save (and
-        // so its P) is normalized.
-        if (stall.sellCents !== undefined) filled.sellCents = stall.sellCents;
-        return filled;
       });
     }
     if (!Array.isArray(farm.unlockedTypes)) {
@@ -6439,13 +6320,6 @@ export function normalizeSaveState(state) {
   // MISSING keys are filled; a present-but-wrong value is left alone
   // so the shape check rejects it.
   next.achievements = normalizeAchievementsState(next.achievements);
-  // Issue #244 (no wipe): a llama saved before stored sell values is
-  // stamped once at par, at this save's own buffed P. Last, so P reads
-  // the normalized employees, levels, ranks and achievements. A stamped
-  // value is never re-stamped, so this stays idempotent.
-  if (farmNeedsSellStamp(next.farm)) {
-    next.farm = stampLegacyLlamaSellValues(next.farm, buffedLocPerSecond(next));
-  }
   return next;
 }
 
@@ -7207,9 +7081,9 @@ export function buildFarmPurchasedEmail() {
       `their notice of quitting, so technically they are still ` +
       `employees. HR has questions. You do not have answers.\n\n` +
       `Buy some llamas, move them in, set the lights, and let them ` +
-      `breed. Sell the kids for cash: a kid's price is set the day ` +
-      `it is born, and a llama you bought sells back for half of ` +
-      `what you paid. Get a Mama Llama. Trust us on the Mama Llama.`,
+      `breed. Sell the kids for cash: a llama's price follows your ` +
+      `shipping income, so it grows with your team. Get a Mama ` +
+      `Llama. Trust us on the Mama Llama.`,
   });
 }
 

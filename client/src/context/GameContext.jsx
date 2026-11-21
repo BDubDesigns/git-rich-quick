@@ -685,11 +685,11 @@ function gameReducer(state, action) {
     }
 
     // Sell the llama in a stall (issue #129). Payload: { stallIndex }.
-    // A llama sells for its STORED value (issue #244), written once
-    // when it entered the farm: half of the price paid for a bought
-    // one, its produce value at birth for a kid. Nothing here reads the
-    // current price; a llama with no valid stored value is not sold.
-    // The stall empties and keeps its lighting. The sale is recorded per type in the achievements
+    // A llama sells for its type's CURRENT sell price
+    // (shared.llamaSellPriceCents: sellSeconds x S at the player's
+    // buffed LOC/s right now), the same for a bought llama and a born
+    // one, so its value rises as production rises. The stall empties
+    // and keeps its lighting. The sale is recorded per type in the achievements
     // record (shared.recordLlamaSold): the server only lets a llama
     // leave the barn through a recorded sale. Bred types sell too;
     // that is the point of breeding them. An empty stall, an unowned
@@ -707,10 +707,10 @@ function gameReducer(state, action) {
       }
       const type = farm.stalls[stallIndex]?.llama ?? null;
       if (!type) return state;
-      const value = shared.storedLlamaSellCents(farm.stalls[stallIndex]);
-      if (value === null) return state;
+      const value = shared.llamaSellPriceCents(type, getBaseLocPerSecond(state));
+      if (!Number.isFinite(value) || value < 0) return state;
       const stalls = farm.stalls.map((entry, i) =>
-        i === stallIndex ? { ...entry, llama: null, sellCents: null } : entry
+        i === stallIndex ? { ...entry, llama: null } : entry
       );
       return {
         ...state,
@@ -722,8 +722,7 @@ function gameReducer(state, action) {
 
     // Move a llama to an EMPTY stall (issue #129). Payload:
     // { fromIndex, toIndex }. Pure placement (shared.moveFarmLlama):
-    // the llama moves with its stored sell value, each stall keeps its
-    // own lighting. Moving is
+    // the llama moves, each stall keeps its own lighting. Moving is
     // free; it is how the player builds breeding nests. An invalid
     // move (occupied target, empty source, same stall) is ignored.
     case "MOVE_LLAMA": {
@@ -753,11 +752,8 @@ function gameReducer(state, action) {
         ...state,
         // Issue #204: the placed kids count toward the Farm tab badge,
         // except while the player is on the Farm tab watching them.
-        // Issue #244: each kid's sell value is set here, at the P of
-        // the moment it is born, and never recomputed.
         farm: shared.applyFarmBirths(farm, action.payload?.kids, {
           watching: isSectionOnScreen(state, "farm"),
-          buffedLocPerSec: getBaseLocPerSecond(state),
         }),
         farmBreedDue: false,
       };
