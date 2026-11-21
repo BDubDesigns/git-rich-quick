@@ -22,7 +22,36 @@
   animation-fill-mode: forwards; /* Ensure that the element retains the final styles after the animation ends */
 }
 
-.animate-float-up svg {
+/* Star claim labels (issue #189): a rare, high-value event the player
+   wants to read, so the opposite of the click-spam float above. About
+   2.75s total, fully opaque for the first 80% (2.2s) while it rises a
+   modest 20px, then a short fade with the last 12px of rise. Paints
+   above the star layer (z-index 60, set by the variant). The click and
+   Contribute float keeps float-up at 1.25s exactly. */
+@keyframes float-star {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-32px);
+  }
+}
+
+.animate-float-star {
+  animation-name: float-star;
+  animation-duration: 2.75s;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+.animate-float-up svg,
+.animate-float-star svg {
   /* Ensure icons stay appropriately sized */
   width: 1.25em; /* 1.25x the font size (text-xl = 20px, so icon ≈ 25px) */
   height: 1.25em;
