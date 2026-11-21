@@ -54,6 +54,8 @@ export function EquityProgressStrip() {
     <div className="px-2">
       <div
         className="progress-strip"
+        // The exit beat (issue #215) measures the strip before a sale.
+        data-equity-strip=""
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}

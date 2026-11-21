@@ -36,6 +36,7 @@ import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
 import { PermanentStore } from "./PermanentStore.jsx";
+import { measureEquityStrip, startExitBeat } from "../utils/exitBeat.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 /** "1.40x" for a Founder multiplier. */
@@ -171,9 +172,16 @@ export function SellCompany() {
     if (saleBusy) return;
     setSaleBusy(true);
     setSaleError(null);
+    // The exit beat (issue #215): where the Equity strip is and the
+    // spendable Equity, BEFORE the sale (its restore swaps the game for
+    // the store screen).
+    const beatFrom = { stripRect: measureEquityStrip(), fromEquity: spendable };
     try {
       const result = await sellCompany();
       if (result.ok) {
+        // A successful sale response: the merge beat plays over the
+        // store screen (a presentation layer; the sale is done).
+        startExitBeat(beatFrom);
         // The engine restored the post-sale state; the closing screen
         // reads the preview snapshot, not the reset live state.
         setStep("complete");
