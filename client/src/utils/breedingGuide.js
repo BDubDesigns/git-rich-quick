@@ -69,9 +69,9 @@ export function breedingGuideSections() {
     {
       heading: `The ${mama}`,
       lines: [
-        `The ${mama} is only sold in the shop. Breeding never discovers one.`,
+        `The ${mama} is only sold in the shop. She is never bred: no kid and no discovery is ever a Mama.`,
         `An empty stall beside a ${mama} makes kids ${LLAMA_ECONOMY.mamaKidChanceMultiplier}x as often, up to ${guidePercent(LLAMA_ECONOMY.maxKidChance)} a check. Two Mamas do not stack.`,
-        "Her kids copy a parent that is not a Mama, so she does not fill the barn with Mamas. A stall with nothing but Mamas around it does make a Mama.",
+        "Her kids copy a parent that is not a Mama. A stall with only Mamas beside it makes no kid.",
       ],
     },
   ];

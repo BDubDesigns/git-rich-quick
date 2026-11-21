@@ -188,9 +188,10 @@ test("rollFarmKid: a 0.3 roll fails without a Mama and succeeds with one", () =>
   assert.equal(rollFarmKid(1, withMama, unlocked, rolls([0.3, 0.99, 0.99])), "classic");
 });
 
-test("a mama-only nest has a Mama kid; breeding never discovers a Mama", () => {
+test("a mama-only nest has no kid; breeding never discovers a Mama", () => {
+  // Brandon, Nov 21: Mamas are never bred.
   const mamas = farmWith({ 0: "mama", 2: "mama" }).stalls;
-  assert.equal(rollFarmKid(1, mamas, LLAMA_TYPES, () => 0), "mama");
+  assert.equal(rollFarmKid(1, mamas, LLAMA_TYPES, () => 0), null);
   // Nothing unlocked, and a forced new-type roll: the pool excludes mama.
   for (let k = 0; k < 6; k += 1) {
     const pick = k / 6 + 0.01;

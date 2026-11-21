@@ -728,6 +728,9 @@ function gameReducer(state, action) {
       }
       const type = farm.stalls[stallIndex]?.llama ?? null;
       if (!type) return state;
+      // Brandon, Nov 21: a locked llama cannot be sold until it is
+      // unlocked (Sell All already skips it).
+      if (farm.stalls[stallIndex].locked === true) return state;
       const value = shared.llamaSellPriceCents(type, getBaseLocPerSecond(state));
       if (!Number.isFinite(value) || value < 0) return state;
       // The stall empties, so its lock goes too (issue #240: the lock
@@ -762,9 +765,9 @@ function gameReducer(state, action) {
     }
 
     // Lock or unlock the llama in a stall (issue #240). Payload:
-    // { stallIndex }. A locked llama is skipped by Sell All; the lock
-    // moves with the llama (shared.moveFarmLlama). Selling it on its
-    // own still works. An empty stall, an unowned farm, or a bad index
+    // { stallIndex }. A locked llama is skipped by Sell All and cannot
+    // be sold on its own either; the lock moves with the llama
+    // (shared.moveFarmLlama). An empty stall, an unowned farm, or a bad index
     // is ignored. The lock is a big-action save trigger (serialize.js).
     case "TOGGLE_LLAMA_LOCK": {
       const { stallIndex } = action.payload ?? {};

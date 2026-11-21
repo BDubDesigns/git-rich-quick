@@ -149,7 +149,7 @@ test("rule: with every kind found, kids just copy their parents", () => {
   }
 });
 
-test("rule: a Mama next door triples the kid odds up to the cap, two do not stack, and her kids copy the other parent", () => {
+test("rule: a Mama next door triples the kid odds up to the cap, two do not stack, her kids copy the other parent, and an all-Mama nest makes nothing", () => {
   for (const id of FARM_LIGHTING_COLORS) {
     assert.equal(farmKidChance(id, ["mama", "mama"]), farmKidChance(id, ["mama"]));
     assert.ok(farmKidChance(id, ["mama"]) <= LLAMA_ECONOMY.maxKidChance);
@@ -159,9 +159,9 @@ test("rule: a Mama next door triples the kid odds up to the cap, two do not stac
   for (let i = 0; i < 5; i++) {
     assert.equal(rollFarmKid(4, mixed, [...LLAMA_TYPES], seq(0, 0.99, i / 5)), "classic");
   }
-  // Nothing but Mamas around it: a Mama.
+  // Nothing but Mamas around it: no kid (Brandon, Nov 21: Mamas are never bred).
   const mamas = barn({ 1: "mama", 3: "mama" });
-  assert.equal(rollFarmKid(4, mamas, [...LLAMA_TYPES], seq(0, 0.99, 0)), "mama");
+  assert.equal(rollFarmKid(4, mamas, [...LLAMA_TYPES], seq(0, 0.99, 0)), null);
   // Shop-only: she is a base (shop) type from the start.
   assert.ok(LLAMA_BASE_TYPES.includes("mama"));
 });
@@ -188,7 +188,9 @@ test("the herd book shows found kinds in full, shop kinds by name, and unfound b
   // A kind is named when it is discovered or in the shop (the base
   // kinds always are); anything else is ???.
   assert.match(book, /const forSale = llamaShopTypes\(farm\.unlockedTypes\)\.includes\(type\);/);
-  assert.match(book, /forSale \? LLAMA_TYPE_NAMES\[type\] : "\?\?\? \(undiscovered\)"/);
+  // Brandon, Nov 21: a ??? row shows only its label and the hint, no prices.
+  assert.match(book, /if \(!forSale\) \{[\s\S]*?<strong>\?\?\? \(undiscovered\)<\/strong>\. Breed one to find it\.[\s\S]*?\}/);
+  assert.match(book, /<strong>\{LLAMA_TYPE_NAMES\[type\]\}<\/strong>/);
   assert.match(book, /herdBookHiddenHint\(\)/);
   // Only a discovered kind shows its description.
   assert.match(book, /discovered \? \(\s*<>: \{LLAMA_TYPE_DESCRIPTIONS\[type\]\}<\/>/);
