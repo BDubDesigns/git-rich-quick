@@ -1,16 +1,16 @@
 /**
- * The cash economy pass (issue #244, the design on issue #200 as
- * revised and decided).
+ * The cash economy (issue #244, the design on issue #200), with the
+ * sell side floating again (Brandon's playtest verdict on #245: a
+ * llama's price should not be fixed at the time it arrived).
  *
  * One cash basis, S = 21 cents x P, from one helper
  * (cashBasisCentsPerSecond). Night Shift levels cost 10 / 15 / 20 /
- * 30 / 45 minutes of S; the barn and llamas cost seconds of S. Every
- * llama stores its sell value in cents on its stall when it enters the
- * farm (half of the price paid, or produce seconds x S at birth) and
- * never recomputes it: the floating sell price is gone. No schema bump
- * and no wipe: a llama saved before stored values is stamped once at
- * par (what it sold for under the old rules), identically on client
- * and server, and the stamp persists.
+ * 30 / 45 minutes of S; the barn and llamas cost seconds of S. A llama
+ * sells for its TYPE's sellSeconds x S at the CURRENT P
+ * (llamaSellPriceCents), the same for bought and born llamas. Nothing
+ * is stored on a stall. No schema bump and no wipe: a stall written by
+ * the stored-value build carries a `sellCents` key, which is stripped
+ * on load and on save, and tolerated by the validator.
  */
 
 import test from "node:test";
@@ -30,21 +30,18 @@ import {
   LLAMA_TYPES,
   NIGHT_SHIFT_CONFIG,
   OPEN_SOURCE_IDS,
-  applyFarmBirths,
-  boughtLlamaSellCents,
   buffedLocPerSecond,
   cashBasisCentsPerSecond,
-  emptyFarmState,
   farmPurchaseCostCents,
   initialFarmState,
   initialSaveState,
-  kidLlamaSellCents,
-  legacyLlamaParSellCents,
   llamaBuyPriceCents,
+  llamaSellPriceCents,
+  applyFarmBirths,
   moveFarmLlama,
+  emptyFarmState,
   nightShiftPriceCents,
   normalizeSaveState,
-  storedLlamaSellCents,
   worstCentsPerLoc,
 } from "../../shared/game-balance.js";
 import { applyLlamaBuy } from "../../client/src/utils/llamaShop.js";
@@ -88,16 +85,18 @@ function saveAt(interns) {
 }
 
 /**
- * A pre-#244 owned barn: stalls carry llama and lighting only, no
- * stored sell value (the shape every live save has today).
+ * An owned barn. With `sellCents` set, every stall carries the key the
+ * stored-value build (#245) wrote: a llama a number, an empty stall
+ * null. Live saves and stale cached clients have this shape today.
  */
-function legacyFarm(placed) {
+function barnFarm(placed, { sellCents = false } = {}) {
   return {
     owned: true,
-    stalls: Array.from({ length: FARM_CONFIG.stallCount }, (_, i) => ({
-      llama: placed[i] ?? null,
-      lighting: "red",
-    })),
+    stalls: Array.from({ length: FARM_CONFIG.stallCount }, (_, i) => {
+      const stall = { llama: placed[i] ?? null, lighting: "red" };
+      if (sellCents) stall.sellCents = placed[i] ? 4_242 : null;
+      return stall;
+    }),
     unlockedTypes: [...new Set(Object.values(placed))],
     unseenBirths: 0,
   };
@@ -120,10 +119,25 @@ test("S is 21 cents x P, the worst freelance rate, derived from BALANCE", () => 
   assert.equal(cashBasisCentsPerSecond(9_210_000), 193_410_000); // $1,934,100/s
 });
 
-test("the old production-value basis and the float helper are gone from the shared module", () => {
+test("the old production-value basis and the stored-value helpers are gone", () => {
   assert.equal(shared.farmProductionValueCentsPerSecond, undefined);
-  assert.equal(shared.llamaSellPriceCents, undefined);
   assert.equal(LLAMA_ECONOMY.sellFraction, undefined);
+  for (const name of [
+    "boughtLlamaSellCents",
+    "kidLlamaSellCents",
+    "storedLlamaSellCents",
+    "isLlamaSellCents",
+    "legacyLlamaParSellCents",
+    "LEGACY_LLAMA_PAR",
+    "stampLegacyLlamaSellValues",
+    "farmNeedsSellStamp",
+  ]) {
+    assert.equal(shared[name], undefined, name);
+  }
+  assert.equal(LLAMA_ECONOMY.kidProduceSeconds, undefined);
+  assert.equal(LLAMA_ECONOMY.boughtSellFraction, undefined);
+  // The float helper is back.
+  assert.equal(typeof shared.llamaSellPriceCents, "function");
 });
 
 // --- Price tables at sampled P ---
@@ -176,220 +190,188 @@ test("farm buy prices are seconds of S at every sampled P", () => {
   assert.equal(llamaBuyPriceCents("classic", 9_210_000), 5_802_300_000); // $58.02M
 });
 
-test("kid values are the flat produce ladder in seconds of S at every sampled P", () => {
-  const ladder = { mama: 1, classic: 1.5, drama: 2, spaghetti: 3, quantum: 4, blockchain: 5, ai: 6 };
-  assert.deepEqual({ ...LLAMA_ECONOMY.kidProduceSeconds }, ladder);
+test("buy, barn and Night Shift numbers are unchanged from master (pinned at P = 9.21M)", () => {
+  const p = 9_210_000;
+  assert.equal(farmPurchaseCostCents(p), 11_604_600_000);
+  assert.deepEqual(
+    [1, 2, 3, 4, 5].map((level) => nightShiftPriceCents(level, p)),
+    [116_046_000_000, 174_069_000_000, 232_092_000_000, 348_138_000_000, 522_207_000_000]
+  );
+  assert.deepEqual(
+    Object.fromEntries(LLAMA_TYPES.map((type) => [type, llamaBuyPriceCents(type, p)])),
+    {
+      classic: 5_802_300_000,
+      drama: 7_736_400_000,
+      mama: 3_868_200_000,
+      spaghetti: 15_472_800_000,
+      quantum: 23_209_200_000,
+      blockchain: 38_682_000_000,
+      ai: 58_023_000_000,
+    }
+  );
+});
+
+// --- The floating sell price ---
+
+const SELL_SECONDS = { mama: 1, classic: 1.5, drama: 2, spaghetti: 3, quantum: 4, blockchain: 5, ai: 6 };
+
+test("a llama sells for sellSeconds x S at the current P, at every sampled P", () => {
+  assert.deepEqual({ ...LLAMA_ECONOMY.sellSeconds }, SELL_SECONDS);
   for (const p of SAMPLED_P) {
-    for (const [type, seconds] of Object.entries(ladder)) {
+    for (const [type, seconds] of Object.entries(SELL_SECONDS)) {
       assert.equal(
-        kidLlamaSellCents(type, p),
+        llamaSellPriceCents(type, p),
         Math.round(seconds * cashBasisCentsPerSecond(p)),
-        `${type} kid at P=${p}`
+        `${type} at P=${p}`
       );
     }
   }
-  // Revision 2's figure: a Classic kid on the Nov 20 save is $2,901,150.
-  assert.equal(kidLlamaSellCents("classic", 9_210_000), 290_115_000);
-  assert.equal(kidLlamaSellCents("unicorn", 9_210_000), 0);
+  // The Nov 20 save: a Classic sells for $2,901,150, an AI for $11,604,600.
+  assert.equal(llamaSellPriceCents("classic", 9_210_000), 290_115_000);
+  assert.equal(llamaSellPriceCents("ai", 9_210_000), 1_160_460_000);
+  // Unknown types and the floor.
+  assert.equal(llamaSellPriceCents("unicorn", 9_210_000), 0);
+  assert.equal(llamaSellPriceCents("classic", 0), 315); // 1.5 x 210
+  assert.equal(llamaSellPriceCents("classic", Number.NaN), 315);
 });
 
-// --- Stored value invariants ---
+test("a llama's sell price rises when P rises", () => {
+  for (const type of LLAMA_TYPES) {
+    let last = -1;
+    for (const p of [10, 1_000, 50_000, 9_210_000, 4_870_000_000]) {
+      const price = llamaSellPriceCents(type, p);
+      assert.ok(price > last, `${type} at P=${p}`);
+      last = price;
+    }
+    assert.equal(llamaSellPriceCents(type, 100_000), 100 * llamaSellPriceCents(type, 1_000), type);
+  }
+});
 
-test("a bought llama stores half of what was paid and sells for that after P grows 100x", () => {
+test("sell price is always below that type's current buy price", () => {
+  for (const type of LLAMA_TYPES) {
+    assert.ok(LLAMA_ECONOMY.sellSeconds[type] > 0, type);
+    assert.ok(LLAMA_ECONOMY.sellSeconds[type] < LLAMA_ECONOMY.typeSeconds[type], type);
+    for (const p of [...SAMPLED_P, 1, 37, 123_456_789]) {
+      assert.ok(
+        llamaSellPriceCents(type, p) < llamaBuyPriceCents(type, p),
+        `${type} at P=${p}`
+      );
+    }
+  }
+});
+
+test("bought and born llamas of the same type sell for the same, and nothing is stored", () => {
   const p = 1_000;
   const price = llamaBuyPriceCents("classic", p);
   const bought = applyLlamaBuy({
-    farm: initialFarmState(),
+    farm: initialFarmState(["classic"]),
     money: price,
     stallIndex: 4,
     type: "classic",
     buffedLocPerSec: p,
   });
   assert.equal(bought.money, 0);
-  assert.equal(bought.farm.stalls[4].sellCents, boughtLlamaSellCents(price));
-  assert.equal(bought.farm.stalls[4].sellCents, Math.floor(price / 2));
-
-  // P grows 100x: the save normalizes, loads and saves at the new P,
-  // and the llama still sells for half of what was paid.
-  const grown = { ...saveAt(p * 100), farm: bought.farm };
-  assert.equal(buffedLocPerSecond(grown), p * 100);
-  const normalized = normalizeSaveState(grown);
-  assert.equal(storedLlamaSellCents(normalized.farm.stalls[4]), Math.floor(price / 2));
-  const loaded = saveStateToGameFields(normalized);
-  assert.equal(storedLlamaSellCents(loaded.farm.stalls[4]), Math.floor(price / 2));
-  const resaved = stateToSaveState(loaded);
-  assert.equal(resaved.farm.stalls[4].sellCents, Math.floor(price / 2));
-  // Today's buy price is 100x, and the sell value ignores it.
-  assert.equal(llamaBuyPriceCents("classic", p * 100), price * 100);
-});
-
-test("a kid's value is fixed at its birth P and does not move when P moves", () => {
-  const bornAt = 50_000;
-  const farm = initialFarmState(["classic"]);
-  farm.stalls[0] = { ...farm.stalls[0], llama: "classic", sellCents: 1 };
-  farm.stalls[2] = { ...farm.stalls[2], llama: "mama", sellCents: 1 };
-  const bred = applyFarmBirths(farm, [{ stallIndex: 1, type: "classic" }], {
-    buffedLocPerSec: bornAt,
-  });
-  const value = kidLlamaSellCents("classic", bornAt);
-  assert.equal(bred.stalls[1].sellCents, value);
-  // A second kid born later, at a higher P, is worth more; the first is not touched.
-  const later = applyFarmBirths(bred, [{ stallIndex: 3, type: "classic" }], {
-    buffedLocPerSec: bornAt * 10,
-  });
-  assert.equal(later.stalls[1].sellCents, value);
-  assert.equal(later.stalls[3].sellCents, kidLlamaSellCents("classic", bornAt * 10));
-  // Two llamas of one type, two different values: each stall keeps its own.
-  assert.notEqual(later.stalls[1].sellCents, later.stalls[3].sellCents);
-  // Through normalize and a load at a very different P, still the birth value.
-  for (const p of [10, bornAt * 1_000]) {
-    const loaded = saveStateToGameFields(normalizeSaveState({ ...saveAt(p), farm: later }));
-    assert.equal(loaded.farm.stalls[1].sellCents, value, `P=${p}`);
+  assert.deepEqual(bought.farm.stalls[4], { llama: "classic", lighting: "warm" });
+  const bred = applyFarmBirths(bought.farm, [{ stallIndex: 5, type: "classic" }]);
+  assert.deepEqual(bred.stalls[5], { llama: "classic", lighting: "warm" });
+  // Same shape, same type, so one price; it follows P, not the day each arrived.
+  for (const at of [p, p * 100]) {
+    assert.equal(llamaSellPriceCents(bred.stalls[4].llama, at), llamaSellPriceCents(bred.stalls[5].llama, at));
+  }
+  const moved = moveFarmLlama(bred, 4, 0);
+  assert.deepEqual(moved.stalls[0], { llama: "classic", lighting: "warm" });
+  assert.deepEqual(moved.stalls[4], { llama: null, lighting: "warm" });
+  for (const stall of [...initialFarmState().stalls, ...emptyFarmState().stalls]) {
+    assert.deepEqual(stall, { llama: null, lighting: "warm" });
   }
 });
 
-test("moving a llama keeps its value and leaves the old stall without one", () => {
-  const farm = initialFarmState(["ai"]);
-  farm.stalls[0] = { ...farm.stalls[0], llama: "ai", sellCents: 123_456 };
-  const moved = moveFarmLlama(farm, 0, 8);
-  assert.deepEqual(moved.stalls[8], { llama: "ai", lighting: "warm", sellCents: 123_456 });
-  assert.deepEqual(moved.stalls[0], { llama: null, lighting: "warm", sellCents: null });
-  const before = { ...saveAt(100), farm };
-  assert.equal(save(before, { ...before, farm: moved }).ok, true);
-});
-
-test("the float path is gone: selling reads only the stored value", () => {
-  // The helper: the stored value or nothing, never a current price.
-  assert.equal(storedLlamaSellCents({ llama: "classic", lighting: "warm", sellCents: 777 }), 777);
-  assert.equal(storedLlamaSellCents({ llama: "classic", lighting: "warm", sellCents: null }), null);
-  assert.equal(storedLlamaSellCents({ llama: "classic", lighting: "warm" }), null);
-  assert.equal(storedLlamaSellCents({ llama: null, lighting: "warm", sellCents: null }), null);
-  // The reducer's SELL_LLAMA pays the stored value and reads no price or P.
+test("SELL_LLAMA pays the type's current sell price at the buffed P", () => {
   const context = src("context/GameContext.jsx");
   const sell = context.slice(
     context.indexOf('case "SELL_LLAMA": {'),
     context.indexOf('case "MOVE_LLAMA": {')
   );
-  assert.match(sell, /const value = shared\.storedLlamaSellCents\(farm\.stalls\[stallIndex\]\);/);
-  assert.match(sell, /if \(value === null\) return state;/);
+  assert.match(sell, /const value = shared\.llamaSellPriceCents\(type, getBaseLocPerSecond\(state\)\);/);
   assert.match(sell, /money: state\.money \+ value,/);
-  assert.doesNotMatch(sell, /getBaseLocPerSecond|llamaBuyPriceCents|PriceCents/);
-  // No source anywhere still computes a sell price from a current price.
+  assert.doesNotMatch(sell, /sellCents|storedLlamaSellCents/);
+  // No client source still names the stored-value machinery.
   for (const path of ["components/Farm.jsx", "context/GameContext.jsx", "utils/llamaShop.js", "save/serialize.js"]) {
-    assert.doesNotMatch(src(path), /llamaSellPriceCents|farmProductionValueCentsPerSecond|sellFraction\b/, path);
+    assert.doesNotMatch(
+      src(path),
+      /\.sellCents|sellCents:|storedLlamaSellCents|boughtLlamaSellCents|kidLlamaSellCents|stampLegacyLlamaSellValues|farmNeedsSellStamp/,
+      path
+    );
   }
-  const balance = readFileSync(new URL("../../shared/game-balance.js", import.meta.url), "utf8");
-  assert.doesNotMatch(balance, /llamaSellPriceCents|farmProductionValueCentsPerSecond/);
-  // The Farm card's Sell button and stall tiles show the stored value.
+  // The Farm card shows the floating price on the tile, the chip and the Sell button.
   const farmCard = src("components/Farm.jsx");
-  assert.match(farmCard, /const selectedSellCents = storedLlamaSellCents\(selected\);/);
+  assert.match(farmCard, /const selectedSellCents = selectedLlama\s*\?\s*llamaSellPriceCents\(selectedLlama, pricingRate\)/);
   assert.match(farmCard, /Sell \(\{formatMoney\(selectedSellCents \?\? 0\)\}\)/);
-  assert.match(farmCard, /Sells for \{formatMoney\(storedLlamaSellCents\(stall\) \?\? 0\)\}/);
+  assert.match(farmCard, /Sells for \{formatMoney\(llamaSellPriceCents\(stall\.llama, pricingRate\)\)\}/);
+  assert.match(farmCard, /sells for \$\{formatMoney\(\s*llamaSellPriceCents\(stall\.llama, pricingRate\)\s*\)\}/);
+  assert.match(farmCard, /The price follows\s+your shipping income/);
+  assert.doesNotMatch(farmCard, /stays put|set the day it arrived|half of\s+what you paid/);
 });
 
-test("the shape check: a llama needs a whole-cent value, an empty stall needs null", () => {
-  const farm = initialFarmState(["classic"]);
-  farm.stalls[0] = { ...farm.stalls[0], llama: "classic", sellCents: 500 };
-  const ok = { ...saveAt(100), farm };
-  assert.equal(validateSeedState(ok).ok, true);
-  const bad = (stall) => {
-    const stalls = farm.stalls.map((s, i) => (i === 0 ? { ...s, ...stall } : s));
-    return validateSeedState({ ...ok, farm: { ...farm, stalls } });
-  };
-  for (const sellCents of [null, -1, 1.5, "500", Number.NaN]) {
-    assert.equal(bad({ sellCents }).ok, false, String(sellCents));
-  }
-  assert.equal(bad({ llama: null, sellCents: 500 }).ok, false, "an empty stall with a value");
-  assert.equal(bad({ llama: null, sellCents: null }).ok, true);
-});
-
-// --- Legacy saves: no bump, no wipe, a par stamp ---
+// --- Saves from the stored-value build: no bump, no wipe, strip sellCents ---
 
 test("no schema bump: SAVE_SCHEMA_VERSION stays 3", () => {
   assert.equal(SAVE_SCHEMA_VERSION, 3);
 });
 
-test("par is exactly the old rules' sell price: half of 60 cents x P x the old seconds", () => {
-  const oldSeconds = { mama: 60, classic: 90, drama: 120, spaghetti: 240, quantum: 360, blockchain: 600, ai: 900 };
-  for (const p of SAMPLED_P) {
-    const b = Math.max(10, p) * 60;
-    for (const [type, seconds] of Object.entries(oldSeconds)) {
-      assert.equal(legacyLlamaParSellCents(type, p), Math.floor(Math.round(seconds * b) / 2), `${type} at P=${p}`);
-    }
+test("normalizeSaveState strips sellCents and stays idempotent", () => {
+  const withKey = { ...saveAt(100), farm: barnFarm({ 0: "classic", 1: "mama", 4: "ai" }, { sellCents: true }) };
+  const normalized = normalizeSaveState(withKey);
+  for (const stall of normalized.farm.stalls) {
+    assert.deepEqual(Object.keys(stall).sort(), ["lighting", "llama"]);
   }
-  // #200's Nov 20 save: a Classic sold for $248.67M the moment before the build.
-  assert.equal(legacyLlamaParSellCents("classic", 9_210_000), 24_867_000_000);
-  assert.equal(legacyLlamaParSellCents("unicorn", 100), 0);
-});
-
-test("a legacy v3 save with unstamped llamas stamps at par once, the same on client and server", () => {
-  const legacy = { ...saveAt(100), farm: legacyFarm({ 0: "classic", 1: "mama", 4: "ai" }) };
-  const p = buffedLocPerSecond(legacy);
-  assert.equal(p, 100);
-  // Server: normalize stamps each llama at par, each empty stall at null.
-  const server = normalizeSaveState(legacy);
-  assert.equal(server.farm.stalls[0].sellCents, legacyLlamaParSellCents("classic", p));
-  assert.equal(server.farm.stalls[0].sellCents, 270_000); // half of 90 x 100 x 60
-  assert.equal(server.farm.stalls[1].sellCents, 180_000);
-  assert.equal(server.farm.stalls[4].sellCents, 2_700_000);
-  for (const i of [2, 3, 5, 6, 7, 8]) assert.equal(server.farm.stalls[i].sellCents, null);
+  assert.equal(normalized.farm.stalls[4].llama, "ai");
+  assert.equal(normalized.farm.stalls[4].lighting, "red");
   // The input is not mutated.
-  assert.equal("sellCents" in legacy.farm.stalls[0], false);
-  // Client: the load stamps the same numbers.
-  const client = saveStateToGameFields(legacy);
-  assert.deepEqual(
-    client.farm.stalls.map((s) => s.sellCents),
-    server.farm.stalls.map((s) => s.sellCents)
-  );
-  // The validator accepts the legacy save as the stored state and as the sent state.
-  assert.equal(validateSeedState(legacy).ok, true);
-  assert.equal(save(legacy, legacy).ok, true);
-  assert.equal(save(legacy, stateToSaveState(client)).ok, true);
-  // Exactly once: a stamped save at a 100x P keeps the stamp.
-  const grown = { ...stateToSaveState(client), employees: { ...legacy.employees, intern: 10_000 } };
-  assert.equal(buffedLocPerSecond(grown), 10_000);
-  assert.deepEqual(
-    normalizeSaveState(grown).farm.stalls.map((s) => s.sellCents),
-    server.farm.stalls.map((s) => s.sellCents)
-  );
-  assert.deepEqual(
-    saveStateToGameFields(grown).farm.stalls.map((s) => s.sellCents),
-    server.farm.stalls.map((s) => s.sellCents)
-  );
-  // Normalize is idempotent.
-  assert.deepEqual(normalizeSaveState(server), server);
+  assert.equal(withKey.farm.stalls[0].sellCents, 4_242);
+  // Idempotent, and the same as a save that never had the key.
+  assert.deepEqual(normalizeSaveState(normalized), normalized);
+  const without = { ...saveAt(100), farm: barnFarm({ 0: "classic", 1: "mama", 4: "ai" }) };
+  assert.deepEqual(normalizeSaveState(without), normalized);
+  // The client load strips it too.
+  const client = saveStateToGameFields(withKey);
+  assert.deepEqual(client.farm.stalls, normalized.farm.stalls);
+  assert.deepEqual(stateToSaveState(client).farm.stalls, normalized.farm.stalls);
 });
 
-test("a legacy stamp reads the save's buffed P, the same on client and server", () => {
-  const base = saveAt(100);
-  const a = shared.zeroAchievementsState();
-  const legacy = {
-    ...base,
-    lifetimeEquityEarned: 10, // Founder 2x
-    achievements: { ...a, tiers: { ...a.tiers, legacyCode: 6 } }, // +21%
-    farm: legacyFarm({ 0: "quantum", 2: "classic" }),
-  };
-  const p = buffedLocPerSecond(legacy);
-  assert.equal(p, 242);
-  const server = normalizeSaveState(legacy).farm.stalls[0].sellCents;
-  assert.equal(server, legacyLlamaParSellCents("quantum", 242));
-  assert.equal(saveStateToGameFields(legacy).farm.stalls[0].sellCents, server);
+test("the validator accepts a stall with or without sellCents, any value (stripped, not rejected)", () => {
+  const plain = { ...saveAt(100), farm: barnFarm({ 0: "classic", 4: "ai" }) };
+  const keyed = { ...saveAt(100), farm: barnFarm({ 0: "classic", 4: "ai" }, { sellCents: true }) };
+  assert.equal(validateSeedState(plain).ok, true);
+  assert.equal(validateSeedState(keyed).ok, true);
+  // The stored state comes back stripped.
+  assert.ok(validateSeedState(keyed).state.farm.stalls.every((s) => !("sellCents" in s)));
+  // Whatever the old build wrote, even a value it would have rejected.
+  for (const sellCents of [null, -1, 1.5, "500", 0, 123]) {
+    const stalls = keyed.farm.stalls.map((s, i) => (i === 0 ? { ...s, sellCents } : s));
+    assert.equal(validateSeedState({ ...keyed, farm: { ...keyed.farm, stalls } }).ok, true, String(sellCents));
+  }
+  // Every mix of stored and sent shape saves: a #245 row and a fresh client,
+  // a fresh row and a stale cached client, and both stale.
+  assert.equal(save(keyed, plain).ok, true);
+  assert.equal(save(plain, keyed).ok, true);
+  assert.equal(save(keyed, keyed).ok, true);
+  assert.equal(save(plain, plain).ok, true);
 });
 
-test("a legacy v3 save with no farm, or an unbought one, is untouched", () => {
+test("a save with no farm, or an unbought one, is untouched", () => {
   const noFarm = saveAt(100);
   delete noFarm.farm;
   assert.deepEqual(normalizeSaveState(noFarm).farm, emptyFarmState());
   assert.equal(validateSeedState(noFarm).ok, true);
-  // An unbought legacy farm: every stall empty, so every stamp is null.
-  const unbought = { ...saveAt(100), farm: { ...legacyFarm({}), owned: false, unlockedTypes: [] } };
+  const unbought = { ...saveAt(100), farm: { ...barnFarm({}, { sellCents: true }), owned: false, unlockedTypes: [] } };
   const normalized = normalizeSaveState(unbought);
-  assert.ok(normalized.farm.stalls.every((s) => s.llama === null && s.sellCents === null));
+  assert.deepEqual(normalized.farm.stalls, emptyFarmState().stalls.map((s) => ({ ...s, lighting: "red" })));
   assert.equal(validateSeedState(unbought).ok, true);
   assert.deepEqual(saveStateToGameFields(unbought).farm.stalls, normalized.farm.stalls);
 });
 
-// --- End to end: the stamp persists through the real server ---
+// --- End to end: a #245 save loads and saves through the real server ---
 
 async function startTestServer() {
   const db = newDb();
@@ -422,34 +404,32 @@ async function post(base, path, body) {
   });
 }
 
-test("end to end: a stored legacy v3 save loads, stamps at par, saves, and the stamp survives the round trip", async () => {
+test("end to end: a stored #245 save with sellCents loads without a wipe, saves stripped, and a stale client still saves", async () => {
   const srv = await startTestServer();
   try {
     const minted = await post(srv.base, "/api/player", {});
     assert.equal(minted.status, 201);
     const { playerId } = await minted.json();
-    const legacy = {
+    const old = {
       ...saveAt(100),
       employees: { ...saveAt(100).employees, senior: 10 },
-      farm: legacyFarm({ 0: "classic", 1: "mama", 4: "ai" }),
+      farm: barnFarm({ 0: "classic", 1: "mama", 4: "ai" }, { sellCents: true }),
     };
     await srv.pool.query(`UPDATE git_saves SET state = $1 WHERE player_id = $2`, [
-      JSON.stringify(legacy),
+      JSON.stringify(old),
       playerId,
     ]);
     const row = await srv.pool.query(`SELECT schema_version FROM git_saves WHERE player_id = $1`, [playerId]);
     assert.equal(row.rows[0].schema_version, 3);
 
-    // Load: the server hands back the stored (unstamped) save, not a wipe.
+    // Load: the stored save comes back, not a wipe.
     const loaded = await (await fetch(`${srv.base}/api/load?playerId=${playerId}`)).json();
     assert.equal(loaded.state.farm.owned, true);
-    assert.equal(loaded.state.farm.stalls[0].llama, "classic");
-    const p = buffedLocPerSecond(loaded.state);
-    const par = [0, 1, 4].map((i) => legacyLlamaParSellCents(loaded.state.farm.stalls[i].llama, p));
+    assert.deepEqual([0, 1, 4].map((i) => loaded.state.farm.stalls[i].llama), ["classic", "mama", "ai"]);
 
-    // The client stamps on load and saves the stamp.
+    // A fresh client strips the key on load and saves without it.
     const client = saveStateToGameFields(loaded.state);
-    assert.deepEqual([0, 1, 4].map((i) => client.farm.stalls[i].sellCents), par);
+    assert.ok(client.farm.stalls.every((s) => !("sellCents" in s)));
     srv.advance(60_000);
     const saved = await post(srv.base, "/api/save", {
       playerId,
@@ -457,28 +437,36 @@ test("end to end: a stored legacy v3 save loads, stamps at par, saves, and the s
       actionsSinceLastSave: zeroActions(),
     });
     assert.equal(saved.status, 200, await saved.clone().text());
-
-    // The stored save carries the stamp now.
     const stored = await srv.pool.query(`SELECT state FROM git_saves WHERE player_id = $1`, [playerId]);
     const storedState = typeof stored.rows[0].state === "string" ? JSON.parse(stored.rows[0].state) : stored.rows[0].state;
-    assert.deepEqual([0, 1, 4].map((i) => storedState.farm.stalls[i].sellCents), par);
+    assert.ok(storedState.farm.stalls.every((s) => !("sellCents" in s)));
+    assert.deepEqual([0, 1, 4].map((i) => storedState.farm.stalls[i].llama), ["classic", "mama", "ai"]);
 
-    // P grows 100x and the next load and save keep the stamp exactly.
+    // A stale cached client (the #245 build) still sends sellCents: accepted.
+    // The store keeps the sent state as is (unchanged behavior), so the
+    // key may sit in the row until the next fresh-client save; every
+    // reader strips it, and the next save validates.
     srv.advance(60_000);
-    const grown = { ...storedState, employees: { ...storedState.employees, intern: 30_000 } };
-    const grownSave = await post(srv.base, "/api/save", {
+    const stale = await post(srv.base, "/api/save", {
       playerId,
-      state: grown,
-      actionsSinceLastSave: { ...zeroActions(), employeesBought: { ...zeroActions().employeesBought, intern: 29_900 } },
+      state: { ...storedState, farm: barnFarm({ 0: "classic", 1: "mama", 4: "ai" }, { sellCents: true }) },
+      actionsSinceLastSave: zeroActions(),
     });
-    assert.equal(grownSave.status, 200, await grownSave.clone().text());
+    assert.equal(stale.status, 200, await stale.clone().text());
     const reloaded = await (await fetch(`${srv.base}/api/load?playerId=${playerId}`)).json();
-    assert.ok(buffedLocPerSecond(reloaded.state) >= 100 * p);
-    assert.deepEqual([0, 1, 4].map((i) => reloaded.state.farm.stalls[i].sellCents), par);
-    assert.deepEqual(
-      [0, 1, 4].map((i) => saveStateToGameFields(reloaded.state).farm.stalls[i].sellCents),
-      par
-    );
+    assert.deepEqual([0, 1, 4].map((i) => reloaded.state.farm.stalls[i].llama), ["classic", "mama", "ai"]);
+    const reclient = saveStateToGameFields(reloaded.state);
+    assert.ok(reclient.farm.stalls.every((s) => !("sellCents" in s)));
+    srv.advance(60_000);
+    const fresh = await post(srv.base, "/api/save", {
+      playerId,
+      state: stateToSaveState({ ...reloaded.state, ...reclient }),
+      actionsSinceLastSave: zeroActions(),
+    });
+    assert.equal(fresh.status, 200, await fresh.clone().text());
+    const final = await srv.pool.query(`SELECT state FROM git_saves WHERE player_id = $1`, [playerId]);
+    const finalState = typeof final.rows[0].state === "string" ? JSON.parse(final.rows[0].state) : final.rows[0].state;
+    assert.ok(finalState.farm.stalls.every((s) => !("sellCents" in s)));
   } finally {
     await srv.stop();
   }
@@ -489,14 +477,16 @@ test("end to end: a stored legacy v3 save loads, stamps at par, saves, and the s
 test("zero em or en dashes in the player-facing copy this pass touched", () => {
   const farmCard = src("components/Farm.jsx");
   const nightShift = src("components/NightShiftCard.jsx");
+  const email = shared.buildFarmPurchasedEmail().body;
   for (const [name, text] of [
     ["Farm.jsx", farmCard],
     ["NightShiftCard.jsx", nightShift],
-    ["farm email", shared.buildFarmPurchasedEmail().body],
+    ["farm email", email],
   ]) {
-    assert.ok(!text.includes("—") && !text.includes("–"), name);
+    assert.ok(!text.includes("\u2014") && !text.includes("\u2013"), name);
   }
   assert.match(nightShift, /minutes of shipping income/);
-  assert.match(shared.buildFarmPurchasedEmail().body, /sells back for half of what you paid/);
-  for (const type of LLAMA_TYPES) assert.ok(LLAMA_ECONOMY.kidProduceSeconds[type] > 0, type);
+  // The barn email describes floating prices, not frozen ones.
+  assert.match(email, /a llama's price follows your shipping income/);
+  assert.doesNotMatch(email, /half of what you paid|set the day/);
 });

@@ -100,7 +100,6 @@ import {
   claimableEquity,
   farmLlamaCountsByType,
   findCosmetic,
-  isLlamaSellCents,
   NIGHT_SHIFT_CONFIG,
   normalizeSaveState,
   normalizeActions,
@@ -500,12 +499,13 @@ function checkStateShape(state) {
   }
   // Llama farm (issue #79). The farm is one object: owned (boolean),
   // stalls (exactly FARM_CONFIG.stallCount entries, each { llama,
-  // lighting, sellCents } with a llama that is null or a known type id,
-  // a lighting that is a known color, and the llama's stored sell value
-  // in cents, issue #244: null for an empty stall, a non-negative whole
-  // number for a llama), and unlockedTypes (known type ids only, no
-  // duplicates). A save from before stored values has no sellCents;
-  // normalizeSaveState stamps it at par first, so legacy saves pass.
+  // lighting } with a llama that is null or a known type id and a
+  // lighting that is a known color), and unlockedTypes (known type ids
+  // only, no duplicates). Sell prices float with production, so nothing
+  // is stored on a stall. A save written by the stored-value build
+  // (issue #244) carries a `sellCents` key on each stall:
+  // normalizeSaveState strips it before this check, and the check also
+  // tolerates it, so those saves and stale cached clients still load.
   // How a llama was bought or bred is not policed anymore: the shape
   // check only bounds the stalls, their values, and the types.
   if (
@@ -537,15 +537,15 @@ function checkStateShape(state) {
       stall === null ||
       typeof stall !== "object" ||
       Array.isArray(stall) ||
-      !hasExactKeys(stall, ["llama", "lighting", "sellCents"])
+      !(
+        hasExactKeys(stall, ["llama", "lighting"]) ||
+        hasExactKeys(stall, ["llama", "lighting", "sellCents"])
+      )
     ) {
-      return "farm stalls must be objects with llama, lighting, and sellCents";
+      return "farm stalls must be objects with llama and lighting";
     }
     if (stall.llama !== null && !LLAMA_TYPES.includes(stall.llama)) {
       return `farm stall has an unknown llama type: ${stall.llama}`;
-    }
-    if (stall.llama === null ? stall.sellCents !== null : !isLlamaSellCents(stall.sellCents)) {
-      return "farm stall sellCents must be null for an empty stall and a non-negative integer for a llama";
     }
     if (!FARM_LIGHTING_COLORS.includes(stall.lighting)) {
       return `farm stall has an unknown lighting color: ${stall.lighting}`;

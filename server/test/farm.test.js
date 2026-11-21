@@ -26,7 +26,6 @@ import {
   FARM_CONFIG,
   LLAMA_BASE_TYPES,
   applyFarmBreedKids,
-  boughtLlamaSellCents,
   emptyFarmState,
   farmEligibleBreedingStalls,
   farmKidsFromRoll,
@@ -127,23 +126,11 @@ function emptyOwnedFarmState(money) {
   return stateWith({ money, farm: initialFarmState() });
 }
 
-/**
- * Deep-copy a farm's stalls so a test can mutate one stall. A llama
- * placed without a sellCents gets a bought llama's stored value at the
- * price floor (issue #244), the way the reducer writes one; an emptied
- * stall gets null.
- */
+/** Deep-copy a farm's stalls so a test can mutate one stall. */
 function withStall(farm, index, stall) {
-  const stalls = farm.stalls.map((entry, i) => {
-    if (i !== index) return { ...entry };
-    const next = { ...entry, ...stall };
-    if ("llama" in stall && !("sellCents" in stall)) {
-      next.sellCents = stall.llama
-        ? boughtLlamaSellCents(llamaBuyPriceCents(stall.llama, 0))
-        : null;
-    }
-    return next;
-  });
+  const stalls = farm.stalls.map((entry, i) =>
+    i === index ? { ...entry, ...stall } : { ...entry }
+  );
   return { ...farm, stalls };
 }
 
