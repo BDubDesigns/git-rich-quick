@@ -1,19 +1,25 @@
 /**
- * Equity progress strip (issue #131).
+ * Equity progress strip (issue #131, reframed around the sale gain in
+ * issue #190).
  *
- * A thin bar under the star bars in the Header, alongside the other
- * progress bars, so progress to the next Equity point is visible on
- * every tab: lifetime LOC across the current Equity bracket (the next
- * Equity lands at 1,000,000 x (n + 1)^2 lifetime LOC) and the time
- * left at the current healthy LOC/s (the buffed rate, temporary star
- * and SUBTRACTERALL multipliers out). Tapping it opens Settings, where
- * Sell the Company lives.
+ * A thin bar under the star bars in the Header, so the Equity goal is
+ * visible on every tab. It leads with what a sale earns right now:
+ * "+N Equity if you sell now" (claimableEquity, the Sell the Company
+ * panel's "Equity gained"), then the distance to the next point beyond
+ * those. With nothing claimable it shows progress toward the first
+ * point of this run in the same framing. The bar fill is the current
+ * Equity bracket: lifetime LOC from 10,000,000 x n^3 to 10,000,000 x
+ * (n + 1)^3 (the cube-root curve since PR #171), with the time left at
+ * the current healthy LOC/s (the buffed rate, temporary star and
+ * SUBTRACTERALL multipliers out). Tapping it opens Settings, where Sell
+ * the Company lives.
  *
  * Shown once the player can see the goal: they have Equity, or their
  * lifetime LOC has reached the unlock visibility threshold (10%) of the
- * first Equity, the same rule every locked card uses. The math is the
- * shared equityProgress, the same function the Sell the Company meter
- * reads, so the two bars can never disagree.
+ * first Equity, the same rule every locked card uses. The framing is
+ * utils/equityStrip.js, which only reads the shared claimableEquity and
+ * equityProgress, the same functions the Sell the Company meter reads,
+ * so the two can never disagree.
  *
  * Copy rules: no em dashes anywhere in player-facing copy.
  */
@@ -21,7 +27,7 @@
 import { useGameContext } from "../context/useGameContext.js";
 import { getBaseLocPerSecond } from "../context/gameLogic.js";
 import * as shared from "../../../shared/game-balance.js";
-import { formatNumber } from "../../../shared/formatNumber.js";
+import { equityStripModel } from "../utils/equityStrip.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 
 export function EquityProgressStrip() {
@@ -37,18 +43,12 @@ export function EquityProgressStrip() {
   ) {
     return null;
   }
-  const progress = shared.equityProgress(
+  // The sale-gain framing (issue #190), from the shared helpers only.
+  const strip = equityStripModel(
     state.totalLinesOfCode ?? 0,
+    state.lifetimeEquityEarned ?? 0,
     getBaseLocPerSecond(state)
   );
-  const pct = Math.floor(progress.fraction * 100);
-  const timeText =
-    progress.seconds === null
-      ? "needs production"
-      : `${shared.formatEstimateDuration(progress.seconds)} left`;
-  const label = `Equity ${progress.nextEquity}: ${pct}%, ${formatNumber(
-    progress.remainingLoc
-  )} LOC to go, ${timeText} at your current rate. Tap to open Sell the Company in Settings.`;
 
   return (
     <div className="px-2">
@@ -57,20 +57,18 @@ export function EquityProgressStrip() {
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={pct}
-        aria-label={label}
-        title={label}
+        aria-valuenow={strip.pct}
+        aria-label={strip.label}
+        title={strip.label}
         onClick={() =>
           dispatch({ type: "SET_ACTIVE_TAB", payload: { tab: "settings" } })
         }
       >
         <div
           className="progress-strip-fill progress-strip-fill--equity"
-          style={{ width: `${progress.fraction * 100}%` }}
+          style={{ width: `${strip.fraction * 100}%` }}
         />
-        <span className="progress-strip-text">
-          Equity {progress.nextEquity}: {pct}% · {timeText}
-        </span>
+        <span className="progress-strip-text">{strip.text}</span>
       </div>
     </div>
   );
