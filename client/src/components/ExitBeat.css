@@ -1,0 +1,117 @@
+/* The exit (issue #215, Slice 3 of #210): the 1.1s merge beat after a
+   sale. Transform and opacity only; every layer is pointer-events: none
+   at z-index 55 (the top of the ambient band, under the floats at 60
+   and 70), so the store's buttons stay live under it. */
+
+/* 0 to 350ms: the Equity strip flashes gold and reads MERGED INTO main.
+   The store screen has replaced the game by now, so this is a copy
+   placed where the strip was. */
+.exit-strip {
+  position: fixed;
+  z-index: 55;
+  pointer-events: none;
+  border-radius: 999px;
+  background: #facc15;
+  color: #1a1a1a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  opacity: 0;
+  animation: exit-strip 350ms linear forwards;
+}
+
+@keyframes exit-strip {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 250 to 1100ms: the ACQUIRED stamp, red ink, over the middle. Hidden
+   until 250ms, slams from scale 1.6 (opacity 0) to 1 with an overshoot
+   to 0.96 by 450ms, settles at 1 by 550ms, holds to 900ms, fades by
+   1100ms. Rotated -8 degrees throughout. */
+.exit-stamp-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exit-stamp {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: rgba(239, 68, 68, 0.9);
+  border: 3px solid currentColor;
+  padding: 6px 14px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transform: rotate(-8deg) scale(1.6);
+  animation: exit-stamp 1100ms linear forwards;
+}
+
+@keyframes exit-stamp {
+  0%,
+  22.73% {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1.6);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  40.91% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
+  }
+  81.82% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1);
+  }
+}
+
+/* Reduced motion: the stamp appears at 250ms and disappears at 900ms,
+   with no scale and no rotation. */
+@keyframes exit-stamp-still {
+  0%,
+  22.72% {
+    opacity: 0;
+  }
+  22.73%,
+  81.82% {
+    opacity: 1;
+  }
+  81.83%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exit-stamp {
+    transform: none;
+    animation-name: exit-stamp-still;
+  }
+}
+
+/* 4. The store's Equity spendable count-up, in tabular figures. */
+.exit-count {
+  font-variant-numeric: tabular-nums;
+}

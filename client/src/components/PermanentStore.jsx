@@ -28,6 +28,7 @@
  */
 
 import { useState } from "react";
+import { ExitCountUp } from "./ExitCountUp.jsx";
 import { useGameContext } from "../context/useGameContext.js";
 import * as shared from "../../../shared/game-balance.js";
 import { formatMoney } from "../../../shared/formatNumber.js";
@@ -208,7 +209,7 @@ export function PermanentStore() {
         survive every future sale.
       </p>
       <p className="m-0 text-sm">
-        Equity spendable: {spendable} · Equity earned:{" "}
+        Equity spendable: <ExitCountUp value={spendable} /> · Equity earned:{" "}
         {lifetimeEquityEarned} · The next company starts with{" "}
         {formatMoney(currentGrant)}.
       </p>
