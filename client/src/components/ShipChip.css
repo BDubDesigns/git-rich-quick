@@ -1,0 +1,15 @@
+/* Shipped (issue #219, Slice 7 of #210): the manual Ship float wears
+   the cash version of the Slice A diff chip, so money reads differently
+   from LOC. Scoped to the Ship button's wrapper (the float renders
+   inside it), so the float's own files, timing and behavior are the
+   existing ones: only these static colors change. */
+.ship-action .floating-text.diff-chip {
+  background: rgba(28, 24, 8, 0.92);
+  border-color: rgba(250, 204, 21, 0.55);
+  color: #facc15;
+  text-shadow: 0 0 6px rgba(250, 204, 21, 0.45);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 3px 0 0 rgba(250, 204, 21, 0.8);
+}

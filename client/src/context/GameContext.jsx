@@ -12,6 +12,7 @@ import {
 import { serverNowMs } from "../save/serverClock.js";
 import { SaveSync } from "../save/saveSync.js";
 import { saveStateToGameFields } from "../save/serialize.js";
+import { nextAutoShipPulse } from "../utils/shipFeel.js";
 // Tap-latency diagnostics (PR #101): the instrument that records slow
 // Commit taps so a "taps don't register" report can be diagnosed from
 // evidence. Framework-free like SaveSync; the provider owns it.
@@ -963,6 +964,9 @@ function gameReducer(state, action) {
         money: shipMoney,
         freelanceProjectsCompleted: shipCompleted,
         autoShipsCompleted: shipAuto,
+        // Issue #219: a tick that auto-shipped pulses the shipping
+        // strip's Cash readout (no chip). Transient, never saved.
+        autoShipPulse: nextAutoShipPulse(state.autoShipPulse, autoShipCount, Date.now()),
         achievements: recordHypeShips(state, autoShipCount, autoShipCash),
         clickHistory: cleanedHistory,
         currentCPS: calculateCPS(cleanedHistory),
@@ -1433,6 +1437,8 @@ function gameReducer(state, action) {
         ...saveStateToGameFields(saveState),
         clickHistory: [],
         currentCPS: 0,
+        // Shipped (issue #219): a restore never pulses the Cash readout.
+        autoShipPulse: null,
         // Transient email UI state is reset on restore: the selected /
         // notified email may not exist in the restored inbox (a 409
         // revert), so it must not linger.
