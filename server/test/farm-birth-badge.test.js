@@ -133,19 +133,20 @@ test("the reducer counts on breed (not while watching) and clears on opening the
   const context = src("context/GameContext.jsx");
   assert.match(
     context,
-    /farm: shared\.applyFarmBirths\(farm, action\.payload\?\.kids, \{\s*watching: state\.activeTab === "farm",\s*\}\)/
+    /farm: shared\.applyFarmBirths\(farm, action\.payload\?\.kids, \{\s*watching: isSectionOnScreen\(state, "farm"\),\s*\}\)/
   );
-  assert.match(context, /return withFarmVisit\(\{ \.\.\.clearHighlight\(state\), activeTab \}\);/);
+  // Issue #174: on screen in any pane counts (the nav goes through showSection).
+  assert.match(context, /return withFarmVisit\(showSection\(clearHighlight\(state\), activeTab\)\);/);
   assert.match(context, /return withFarmVisit\(navigateToTarget\(state, action\.payload\?\.target\)\);/);
   assert.match(
     context,
-    /function withFarmVisit\(state\) \{\s*if \(state\.activeTab !== "farm" \|\| !state\.farm\) return state;\s*const farm = shared\.farmSeen\(state\.farm\);/
+    /function withFarmVisit\(state\) \{\s*(\/\/[^\n]*\s*)*if \(!isSectionOnScreen\(state, "farm"\) \|\| !state\.farm\) return state;\s*const farm = shared\.farmSeen\(state\.farm\);/
   );
 });
 
 test("the badge: the Farm tab shows the count, the Projects pattern, and never while on the Farm tab", () => {
   const nav = src("components/NavBar.jsx");
-  assert.match(nav, /const unseenBirths =\s*state\.activeTab === "farm" \? 0 : farmUnseenBirths\(state\.farm\);/);
+  assert.match(nav, /const unseenBirths = isSectionOnScreen\(state, "farm"\)\s*\? 0\s*: farmUnseenBirths\(state\.farm\);/);
   assert.match(nav, /: id === "farm"\s*\? unseenBirths/);
   // The same NavButton badge the Projects and Email counts use.
   assert.match(src("components/NavButton.jsx"), /\{badgeCount > 0 && \(/);

@@ -25,6 +25,10 @@ import { intermissionOpen } from "../../../shared/game-balance.js";
 export const INTERMISSION_ALLOWED_ACTIONS = Object.freeze([
   "RESTORE_SAVE",
   "TOGGLE_SECTION_DESC_VISIBILITY",
+  // Choosable panes (issue #174): pure view state, so a resize or a
+  // pane choice during the intermission is never lost.
+  "SET_LAYOUT_MODE",
+  "CHOOSE_PANE_SECTION",
 ]);
 
 /** Whether the reducer must ignore `action` because the intermission is open. */

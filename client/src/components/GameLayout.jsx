@@ -5,11 +5,12 @@ import { useScrollAffordances } from "../hooks/useScrollAffordances.js";
 import { ScrollAffordanceOverlay } from "./ScrollAffordances.jsx";
 
 export function GameLayout({ children }) {
-  // The main scroll container (mobile) lives in a relative frame so
-  // the scroll-affordance overlay (up/down arrows, RuneSpace #345
-  // pattern) sits on its visible box and never scrolls away with the
-  // content. On desktop the grid inside main fits exactly, so the
-  // overlay renders nothing here — the desktop panes carry their own.
+  // The main box lives in a relative frame with a scroll-affordance
+  // overlay (up/down arrows, RuneSpace #345 pattern) as a backstop.
+  // Issue #174: main no longer scrolls the section. Every section fills
+  // it and scrolls itself under its pinned title bar (SectionLayout),
+  // on mobile and desktop alike, so main measures no overflow and the
+  // overlay renders nothing.
   const mainRef = useRef(null);
   const affordances = useScrollAffordances(mainRef);
   return (

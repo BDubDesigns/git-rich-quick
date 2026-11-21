@@ -168,8 +168,9 @@ test("client gate: every game action is inert while the intermission is open", (
     // With no intermission, nothing is blocked.
     assert.equal(isActionBlockedDuringIntermission({ prestigeIntermission: null }, { type }), false, type);
   }
-  // Only adopting a server state and a view preference run.
-  assert.deepEqual([...INTERMISSION_ALLOWED_ACTIONS], ["RESTORE_SAVE", "TOGGLE_SECTION_DESC_VISIBILITY"]);
+  // Only adopting a server state and view preferences run (issue #174
+  // added the two pane actions: layout mode and the pane picker).
+  assert.deepEqual([...INTERMISSION_ALLOWED_ACTIONS], ["RESTORE_SAVE", "TOGGLE_SECTION_DESC_VISIBILITY", "SET_LAYOUT_MODE", "CHOOSE_PANE_SECTION"]);
   assert.equal(isActionBlockedDuringIntermission(open, { type: "SOMETHING_NEW" }), true);
 });
 

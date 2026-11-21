@@ -16,21 +16,25 @@ const FLASH_MS = 1600;
  * stays the Panel. The flash is the .highlight-flash class, an
  * outline that fades.
  */
-export function HighlightAnchor({ tab, itemId = null, children }) {
+export function HighlightAnchor({ tab, itemId = null, scope = null, className = "", children }) {
   const { state, dispatch } = useGameContext();
   const ref = useRef(null);
   const [flashKey, setFlashKey] = useState(null);
   const pending = state.highlightTarget;
-  const matches = highlightMatches(pending, tab, itemId);
+  const matches = highlightMatches(pending, tab, itemId, scope);
   const pendingKey = matches ? pending.key : null;
 
   // Consume: scroll, start the flash, clear the target (once per key).
   useEffect(() => {
     if (pendingKey === null) return;
-    ref.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    // A pane title bar (scope "pane", issue #174) sits above its
+    // scroller and is always in view: it only flashes.
+    if (scope !== "pane") {
+      ref.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    }
     setFlashKey(pendingKey);
     dispatch({ type: "CONSUME_HIGHLIGHT", payload: { key: pendingKey } });
-  }, [pendingKey, dispatch]);
+  }, [pendingKey, scope, dispatch]);
 
   // End the flash. Keyed on the flash itself, not the target: the
   // target clears right after it is consumed, and that must not
@@ -44,7 +48,7 @@ export function HighlightAnchor({ tab, itemId = null, children }) {
   return (
     <div
       ref={ref}
-      className={flashKey !== null ? "highlight-flash" : undefined}
+      className={`${className} ${flashKey !== null ? "highlight-flash" : ""}`.trim() || undefined}
       data-highlight-anchor={itemId ? `${tab}:${itemId}` : tab}
     >
       {children}
