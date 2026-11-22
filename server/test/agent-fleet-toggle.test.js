@@ -194,10 +194,12 @@ test("Write code mode renders the unchanged Commit button, and the float lock ho
     render,
     /\{agents \? \(\s*<ReviewPanel className="mx-auto w-\[85%\]" \/>\s*\) : \(\s*<>\s*<CPSMeter \/>\s*<ClickButton \/>\s*<\/>\s*\)\}/
   );
-  // Desktop: the same swap in the Commit column.
-  assert.match(render, /\{agents \? <ReviewPanel className="w-full" \/> : <ClickButton \/>\}/);
-  // Desktop keeps Clicks/sec's space (invisible) so the toggle never moves.
-  assert.match(render, /className=\{agents \? "invisible" : undefined\}\s*aria-hidden=\{agents \? true : undefined\}\s*>\s*<CPSMeter \/>/);
+  // Desktop (slices 2 and 3): the PR card takes Clicks/sec's place and
+  // its buttons take the Commit button's, in the same column.
+  assert.match(render, /\{agents \? <ReviewPanel part="actions" className="w-full" \/> : <ClickButton \/>\}/);
+  assert.match(render, /\{agents \? \(\s*<ReviewPanel part="queue"[^>]*\/>\s*\) : \(\s*<CPSMeter \/>\s*\)\}/);
+  // Once unlocked the group is pinned right, so the toggle never moves.
+  assert.match(render, /unlocked\s*\? "inline-flex min-w-0 flex-1 items-center justify-end gap-6"\s*: "inline-flex flex-1 items-center justify-center gap-8"/);
   // Exactly one Commit button per layout, as before.
   assert.equal((render.match(/<ClickButton \/>/g) ?? []).length, 2);
   // ClickButton, KeyPressButton, BouncyButton and the float: no diff.
@@ -217,14 +219,13 @@ test("Manage agents mode renders the Review panel and no Commit button", () => {
   assert.equal(reviewQueueHeader(), "Review queue (0 open)");
   assert.equal(reviewQueueHeader(-3), "Review queue (0 open)");
   const s = panel();
-  assert.match(s, /\{reviewQueueHeader\(0\)\}/);
+  // Slices 2 and 3 (agent-fleet-review.test.js) fill the panel; its
+  // empty state with no agents is still the slice 1 JSDoc block.
+  assert.match(s, /\{model\.header\}/);
   assert.match(s, /No agents are on payroll yet\./);
   assert.match(s, /@returns/);
   assert.match(s, /\{PullRequest\[\]\}/);
   assert.match(s, /aria-label="Review queue"/);
-  // No game state and no dispatch in the shell.
-  assert.ok(!s.includes("dispatch"));
-  assert.ok(!s.includes("useGameContext"));
   // There is no keyboard shortcut for commit to suppress.
   for (const file of ["components/Footer.jsx", "components/KeyPressButton.jsx", "components/ClickButton.jsx"]) {
     assert.ok(!/addEventListener\(\s*["']key/.test(src(file)), file);

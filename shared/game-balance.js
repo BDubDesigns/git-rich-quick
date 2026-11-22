@@ -3995,6 +3995,822 @@ export function buildAgentFleetToggleEmail() {
   };
 }
 
+/** ===== Agent Fleet (issue #267), slices 2 and 3: agents, PRs, slop, tech debt =====
+ *
+ * Brandon, Nov 21: agents unlock at Series A (the same gate as the
+ * Write code / Manage agents toggle). They are hired with cash like
+ * employees but add no LOC/s: their output is pull requests, one per
+ * agent per prIntervalSeconds of PLAY (no PRs while the game is closed;
+ * Night Shift does not cover agents). Every PR waits in the review
+ * queue (capped; agents pause on "Review backlog full").
+ *
+ * - Slop is NEVER decided by the title. Every PR has a diff and three
+ *   checks (CI, tests, deps). Slop always has 1 or 2 red flags among
+ *   CI failing or skipped, tests deleted, a dep not found on npm, or a
+ *   diff wildly out of scale for the title's kind. A good PR has none.
+ *   Titles are drawn independently of slop.
+ * - Approving any PR pays prPayoutSeconds of the current P in LOC (slop
+ *   looks just as tempting). Approving slop adds slopDebt tech debt.
+ *   Rejecting slop pays a small good catch bonus; rejecting a good PR
+ *   pays nothing.
+ * - Tech debt (0 to 100) drags passive production by dragPerDebt per
+ *   point. It is a temporary effect: it is in the live LOC/s (the
+ *   header, the tick) and never in P for pricing (buffedLocPerSecond),
+ *   the same rule as stars and SUBTRACTERALL, so debt never makes a
+ *   price cheaper.
+ * - Debt clears two ways: every manual commit pays commitPaydown off
+ *   (free), and a cash Refactor Sprint sets it to
+ *   round(debt x sprintKeep) + sprintResidue.
+ * - The token bill: each agent costs tokenBillShare of S per second,
+ *   from cash. With too little cash, agents pause instead of going
+ *   into money debt. Paused agents (cash or backlog) bill nothing.
+ * - A sale resets the fleet like employees; the mail flags survive so
+ *   each mail is sent once.
+ *
+ * The queue is stored compactly: PR numbers only. Each PR is generated
+ * deterministically from (fleet seed, PR number) by agentPullRequest,
+ * so the save never carries titles or checks and the client and server
+ * always agree on what a PR is.
+ *
+ * Copy rules: no em or en dashes in any player-facing string.
+ */
+
+/**
+ * THE AGENT FLEET TUNING TABLE. Every displayed and charged number is
+ * derived from it; retunes are constants only. Seconds of S are cash
+ * (cashBasisCentsPerSecond), seconds of P are LOC (buffedLocPerSecond).
+ */
+export const AGENT_FLEET_CONFIG = Object.freeze({
+  /** Funding Rounds rank that unlocks agents: Series A. */
+  unlockRank: 2,
+  /** First agent's price, in seconds of S. */
+  hireSeconds: 120,
+  /** Each agent owned multiplies the next one's price by this. */
+  hireCostMultiplier: 1.25,
+  /** Shape bound only (the price curve makes it unreachable). */
+  maxAgents: 1000,
+  /** Each agent opens one PR per this many seconds of play. */
+  prIntervalSeconds: 60,
+  /** The review queue holds at most this many PRs. */
+  queueCap: 20,
+  /** An approved PR (good or slop) pays this many seconds of P in LOC. */
+  prPayoutSeconds: 20,
+  /** The chance a PR is slop. */
+  slopChance: 0.35,
+  /** Tech debt added by approving one slop PR. */
+  slopDebt: 5,
+  /** Tech debt scale: 0 to this. */
+  maxDebt: 100,
+  /** Passive production lost per point of debt (0.5%: -50% at 100). */
+  dragPerDebt: 0.005,
+  /** Tech debt paid off by each manual Commit click. */
+  commitPaydown: 0.2,
+  /** Rejecting a slop PR pays this many seconds of P in LOC. */
+  goodCatchSeconds: 3,
+  /** A Refactor Sprint costs this many seconds of S. */
+  sprintSeconds: 60,
+  /** A sprint keeps this share of the debt (rounded) ... */
+  sprintKeep: 0.2,
+  /** ... and introduces this much new debt. */
+  sprintResidue: 2,
+  /** Each working agent bills this share of S per second. */
+  tokenBillShare: 0.005,
+  /** The "tech debt passed 50%" mail fires above this. */
+  debtMailThreshold: 50,
+});
+
+/** Mail flags (agentFleet.mails, a bitmask that survives a sale). */
+export const AGENT_FLEET_MAIL_FIRST_AGENT = 1;
+export const AGENT_FLEET_MAIL_DEBT = 2;
+const AGENT_FLEET_MAIL_ALL = AGENT_FLEET_MAIL_FIRST_AGENT | AGENT_FLEET_MAIL_DEBT;
+
+export const AGENT_FLEET_FIRST_AGENT_EMAIL_TRIGGER_KEY = "agent-fleet:first-agent";
+export const AGENT_FLEET_DEBT_EMAIL_TRIGGER_KEY = "agent-fleet:debt-50";
+
+/** The Hire tab card id (and email link item id) of the Coding Agent. */
+export const CODING_AGENT_CARD_ID = "codingAgent";
+
+/** The keys of the saved agentFleet record, in order. */
+export const AGENT_FLEET_KEYS = Object.freeze([
+  "agents",
+  "queue",
+  "nextPr",
+  "progress",
+  "debt",
+  "seed",
+  "mails",
+]);
+
+/** Whether agents are unlocked: Series A or later is owned. */
+export function agentFleetUnlocked(storeRanks) {
+  return fundingRoundRank(storeRanks ?? {}) >= AGENT_FLEET_CONFIG.unlockRank;
+}
+
+/** A fresh fleet: no agents, empty queue, no debt. `mails` carries over. */
+export function zeroAgentFleetState(mails = 0) {
+  return {
+    agents: 0,
+    queue: [],
+    nextPr: 1,
+    progress: 0,
+    debt: 0,
+    seed: 0,
+    mails: Number.isInteger(mails) ? mails & AGENT_FLEET_MAIL_ALL : 0,
+  };
+}
+
+function fleetInt(value, min, max, fallback) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Debt clamped to 0..maxDebt and rounded to one decimal (0.2 steps never drift). */
+export function roundAgentDebt(debt) {
+  const n = Number(debt);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(Math.min(AGENT_FLEET_CONFIG.maxDebt, n) * 10) / 10;
+}
+
+/**
+ * A guarded copy of a fleet record: a missing record (an old save) is
+ * the fresh fleet; junk numbers are clamped; the queue keeps only
+ * whole PR numbers below nextPr, ascending, unique, capped. The client
+ * reads every save through this; the server's shape check stays strict.
+ */
+export function agentFleetOf(fleet) {
+  if (!fleet || typeof fleet !== "object" || Array.isArray(fleet)) {
+    return zeroAgentFleetState();
+  }
+  const nextPr = fleetInt(fleet.nextPr, 1, Number.MAX_SAFE_INTEGER, 1);
+  const queue = [];
+  for (const n of Array.isArray(fleet.queue) ? fleet.queue : []) {
+    if (!Number.isSafeInteger(n) || n < 1 || n >= nextPr) continue;
+    if (queue.length > 0 && n <= queue[queue.length - 1]) continue;
+    queue.push(n);
+    if (queue.length >= AGENT_FLEET_CONFIG.queueCap) break;
+  }
+  return {
+    agents: fleetInt(fleet.agents, 0, AGENT_FLEET_CONFIG.maxAgents, 0),
+    queue,
+    nextPr,
+    progress: fleetInt(fleet.progress, 0, AGENT_FLEET_CONFIG.prIntervalSeconds - 1, 0),
+    debt: roundAgentDebt(fleet.debt),
+    seed: fleetInt(fleet.seed, 0, 0x7fffffff, 0),
+    mails: fleetInt(fleet.mails, 0, AGENT_FLEET_MAIL_ALL, 0),
+  };
+}
+
+/**
+ * The shape rule for a saved fleet record, shared by the server's
+ * shape check and the client's pre-write check. Returns an error
+ * string, or null when well-formed.
+ */
+export function agentFleetStateError(fleet) {
+  if (!fleet || typeof fleet !== "object" || Array.isArray(fleet)) {
+    return "agentFleet must be an object";
+  }
+  const keys = Object.keys(fleet);
+  if (
+    keys.length !== AGENT_FLEET_KEYS.length ||
+    !AGENT_FLEET_KEYS.every((key) => key in fleet)
+  ) {
+    return "agentFleet has unknown or missing keys";
+  }
+  const { agents, queue, nextPr, progress, debt, seed, mails } = fleet;
+  if (!Number.isInteger(agents) || agents < 0 || agents > AGENT_FLEET_CONFIG.maxAgents) {
+    return `agentFleet.agents must be an integer from 0 to ${AGENT_FLEET_CONFIG.maxAgents}`;
+  }
+  if (!Number.isSafeInteger(nextPr) || nextPr < 1) {
+    return "agentFleet.nextPr must be a positive integer";
+  }
+  if (!Array.isArray(queue)) return "agentFleet.queue must be an array";
+  if (queue.length > AGENT_FLEET_CONFIG.queueCap) {
+    return `agentFleet.queue exceeds the ${AGENT_FLEET_CONFIG.queueCap} PR cap`;
+  }
+  for (let i = 0; i < queue.length; i += 1) {
+    const n = queue[i];
+    if (!Number.isSafeInteger(n) || n < 1 || n >= nextPr) {
+      return "agentFleet.queue entries must be PR numbers below nextPr";
+    }
+    if (i > 0 && n <= queue[i - 1]) {
+      return "agentFleet.queue must be ascending with no duplicates";
+    }
+  }
+  if (
+    !Number.isInteger(progress) ||
+    progress < 0 ||
+    progress >= AGENT_FLEET_CONFIG.prIntervalSeconds
+  ) {
+    return `agentFleet.progress must be an integer from 0 to ${AGENT_FLEET_CONFIG.prIntervalSeconds - 1}`;
+  }
+  if (
+    typeof debt !== "number" ||
+    !Number.isFinite(debt) ||
+    debt < 0 ||
+    debt > AGENT_FLEET_CONFIG.maxDebt
+  ) {
+    return `agentFleet.debt must be a number from 0 to ${AGENT_FLEET_CONFIG.maxDebt}`;
+  }
+  if (!Number.isInteger(seed) || seed < 0 || seed > 0x7fffffff) {
+    return "agentFleet.seed must be a non-negative 31-bit integer";
+  }
+  if (!Number.isInteger(mails) || mails < 0 || mails > AGENT_FLEET_MAIL_ALL) {
+    return "agentFleet.mails must be a mail flag bitmask";
+  }
+  return null;
+}
+
+// --- Prices and the bill ---
+
+/** The next agent's price in whole cents with `count` owned: hireSeconds x S x 1.25^count. */
+export function agentHirePriceCents(count, buffedLocPerSec) {
+  const owned = fleetInt(count, 0, AGENT_FLEET_CONFIG.maxAgents, 0);
+  return Math.round(
+    AGENT_FLEET_CONFIG.hireSeconds *
+      Math.pow(AGENT_FLEET_CONFIG.hireCostMultiplier, owned) *
+      cashBasisCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/** The price of hiring `n` agents from `count` owned: the sum of each hire. */
+export function agentHireBulkPriceCents(count, n, buffedLocPerSec) {
+  const owned = fleetInt(count, 0, AGENT_FLEET_CONFIG.maxAgents, 0);
+  const quantity = Number.isInteger(n) && n > 0 ? n : 1;
+  let total = 0;
+  for (let i = 0; i < quantity; i += 1) {
+    total += agentHirePriceCents(owned + i, buffedLocPerSec);
+  }
+  return total;
+}
+
+/** The token bill in whole cents per second for `agents` working agents. */
+export function agentTokenBillCents(agents, buffedLocPerSec) {
+  const n = fleetInt(agents, 0, AGENT_FLEET_CONFIG.maxAgents, 0);
+  return Math.round(
+    n * AGENT_FLEET_CONFIG.tokenBillShare * cashBasisCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/** A Refactor Sprint's price in whole cents: sprintSeconds x S. */
+export function refactorSprintPriceCents(buffedLocPerSec) {
+  return Math.round(
+    AGENT_FLEET_CONFIG.sprintSeconds * cashBasisCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/** Seconds of P in LOC, floored to a whole LOC. */
+function secondsOfP(seconds, buffedLocPerSec) {
+  const p = Number(buffedLocPerSec);
+  return Math.floor(seconds * (Number.isFinite(p) && p > 0 ? p : 0) + 1e-9);
+}
+
+/** What an approved PR pays in LOC right now (good or slop): prPayoutSeconds of P. */
+export function agentPrPayoutLoc(buffedLocPerSec) {
+  return secondsOfP(AGENT_FLEET_CONFIG.prPayoutSeconds, buffedLocPerSec);
+}
+
+/** The good catch bonus in LOC right now: goodCatchSeconds of P. */
+export function agentGoodCatchLoc(buffedLocPerSec) {
+  return secondsOfP(AGENT_FLEET_CONFIG.goodCatchSeconds, buffedLocPerSec);
+}
+
+// --- Tech debt ---
+
+/** The passive production multiplier at a debt: 1 - debt x dragPerDebt (0.5 at 100). */
+export function techDebtProductionMultiplier(debt) {
+  return 1 - roundAgentDebt(debt) * AGENT_FLEET_CONFIG.dragPerDebt;
+}
+
+/** The production lost at a debt, in percent (one decimal at most): 30 debt is 15. */
+export function techDebtDragPercent(debt) {
+  return Math.round(roundAgentDebt(debt) * AGENT_FLEET_CONFIG.dragPerDebt * 1000) / 10;
+}
+
+/** The debt a sprint leaves: round(debt x sprintKeep) + sprintResidue, 0..maxDebt. */
+export function refactorSprintDebtAfter(debt) {
+  return roundAgentDebt(
+    Math.round(roundAgentDebt(debt) * AGENT_FLEET_CONFIG.sprintKeep) +
+      AGENT_FLEET_CONFIG.sprintResidue
+  );
+}
+
+/**
+ * Why a Refactor Sprint cannot run right now, or null when it can: no
+ * debt at all, too little debt for a sprint to lower it (the residue
+ * would leave as much as there is), or too little cash.
+ */
+export function refactorSprintBlocker(fleet, money, buffedLocPerSec) {
+  const debt = roundAgentDebt(fleet?.debt);
+  if (debt <= 0) return "No tech debt to clear";
+  if (refactorSprintDebtAfter(debt) >= debt) return "Too little debt to refactor";
+  if (!(Number(money) >= refactorSprintPriceCents(buffedLocPerSec))) {
+    return "Not enough cash";
+  }
+  return null;
+}
+
+/** Run a Refactor Sprint. Returns { fleet, money, priceCents, before, after } or null. */
+export function applyRefactorSprint(fleet, money, buffedLocPerSec) {
+  const current = agentFleetOf(fleet);
+  if (refactorSprintBlocker(current, money, buffedLocPerSec)) return null;
+  const priceCents = refactorSprintPriceCents(buffedLocPerSec);
+  const after = refactorSprintDebtAfter(current.debt);
+  return {
+    fleet: { ...current, debt: after },
+    money: money - priceCents,
+    priceCents,
+    before: current.debt,
+    after,
+  };
+}
+
+/** A manual commit pays commitPaydown of debt off. Same object back when debt is 0. */
+export function applyManualCommitDebt(fleet) {
+  if (!fleet || !(roundAgentDebt(fleet.debt) > 0)) return fleet;
+  return {
+    ...fleet,
+    debt: roundAgentDebt(roundAgentDebt(fleet.debt) - AGENT_FLEET_CONFIG.commitPaydown),
+  };
+}
+
+// --- Hiring ---
+
+/**
+ * Hire `quantity` agents for cash. Returns { fleet, money, priceCents }
+ * or null (locked, unaffordable, at the cap). The first hire of a
+ * company seeds the PR generator from `nowMs`.
+ */
+export function applyAgentHire({ fleet, money, quantity = 1, buffedLocPerSec, storeRanks, nowMs = 0 }) {
+  if (!agentFleetUnlocked(storeRanks)) return null;
+  const current = agentFleetOf(fleet);
+  const n = Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+  if (current.agents + n > AGENT_FLEET_CONFIG.maxAgents) return null;
+  const priceCents = agentHireBulkPriceCents(current.agents, n, buffedLocPerSec);
+  if (!(priceCents > 0) || !(Number(money) >= priceCents)) return null;
+  const seed =
+    current.seed > 0
+      ? current.seed
+      : fleetInt(Math.abs(Math.floor(Number(nowMs) || 0)) % 0x7fffffff, 1, 0x7fffffff, 1);
+  return {
+    fleet: { ...current, agents: current.agents + n, seed },
+    money: money - priceCents,
+    priceCents,
+  };
+}
+
+// --- The queue ---
+
+/**
+ * What the fleet is doing: "none" (no agents), "backlog" (queue full,
+ * agents paused), "cash" (cannot pay the token bill, agents paused) or
+ * "working".
+ */
+export function agentFleetStatus(fleet, money, buffedLocPerSec) {
+  const current = agentFleetOf(fleet);
+  if (current.agents === 0) return "none";
+  if (current.queue.length >= AGENT_FLEET_CONFIG.queueCap) return "backlog";
+  if (!(Number(money) >= agentTokenBillCents(current.agents, buffedLocPerSec))) {
+    return "cash";
+  }
+  return "working";
+}
+
+/** The status line the Review panel shows for a paused fleet, or null. */
+export function agentFleetStatusText(status) {
+  if (status === "backlog") return "Review backlog full. Agents paused.";
+  if (status === "cash") return "Not enough cash for the token bill. Agents paused.";
+  return null;
+}
+
+/**
+ * One second of play (the GAME_TICK). Working agents pay the token
+ * bill and add their seconds toward the next PR; every
+ * prIntervalSeconds of agent time opens one PR, up to the queue cap.
+ * Paused agents (backlog full, or the bill would overdraw the cash)
+ * bill nothing and make no progress. Returns { fleet, money,
+ * billCents, opened, status }; the same fleet object when nothing
+ * moved.
+ */
+export function advanceAgentFleet(fleet, { money, buffedLocPerSec, seconds = 1 } = {}) {
+  const status = agentFleetStatus(fleet, money, buffedLocPerSec);
+  if (status !== "working") {
+    return { fleet, money, billCents: 0, opened: 0, status };
+  }
+  const current = agentFleetOf(fleet);
+  const steps = fleetInt(seconds, 1, 3600, 1);
+  let cash = money;
+  let progress = current.progress;
+  let nextPr = current.nextPr;
+  const queue = [...current.queue];
+  let billCents = 0;
+  let opened = 0;
+  const { prIntervalSeconds, queueCap } = AGENT_FLEET_CONFIG;
+  for (let s = 0; s < steps; s += 1) {
+    if (queue.length >= queueCap) break;
+    const bill = agentTokenBillCents(current.agents, buffedLocPerSec);
+    if (!(cash >= bill)) break;
+    cash -= bill;
+    billCents += bill;
+    progress += current.agents;
+    while (progress >= prIntervalSeconds && queue.length < queueCap) {
+      queue.push(nextPr);
+      nextPr += 1;
+      opened += 1;
+      progress -= prIntervalSeconds;
+    }
+    if (queue.length >= queueCap) progress = 0;
+  }
+  return {
+    fleet: { ...current, queue, nextPr, progress },
+    money: cash,
+    billCents,
+    opened,
+    status: agentFleetStatus({ ...current, queue }, cash, buffedLocPerSec),
+  };
+}
+
+// --- PR generation ---
+
+/**
+ * The PR kinds a title can be, with the diff a sensible PR of that
+ * kind has (added and removed line ranges) and the name used when a
+ * diff is wildly out of scale for it.
+ */
+export const AGENT_PR_KINDS = Object.freeze({
+  docs: Object.freeze({ added: [5, 240], removed: [0, 60], label: "docs change" }),
+  typo: Object.freeze({ added: [1, 3], removed: [1, 3], label: "typo fix" }),
+  fix: Object.freeze({ added: [4, 90], removed: [1, 40], label: "bug fix" }),
+  feat: Object.freeze({ added: [80, 1800], removed: [5, 300], label: "feature" }),
+  refactor: Object.freeze({ added: [40, 700], removed: [40, 700], label: "refactor" }),
+  perf: Object.freeze({ added: [10, 320], removed: [5, 200], label: "perf change" }),
+  chore: Object.freeze({ added: [1, 40], removed: [1, 30], label: "chore" }),
+  test: Object.freeze({ added: [20, 300], removed: [0, 20], label: "test change" }),
+});
+
+/** A diff this big is wildly out of scale for any kind's sensible range. */
+const AGENT_PR_SLOP_DIFF = Object.freeze([20_000, 240_000]);
+
+/**
+ * THE PR TITLE LIST. Refresh freely: half topical (2026 dev Twitter and
+ * AI news), half evergreen. A title never decides slop; the generated
+ * diff and checks do. `kind` picks the sensible diff size. Keep the
+ * list near 40 and the two halves near even (a test pins both).
+ */
+export const AGENT_PR_TITLES = Object.freeze([
+  // Topical
+  { title: "docs: add a 3,000-word CLAUDE.md for the other agents", kind: "docs", topical: true },
+  { title: "feat: add an MCP server for the MCP server", kind: "feat", topical: true },
+  { title: "feat: migrate to the framework that launched this morning", kind: "feat", topical: true },
+  { title: "chore: rename the repo so it ends in .ai", kind: "chore", topical: true },
+  { title: "feat: vibe code the checkout flow", kind: "feat", topical: true },
+  { title: "perf: rewrite the hot path in Rust", kind: "perf", topical: true },
+  { title: "docs: add llms.txt so the scrapers feel welcome", kind: "docs", topical: true },
+  { title: "feat: add an agent that reviews the agents", kind: "feat", topical: true },
+  { title: "fix: escape the prompt injection in the README", kind: "fix", topical: true },
+  { title: "refactor: split the context window into chapters", kind: "refactor", topical: true },
+  { title: "feat: AGI (partial)", kind: "feat", topical: true },
+  { title: "chore: bump the model version and hope", kind: "chore", topical: true },
+  { title: "feat: add a chatbot to the 404 page", kind: "feat", topical: true },
+  { title: "test: ask the model whether the tests pass", kind: "test", topical: true },
+  { title: "docs: AGENTS.md now links to CLAUDE.md, which links back", kind: "docs", topical: true },
+  { title: "fix: stop the agent from emailing the CEO", kind: "fix", topical: true },
+  { title: "feat: make the login button agentic", kind: "feat", topical: true },
+  { title: "chore: delete the TODOs (they were for humans)", kind: "chore", topical: true },
+  { title: "fix: hit the usage limit more efficiently", kind: "fix", topical: true },
+  { title: "refactor: replace the regex with a 70B model", kind: "refactor", topical: true },
+  // Evergreen
+  { title: "fix: handle null in the checkout flow", kind: "fix", topical: false },
+  { title: "fix: make the failing tests pass", kind: "fix", topical: false },
+  { title: "fix: typo in README", kind: "typo", topical: false },
+  { title: "refactor: rename x to userCount", kind: "refactor", topical: false },
+  { title: "feat: dark mode", kind: "feat", topical: false },
+  { title: "chore: bump deps", kind: "chore", topical: false },
+  { title: "fix: works on my machine", kind: "fix", topical: false },
+  { title: "refactor: final final v2", kind: "refactor", topical: false },
+  { title: "fix: off by one in the off by one fix", kind: "fix", topical: false },
+  { title: "docs: explain what this function does (nobody knows)", kind: "docs", topical: false },
+  { title: "feat: add a feature flag for the feature flags", kind: "feat", topical: false },
+  { title: "fix: timezone bug (again)", kind: "fix", topical: false },
+  { title: "chore: remove console.log (most of them)", kind: "chore", topical: false },
+  { title: "test: add a test for the happy path", kind: "test", topical: false },
+  { title: "perf: cache the cache", kind: "perf", topical: false },
+  { title: "fix: center the div", kind: "fix", topical: false },
+  { title: "refactor: move everything into utils", kind: "refactor", topical: false },
+  { title: "docs: fix a typo in the typo fix", kind: "typo", topical: false },
+  { title: "feat: add a settings page for the settings page", kind: "feat", topical: false },
+  { title: "fix: revert the revert of the revert", kind: "fix", topical: false },
+].map((entry) => Object.freeze(entry)));
+
+/** Packages an agent imports that npm has never heard of. */
+export const AGENT_HALLUCINATED_PACKAGES = Object.freeze([
+  "left-padd-ultra",
+  "react-use-vibes",
+  "lodash-but-faster",
+  "is-even-ai",
+  "express-quantum",
+  "tailwind-sentient",
+  "node-fetch-the-sequel",
+  "uuid-v12",
+]);
+
+/** Agent name prefixes (agent-07, swarm-3, ...). */
+const AGENT_NAME_PREFIXES = Object.freeze(["agent", "agent", "agent", "swarm", "worker", "autopilot"]);
+
+/** The red flag categories a slop PR draws 1 or 2 of. */
+export const AGENT_PR_FLAG_TYPES = Object.freeze(["ci", "tests", "deps", "diff"]);
+
+/** A deterministic [0, 1) stream for one PR of one fleet (mulberry32 over the pair). */
+function agentPrRng(seed, number) {
+  let a =
+    (Math.imul((seed >>> 0) ^ 0x9e3779b9, 0x85ebca6b) ^
+      Math.imul((number >>> 0) + 0x632be5ab, 0xc2b2ae35)) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function rngInt(rng, [min, max]) {
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+/** A whole number with thousands commas (41208 is "41,208"). */
+export function formatLineCount(n) {
+  return String(Math.max(0, Math.floor(Number(n) || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/**
+ * One PR of a fleet, generated from (seed, number) alone. Returns
+ * { number, agent, titleIndex, title, kind, slop, added, removed, ci,
+ * tests: { status, count }, deps: { status, name }, flags, why }.
+ * ci is "passing" | "failing" | "skipped"; tests.status is "added" |
+ * "unchanged" | "deleted"; deps.status is "none" | "verified" |
+ * "missing". `flags` lists the red flag categories (empty for a good
+ * PR); `why` is the short reason a slop PR is slop (null when good).
+ * The title is drawn first and slop second, from separate draws, so
+ * a title says nothing about slop.
+ */
+export function agentPullRequest(seed, number) {
+  const rng = agentPrRng(seed, number);
+  const titleIndex = Math.floor(rng() * AGENT_PR_TITLES.length);
+  const slop = rng() < AGENT_FLEET_CONFIG.slopChance;
+  const template = AGENT_PR_TITLES[titleIndex];
+  const kind = AGENT_PR_KINDS[template.kind];
+  const prefix = AGENT_NAME_PREFIXES[Math.floor(rng() * AGENT_NAME_PREFIXES.length)];
+  const agentNumber = rngInt(rng, [1, 40]);
+  const agent =
+    prefix === "agent" ? `agent-${String(agentNumber).padStart(2, "0")}` : `${prefix}-${agentNumber}`;
+  let added = rngInt(rng, kind.added);
+  let removed = rngInt(rng, kind.removed);
+  // The checks a clean PR of this kind has.
+  let ci = "passing";
+  let tests = { status: "unchanged", count: 0 };
+  if (template.kind === "test") {
+    tests = { status: "added", count: rngInt(rng, [2, 40]) };
+  } else if (["fix", "feat", "refactor", "perf"].includes(template.kind) && rng() < 0.5) {
+    tests = { status: "added", count: rngInt(rng, [1, 12]) };
+  }
+  let deps = { status: "none", name: null };
+  if ((template.kind === "chore" || template.kind === "feat") && rng() < 0.3) {
+    deps = { status: "verified", name: null };
+  }
+  const flags = [];
+  let why = null;
+  if (slop) {
+    // 1 or 2 distinct red flags.
+    const pool = [...AGENT_PR_FLAG_TYPES];
+    const count = rng() < 0.3 ? 2 : 1;
+    for (let i = 0; i < count; i += 1) {
+      flags.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+    }
+    flags.sort((a, b) => AGENT_PR_FLAG_TYPES.indexOf(a) - AGENT_PR_FLAG_TYPES.indexOf(b));
+    const reasons = [];
+    for (const flag of flags) {
+      if (flag === "ci") {
+        ci = rng() < 0.6 ? "failing" : "skipped";
+        reasons.push(
+          ci === "failing"
+            ? "CI is failing. It was failing when the agent opened the PR, too."
+            : "It skipped CI. Confidence is not a test suite."
+        );
+      } else if (flag === "tests") {
+        tests = { status: "deleted", count: rngInt(rng, [12, 480]) };
+        removed += rngInt(rng, [300, 18_000]);
+        reasons.push("It made the tests pass by deleting them.");
+      } else if (flag === "deps") {
+        const name =
+          AGENT_HALLUCINATED_PACKAGES[Math.floor(rng() * AGENT_HALLUCINATED_PACKAGES.length)];
+        deps = { status: "missing", name };
+        reasons.push(`${name} does not exist on npm. Yet.`);
+      } else {
+        added = rngInt(rng, AGENT_PR_SLOP_DIFF);
+        reasons.push(`A ${kind.label} does not add ${formatLineCount(added)} lines.`);
+      }
+    }
+    why = reasons[0];
+  }
+  return {
+    number,
+    agent,
+    titleIndex,
+    title: template.title,
+    kind: template.kind,
+    slop,
+    added,
+    removed,
+    ci,
+    tests,
+    deps,
+    flags,
+    why,
+  };
+}
+
+/** Whether a PR's diff is wildly out of scale for its kind (more than 10x the sensible max). */
+export function agentPrDiffOutOfScale(pr) {
+  const kind = AGENT_PR_KINDS[pr?.kind];
+  if (!kind) return false;
+  return pr.added > kind.added[1] * 10;
+}
+
+/**
+ * The red flags a PR shows, read from its diff and checks alone (never
+ * the title, never the slop bit): what a careful reviewer would see.
+ */
+export function agentPrRedFlags(pr) {
+  const flags = [];
+  if (pr.ci !== "passing") flags.push("ci");
+  if (pr.tests?.status === "deleted") flags.push("tests");
+  if (pr.deps?.status === "missing") flags.push("deps");
+  if (agentPrDiffOutOfScale(pr)) flags.push("diff");
+  return flags;
+}
+
+/**
+ * The card lines for a PR: the diff text and each check's text and
+ * tone ("good" green, "bad" red, "neutral" grey). The diff has no tone:
+ * judging its scale is the reviewer's job.
+ */
+export function agentPrCardLines(pr) {
+  const ci = { text: pr.ci, tone: pr.ci === "passing" ? "good" : "bad" };
+  let tests;
+  if (pr.tests.status === "added") {
+    tests = { text: `added ${formatLineCount(pr.tests.count)}`, tone: "good" };
+  } else if (pr.tests.status === "deleted") {
+    tests = { text: `${formatLineCount(pr.tests.count)} deleted`, tone: "bad" };
+  } else {
+    tests = { text: "unchanged", tone: "neutral" };
+  }
+  let deps;
+  if (pr.deps.status === "verified") deps = { text: "+1 verified", tone: "good" };
+  else if (pr.deps.status === "missing") {
+    deps = { text: `+ ${pr.deps.name} (not found on npm)`, tone: "bad" };
+  } else deps = { text: "none added", tone: "neutral" };
+  return {
+    diff: `+${formatLineCount(pr.added)} -${formatLineCount(pr.removed)}`,
+    ci,
+    tests,
+    deps,
+  };
+}
+
+/** The top PR in the queue, generated, or null for an empty queue. */
+export function agentTopPullRequest(fleet) {
+  const current = agentFleetOf(fleet);
+  if (current.queue.length === 0) return null;
+  return agentPullRequest(current.seed, current.queue[0]);
+}
+
+// --- Review ---
+
+/**
+ * Approve or reject the top PR. `prNumber` must be the top PR (so a
+ * double tap never decides the next PR unseen). Returns { fleet, loc,
+ * pr, outcome, message, tone } or null. Outcomes: "merged" (good,
+ * pays the PR), "mergedSlop" (pays the PR, adds slopDebt), "goodCatch"
+ * (slop rejected, pays the bonus), "wrongReject" (good rejected, pays
+ * nothing).
+ */
+export function reviewAgentPr(fleet, prNumber, decision, buffedLocPerSec) {
+  const current = agentFleetOf(fleet);
+  if (current.queue.length === 0 || current.queue[0] !== prNumber) return null;
+  if (decision !== "approve" && decision !== "reject") return null;
+  const pr = agentPullRequest(current.seed, prNumber);
+  const queue = current.queue.slice(1);
+  if (decision === "approve") {
+    const loc = agentPrPayoutLoc(buffedLocPerSec);
+    if (pr.slop) {
+      return {
+        fleet: { ...current, queue, debt: roundAgentDebt(current.debt + AGENT_FLEET_CONFIG.slopDebt) },
+        loc,
+        pr,
+        outcome: "mergedSlop",
+        message: `Merged slop. ${pr.why} Tech debt +${AGENT_FLEET_CONFIG.slopDebt}%.`,
+        tone: "bad",
+      };
+    }
+    return {
+      fleet: { ...current, queue },
+      loc,
+      pr,
+      outcome: "merged",
+      message: `Merged #${pr.number}. +${formatNumber(loc)} LOC. A good one.`,
+      tone: "good",
+    };
+  }
+  if (pr.slop) {
+    const loc = agentGoodCatchLoc(buffedLocPerSec);
+    return {
+      fleet: { ...current, queue },
+      loc,
+      pr,
+      outcome: "goodCatch",
+      message: `Good catch. ${pr.why} +${formatNumber(loc)} LOC.`,
+      tone: "good",
+    };
+  }
+  return {
+    fleet: { ...current, queue },
+    loc: 0,
+    pr,
+    outcome: "wrongReject",
+    message: "You rejected a perfectly good PR. The agent filed a complaint with HR.",
+    tone: "bad",
+  };
+}
+
+/** The Refactor Sprint result line. */
+export const REFACTOR_SPRINT_MESSAGE = "Refactor Sprint done. Fixed twelve bugs, introduced three.";
+
+// --- Mail ---
+
+/** The mail sent when the first agent is hired. */
+export function buildFirstAgentEmail() {
+  return {
+    sender: "Head of AI Transformation",
+    subject: "Your first agent is on payroll",
+    body:
+      `It does not sleep, it does not take lunch, and it has already ` +
+      `opened a pull request. It will open one every minute, forever, ` +
+      `whether or not anyone asked.\n\n` +
+      `Every PR waits in the review queue under Manage agents. Read the ` +
+      `diff and the checks before you approve: some of them are slop. ` +
+      `Approving slop adds tech debt, and tech debt slows everything ` +
+      `down. The token bill comes out of cash every second. The board ` +
+      `calls this efficiency.`,
+  };
+}
+
+/** The mail sent the first time tech debt passes debtMailThreshold. */
+export function buildTechDebtEmail() {
+  const drag = techDebtDragPercent(AGENT_FLEET_CONFIG.debtMailThreshold);
+  return {
+    sender: "Site Reliability",
+    subject: `Tech debt just passed ${AGENT_FLEET_CONFIG.debtMailThreshold}%`,
+    body:
+      `The codebase is now half load-bearing TODOs. Production is down ` +
+      `over ${drag}% and the on-call engineer has started answering ` +
+      `questions in stack traces.\n\n` +
+      `Every commit you write by hand pays a little of it down. A ` +
+      `Refactor Sprint clears most of it at once and adds a little new ` +
+      `debt, because of course it does. Please stop approving PRs that ` +
+      `delete the tests.`,
+  };
+}
+
+/**
+ * The agent mails a fleet change makes due: the first agent hired, and
+ * debt above the threshold for the first time. Each is sent once: the
+ * fleet's mail flags (they survive a sale) and the inbox trigger key
+ * both dedupe it. Returns [{ flag, triggerKey, content }].
+ */
+export function agentFleetMailsDue(fleet) {
+  const current = agentFleetOf(fleet);
+  const due = [];
+  if (current.agents > 0 && !(current.mails & AGENT_FLEET_MAIL_FIRST_AGENT)) {
+    due.push({
+      flag: AGENT_FLEET_MAIL_FIRST_AGENT,
+      triggerKey: AGENT_FLEET_FIRST_AGENT_EMAIL_TRIGGER_KEY,
+      content: buildFirstAgentEmail(),
+    });
+  }
+  if (
+    current.debt > AGENT_FLEET_CONFIG.debtMailThreshold &&
+    !(current.mails & AGENT_FLEET_MAIL_DEBT)
+  ) {
+    due.push({
+      flag: AGENT_FLEET_MAIL_DEBT,
+      triggerKey: AGENT_FLEET_DEBT_EMAIL_TRIGGER_KEY,
+      content: buildTechDebtEmail(),
+    });
+  }
+  return due;
+}
+
 /** ===== Prestige: SUBTRACTERALL (Slice 3, reworked in issue #150) =====
  *
  * An optional stimulant burst with diminishing returns (Brandon,
@@ -4457,6 +5273,10 @@ export function applyPrestigeSale(preSaleState, saleId) {
     // rank grants level 1 when the new company starts (see
     // completePrestigeIntermission), not here.
     nightShiftLevel: 0,
+    // Agent Fleet (issue #267): agents reset with the employees, and
+    // the queue and the tech debt with them. Only the mail flags carry
+    // over, so each agent mail is sent once ever.
+    agentFleet: zeroAgentFleetState(agentFleetOf(preSaleState.agentFleet).mails),
     lifetimeEquityEarned: earnedBefore + gainedEquity,
     saleCount: Math.max(0, preSaleState.saleCount ?? 0) + 1,
     lifetimeLocAtLastSale: lifetimeLoc,
@@ -4566,6 +5386,7 @@ export const INTERMISSION_FROZEN_FIELDS = Object.freeze([
   "farm",
   "subtracterall",
   "nightShiftLevel",
+  "agentFleet",
   "nextStarAtMs",
   "lastStarBuyAtMs",
   "achievements",
@@ -6402,6 +7223,10 @@ export function initialSaveState() {
     // IPO Roadshow (issue #266): milestones bought, 0..6. Persists
     // across sales; the bonus Equity is derived from it.
     roadshowStage: 0,
+    // Agent Fleet (issue #267): agents, the review queue (PR numbers
+    // only), tech debt and the mail flags. Company-local: a sale resets
+    // it (the mail flags carry over).
+    agentFleet: zeroAgentFleetState(),
     overtimeReskin: false,
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
@@ -6877,6 +7702,10 @@ export function normalizeSaveState(state) {
   // stage 0. No backfill; a present-but-wrong value is left alone so
   // the shape check rejects it.
   if (next.roadshowStage === undefined) next.roadshowStage = 0;
+  // Agent Fleet (issue #267): a save from before agents starts with no
+  // agents, an empty queue and no debt. No backfill; a present-but-wrong
+  // value is left alone so the shape check rejects it.
+  if (next.agentFleet === undefined) next.agentFleet = zeroAgentFleetState();
   if (next.overtimeReskin === undefined) next.overtimeReskin = false;
   // Achievements (issue #132): a save from before achievements has no
   // record at all. Default it to a fresh one (no backfill: every tier

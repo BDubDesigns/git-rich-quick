@@ -22,7 +22,10 @@
  * Framework-free (no React) so the server tests can exercise it with a
  * fake storage. Copy rules: no em or en dashes.
  */
-import { fundingRoundRank } from "../../../shared/game-balance.js";
+import {
+  AGENT_FLEET_CONFIG,
+  fundingRoundRank,
+} from "../../../shared/game-balance.js";
 
 /** localStorage key for the chosen mode. */
 export const WORK_MODE_KEY = "grq:workMode";
@@ -30,8 +33,9 @@ export const WORK_MODE_KEY = "grq:workMode";
 /** localStorage key for "the unlock mail was announced on this device". */
 export const WORK_MODE_ANNOUNCED_KEY = "grq:workModeAnnounced";
 
-/** The Funding Rounds rank that unlocks the toggle (Series A). */
-export const WORK_MODE_UNLOCK_RANK = 2;
+/** The Funding Rounds rank that unlocks the toggle (Series A), the
+ *  same rank that unlocks agents (issue #267, slice 2). */
+export const WORK_MODE_UNLOCK_RANK = AGENT_FLEET_CONFIG.unlockRank;
 
 export const WORK_MODE_WRITE = "write";
 export const WORK_MODE_AGENTS = "agents";
@@ -127,7 +131,7 @@ export function claimWorkModeAnnouncement(storage = defaultStorage()) {
   return true;
 }
 
-/** The review queue header. Slice 1 has no agents, so it reads 0. */
+/** The review queue header: "Review queue (8 open)". */
 export function reviewQueueHeader(openCount = 0) {
   const n = Math.max(0, Math.floor(Number(openCount) || 0));
   return `Review queue (${n} open)`;

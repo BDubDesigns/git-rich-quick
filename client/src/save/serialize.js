@@ -30,6 +30,8 @@ import {
   normalizeSubtracterallState,
   nightShiftLevelOf,
   roadshowStageOf,
+  agentFleetOf,
+  agentFleetStateError,
   farmUnseenBirths,
   emptyFarmState,
   farmIsStarterStall,
@@ -165,6 +167,10 @@ export function stateToSaveState(clientState) {
     // IPO Roadshow (issue #266): milestones bought, guarded to 0..6.
     // Only the roadshow endpoint moves it; a save carries it unchanged.
     roadshowStage: roadshowStageOf(clientState.roadshowStage),
+    // Agent Fleet (issue #267): agents, the review queue (PR numbers
+    // only), tech debt and the mail flags, guarded (a copy, never a
+    // shared reference; junk numbers clamped).
+    agentFleet: agentFleetOf(clientState.agentFleet),
     // Achievements (issue #132): sanitized on the way out, so a NaN
     // or missing counter is written as 0, never as null (JSON turns
     // NaN into null and the server's shape check would reject it).
@@ -189,7 +195,10 @@ export function savePayloadError(saveState) {
       return `${field} must be a finite non-negative number`;
     }
   }
-  return achievementsStateError(saveState.achievements);
+  return (
+    achievementsStateError(saveState.achievements) ??
+    agentFleetStateError(saveState.agentFleet)
+  );
 }
 
 /** Server flat save shape -> the saved game fields in client reducer shape. */
@@ -382,6 +391,9 @@ export function saveStateToGameFields(saveState) {
     nightShiftLevel: nightShiftLevelOf(saveState.nightShiftLevel),
     // IPO Roadshow (issue #266): a save from before it shipped reads 0.
     roadshowStage: roadshowStageOf(saveState.roadshowStage),
+    // Agent Fleet (issue #267): a save from before agents loads with
+    // no agents, an empty queue and no debt.
+    agentFleet: agentFleetOf(saveState.agentFleet),
     // Achievements (issue #132): a save without a record restores a
     // fresh one (every tier locked, every counter 0).
     achievements: sanitizeAchievementsState(saveState.achievements),
@@ -544,6 +556,11 @@ export function bigActionFields(saveState) {
     // IPO Roadshow (issue #266): a safety net, like the store ranks
     // (the roadshow endpoint saves itself).
     roadshowStage: roadshowStageOf(saveState.roadshowStage),
+    // Agent Fleet (issue #267): hiring an agent spends cash, so it saves
+    // promptly. Reviews are rapid-fire like Ship, and commits move the
+    // debt on every click, so neither is a big action (the heartbeat
+    // and the keepalive on tab hide carry them).
+    agents: agentFleetOf(saveState.agentFleet).agents,
     overtimeReskin: saveState.overtimeReskin ?? false,
     // Achievements (issue #132): a newly earned tier is a big action,
     // so a permanent buff is never lost to a tab close. The per-action
@@ -636,6 +653,11 @@ export function isInitialSaveState(saveState) {
   if (nightShiftLevelOf(saveState.nightShiftLevel) !== 0) return false;
   // IPO Roadshow (issue #266): any milestone bought is progress.
   if (roadshowStageOf(saveState.roadshowStage) !== 0) return false;
+  // Agent Fleet (issue #267): an agent, a PR or any debt is progress.
+  {
+    const fleet = agentFleetOf(saveState.agentFleet);
+    if (fleet.agents !== 0 || fleet.nextPr !== 1 || fleet.debt !== 0) return false;
+  }
   // Achievements (issue #132): any earned tier or counter is progress.
   const achievements = sanitizeAchievementsState(saveState.achievements);
   if (achievementTiersEarned(achievements) !== 0) return false;
@@ -749,6 +771,7 @@ export function bigActionIncreased(prev, next) {
     return true;
   if ((next.nightShiftLevel ?? 0) !== (prev.nightShiftLevel ?? 0)) return true;
   if ((next.roadshowStage ?? 0) !== (prev.roadshowStage ?? 0)) return true;
+  if ((next.agents ?? 0) > (prev.agents ?? 0)) return true;
   if ((next.overtimeReskin ?? false) !== (prev.overtimeReskin ?? false))
     return true;
   if ((next.achievementTiers ?? 0) > (prev.achievementTiers ?? 0)) return true;

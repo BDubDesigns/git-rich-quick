@@ -257,6 +257,11 @@ export function calculateLOCPerSecond(state) {
   // too, and stacks with a live Overclock (a separate effect).
   const moonshot = activeStarBuff(state, "moonshot");
   if (moonshot) total *= moonshot.multiplier;
+  // Agent Fleet (issue #267): tech debt drags the whole live rate, 0.5%
+  // per point. Like the star buffs it is a temporary effect: it is here
+  // (the header LOC/s and the tick) and never in getBaseLocPerSecond,
+  // which prices everything, so debt never makes a price cheaper.
+  total *= shared.techDebtProductionMultiplier(state.agentFleet?.debt ?? 0);
   // Floor the final total (Brandon: a tick must never commit a
   // fractional amount). The shared base rate is already floored, but a
   // live buff's extra can re-fractionalize the total, so the floor

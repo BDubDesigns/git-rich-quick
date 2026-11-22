@@ -50,6 +50,7 @@ import {
   getReleaseManagerEconomics,
 } from "./gameLogic.js";
 import {
+  addAgentFleetEmails,
   addAgentFleetToggleEmail,
   addEmail,
   collectTriggerEmails,
@@ -125,6 +126,12 @@ const initialState = {
   nightShiftLevel: 0,
   // IPO Roadshow (issue #266): milestones bought (0..6), saved.
   roadshowStage: 0,
+  // Agent Fleet (issue #267): agents, the review queue (PR numbers),
+  // tech debt and the mail flags. Saved; company-local (a sale resets
+  // it). agentFleetMessage is the Review panel's last result line
+  // ({ text, tone, key }), transient and never saved.
+  agentFleet: shared.zeroAgentFleetState(),
+  agentFleetMessage: null,
   // Achievements (issue #132): tier state and the lifetime counters
   // the achievements read (hires per type, clicks, peak LOC/s, llamas
   // bought and sold). Saved with the game state; a save without it
@@ -409,6 +416,9 @@ function gameReducer(state, action) {
         linesOfCode: state.linesOfCode + locPerClick,
         totalLinesOfCode: state.totalLinesOfCode + locPerClick,
         subtracterall: clickResult.state,
+        // Agent Fleet (issue #267): the last engineer who still types.
+        // Every manual commit pays a little tech debt off, for free.
+        agentFleet: shared.applyManualCommitDebt(state.agentFleet),
         // Achievements (issue #132): every manual commit counts.
         achievements: shared.recordClicks(state.achievements, 1),
         clickHistory: cleanedHistory,
@@ -1017,12 +1027,23 @@ function gameReducer(state, action) {
         }
       }
 
+      // Agent Fleet (issue #267): one second of agent work. Working
+      // agents pay the token bill from cash and open PRs into the
+      // review queue; with the queue full, or too little cash for the
+      // bill, they pause and bill nothing. Only played seconds count:
+      // nothing accrues while the game is closed.
+      const fleetResult = shared.advanceAgentFleet(state.agentFleet, {
+        money: shipMoney,
+        buffedLocPerSec: getBaseLocPerSecond(state),
+      });
+
       // Build newState with all changes from this action
       const newState = {
         ...state,
         linesOfCode: shipLinesOfCode,
         totalLinesOfCode: state.totalLinesOfCode + totalPassiveLOC,
-        money: shipMoney,
+        money: fleetResult.money,
+        agentFleet: fleetResult.fleet,
         freelanceProjectsCompleted: shipCompleted,
         autoShipsCompleted: shipAuto,
         // Issue #219: a tick that auto-shipped pulses the shipping
@@ -1397,6 +1418,88 @@ function gameReducer(state, action) {
       };
     }
 
+    // Agent Fleet (issue #267): hire Coding Agents for cash. Payload:
+    // { quantity } (the Hire tab's bulk selector, default 1). The price
+    // is seconds of S at the buffed healthy P (debt never cheapens it),
+    // x1.25 per agent owned. Locked below Series A; unaffordable is a
+    // no-op (the card disables the button). The first hire mails once.
+    case "HIRE_AGENT": {
+      const quantity = action.payload?.quantity ?? 1;
+      const hired = shared.applyAgentHire({
+        fleet: state.agentFleet,
+        money: state.money,
+        quantity,
+        buffedLocPerSec: getBaseLocPerSecond(state),
+        storeRanks: state.permanentStoreRanks,
+        nowMs: Date.now(),
+      });
+      if (!hired) return state;
+      return withAgentFleetMail({
+        ...state,
+        money: hired.money,
+        agentFleet: hired.fleet,
+      });
+    }
+
+    // Agent Fleet (issue #267): approve or reject the top PR. Payload:
+    // { prNumber, decision: "approve" | "reject" }. prNumber must be
+    // the top of the queue, so a double tap never decides the next PR
+    // unseen. Approving pays 20 seconds of P in LOC (slop too, and slop
+    // adds tech debt); rejecting slop pays the good catch bonus;
+    // rejecting a good PR pays nothing. The result line says why.
+    case "REVIEW_AGENT_PR": {
+      const { prNumber, decision } = action.payload ?? {};
+      const review = shared.reviewAgentPr(
+        state.agentFleet,
+        prNumber,
+        decision,
+        getBaseLocPerSecond(state)
+      );
+      if (!review) return state;
+      const reviewed = {
+        ...state,
+        linesOfCode: state.linesOfCode + review.loc,
+        totalLinesOfCode: state.totalLinesOfCode + review.loc,
+        agentFleet: review.fleet,
+        agentFleetMessage: {
+          text: review.message,
+          tone: review.tone,
+          outcome: review.outcome,
+          key: (state.agentFleetMessage?.key ?? 0) + 1,
+        },
+      };
+      const latched = {
+        ...reviewed,
+        unlockedEmployees: updateUnlockLatch(reviewed),
+        unlockedOpenSourceProjects: updateOpenSourceUnlockLatch(reviewed),
+        unlockedFreelanceProjects: updateFreelanceProjectUnlockLatch(reviewed),
+      };
+      return withAgentFleetMail(withEmailTriggers(state, latched));
+    }
+
+    // Agent Fleet (issue #267): a Refactor Sprint. No payload. Costs 60
+    // seconds of S; sets debt to round(debt x 0.2) + 2. Refused with no
+    // debt, too little debt to lower, or too little cash.
+    case "REFACTOR_SPRINT": {
+      const sprint = shared.applyRefactorSprint(
+        state.agentFleet,
+        state.money,
+        getBaseLocPerSecond(state)
+      );
+      if (!sprint) return state;
+      return {
+        ...state,
+        money: sprint.money,
+        agentFleet: sprint.fleet,
+        agentFleetMessage: {
+          text: shared.REFACTOR_SPRINT_MESSAGE,
+          tone: "info",
+          outcome: "sprint",
+          key: (state.agentFleetMessage?.key ?? 0) + 1,
+        },
+      };
+    }
+
     // Agent Fleet, slice 1 (issue #267): the Write code / Manage agents
     // toggle appeared (Series A owned), so the Footer asks for its one
     // announcement mail. Store ranks only change through a restore,
@@ -1534,6 +1637,9 @@ function gameReducer(state, action) {
         lastBirths: null,
         // Version bump (issue #216): a restore never rolls a card.
         lastContribution: null,
+        // Agent Fleet (issue #267): the result line belongs to the
+        // session, not the save.
+        agentFleetMessage: null,
       };
     }
 
@@ -1790,6 +1896,31 @@ function updateFreelanceProjectUnlockLatch(state) {
  *
  * @private
  */
+/**
+ * Agent Fleet (issue #267): file any agent mail the fleet now makes
+ * due (the first agent hired, debt past 50% for the first time) and
+ * set its flag. Pure; returns the same state when nothing is due.
+ *
+ * @private
+ */
+function withAgentFleetMail(state) {
+  const { emails, fleet, added } = addAgentFleetEmails(
+    state.emails,
+    state.agentFleet,
+    Date.now()
+  );
+  if (fleet === state.agentFleet) return state;
+  return {
+    ...state,
+    emails,
+    agentFleet: fleet,
+    emailNotification:
+      added && !isSectionOnScreen(state, "email")
+        ? { emailId: added.id }
+        : state.emailNotification,
+  };
+}
+
 function withEmailTriggers(prevState, newState, starClaim = null) {
   const { emails, newEmailId } = collectTriggerEmails(
     prevState,

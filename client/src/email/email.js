@@ -42,6 +42,8 @@ import {
   OPEN_SOURCE_IDS,
   ROADSHOW_EMAIL_ITEM_ID,
   achievementEmailEntries,
+  agentFleetMailsDue,
+  agentFleetOf,
   buildAgentFleetToggleEmail,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
@@ -592,6 +594,30 @@ export function addAgentFleetToggleEmail(emails, storeRanks, nowMs) {
     AGENT_FLEET_TOGGLE_EMAIL_TRIGGER_KEY,
     nowMs
   );
+}
+
+/**
+ * Agent Fleet, slices 2 and 3 (issue #267): the first agent hired and
+ * the first time tech debt passes 50% each send one mail. The fleet's
+ * mail flags (saved, and kept through a sale) mark a mail as sent, so
+ * deleting it or the inbox cap pushing it out never sends it again;
+ * the trigger key dedupes it in the inbox as well. Returns
+ * { emails, fleet, added } where `added` is the last mail added (or
+ * null) and `fleet` has the flags set; nothing due returns the inputs.
+ */
+export function addAgentFleetEmails(emails, fleet, nowMs) {
+  const due = agentFleetMailsDue(fleet);
+  if (due.length === 0) return { emails: emails ?? [], fleet, added: null };
+  let inbox = emails ?? [];
+  let mails = agentFleetOf(fleet).mails;
+  let added = null;
+  for (const mail of due) {
+    const result = addEmail(inbox, mail.content, mail.triggerKey, nowMs);
+    inbox = result.emails;
+    if (result.added) added = result.added;
+    mails |= mail.flag;
+  }
+  return { emails: inbox, fleet: { ...agentFleetOf(fleet), mails }, added };
 }
 
 /** ===== Email links (issue #173): what the detail view renders ===== */

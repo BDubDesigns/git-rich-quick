@@ -280,13 +280,14 @@ test("on screen: the side panes count as seen (mail notification, Farm badge)", 
   assert.equal(paneOf(s, "email"), "left");
   assert.equal(isSectionOnScreen(mobile("shop"), "email"), false);
   assert.equal(isSectionOnScreen(mobile("email"), "email"), true);
-  // The reducer: all five new-mail checks (Night Shift, Shooting Stars
-  // chain, the Agent Fleet toggle mail, withEmailTriggers,
-  // withAchievements) and the Farm checks read it.
+  // The reducer: all six new-mail checks (Night Shift, Shooting Stars
+  // chain, the Agent Fleet toggle mail, the agent mails
+  // (withAgentFleetMail), withEmailTriggers, withAchievements) and the
+  // Farm checks read it.
   const context = src("context/GameContext.jsx");
   assert.ok(!/activeTab [!=]== "email"/.test(context), "no activeTab email check left");
   assert.ok(!/activeTab [!=]== "farm"/.test(context), "no activeTab farm check left");
-  assert.equal((context.match(/isSectionOnScreen\((?:new)?[sS]tate, "email"\)/g) ?? []).length, 5);
+  assert.equal((context.match(/isSectionOnScreen\((?:new)?[sS]tate, "email"\)/g) ?? []).length, 6);
   assert.match(context, /watching: isSectionOnScreen\(state, "farm"\),/);
   assert.match(src("components/NavBar.jsx"), /const unseenBirths = isSectionOnScreen\(state, "farm"\)/);
 });

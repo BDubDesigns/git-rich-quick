@@ -18,7 +18,9 @@ import {
   employeePurchaseCosts,
   hiringCostMultiplier,
   NIGHT_SHIFT_EMAIL_ITEM_ID,
+  CODING_AGENT_CARD_ID,
 } from "../../../shared/game-balance.js";
+import { CodingAgentCard } from "./CodingAgentCard.jsx";
 import { SectionLayout } from "./SectionLayout.jsx";
 import { Button } from "./Button.jsx";
 import { EmployeeCard } from "./EmployeeCard.jsx";
@@ -49,6 +51,9 @@ export function Shop() {
   // own device preference. Cheapest orders by the card's own cost at
   // the selected quantity, so it re-sorts as hires raise prices.
   const [sortMode] = useSortMode("shop");
+  // Agent Fleet (issue #267): from Series A the helper adds the Coding
+  // Agent card to the list, after the employees in Default order and
+  // by its price in Cheapest, like every other card.
   const employeeTypes = sortEmployeeTypes(
     Object.keys(EMPLOYEE_CONFIGS),
     state,
@@ -63,7 +68,9 @@ export function Shop() {
   const hireCostMultiplier = hiringCostMultiplier(activeStarEffects);
 
   // Collapsible cards (Brandon, Nov 21): Collapse all / Expand all
-  // sets every card, the Night Shift card included. Its label says
+  // sets every card, the Night Shift card and the Coding Agent included
+  // (the agent has no unlock conditions, so the filter keeps it once
+  // the helper lists it). Its label says
   // what a tap will do, judged by the cards on screen (unlocked types
   // and the teasers past their threshold).
   const hireCards = useHireCardsSnapshot();
@@ -78,7 +85,7 @@ export function Shop() {
   const anyCardOpen = anyHireCardOpen(hireCards, visibleCardIds);
   const toggleAllCards = () =>
     hireCardsStore.setAllOpen(
-      [NIGHT_SHIFT_CARD_ID, ...Object.keys(EMPLOYEE_CONFIGS)],
+      [NIGHT_SHIFT_CARD_ID, ...Object.keys(EMPLOYEE_CONFIGS), CODING_AGENT_CARD_ID],
       !anyCardOpen
     );
 
@@ -127,6 +134,13 @@ export function Shop() {
         <NightShiftCard />
       </HighlightAnchor>
       {employeeTypes.map((employeeType) => {
+        if (employeeType === CODING_AGENT_CARD_ID) {
+          return (
+            <HighlightAnchor key={CODING_AGENT_CARD_ID} tab="shop" itemId={CODING_AGENT_CARD_ID}>
+              <CodingAgentCard quantity={quantity} />
+            </HighlightAnchor>
+          );
+        }
         const config = EMPLOYEE_CONFIGS[employeeType];
         const unlocked = isEmployeeUnlocked(employeeType, state);
 
