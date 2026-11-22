@@ -18,8 +18,11 @@
  */
 
 import {
+  agentFleetUnlocked,
+  agentHireBulkPriceCents,
   BALANCE,
   buffedLocPerSecond,
+  CODING_AGENT_CARD_ID,
   EMPLOYEE_DISPLAY_NAMES,
   employeeBulkCost,
   FARM_CONFIG,
@@ -125,11 +128,29 @@ export function isFarmUnlockMet(state) {
  * the buffed healthy rate the card and the reducer read (the shared
  * buffedLocPerSecond on flat counts), floored like the card shows it.
  */
+function flatField(map, field) {
+  return Object.fromEntries(
+    Object.entries(map ?? {}).map(([key, value]) => [key, value?.[field] ?? 0])
+  );
+}
+
+/**
+ * P for pricing from a CLIENT (nested) state: the shared buffed healthy
+ * rate (no star, SUBTRACTERALL or tech debt effects), the same number
+ * gameLogic.getBaseLocPerSecond reads.
+ */
+export function clientBuffedLocPerSecond(state) {
+  return buffedLocPerSecond({
+    employees: flatField(state?.employees, "count"),
+    openSourceProjects: flatField(state?.openSourceProjects, "level"),
+    lifetimeEquityEarned: state?.lifetimeEquityEarned ?? 0,
+    achievements: state?.achievements,
+    permanentStoreRanks: state?.permanentStoreRanks ?? {},
+  });
+}
+
 export function getUnlockProgressForNightShift(state) {
-  const flat = (map, field) =>
-    Object.fromEntries(
-      Object.entries(map ?? {}).map(([key, value]) => [key, value?.[field] ?? 0])
-    );
+  const flat = flatField;
   const employees = flat(state?.employees, "count");
   const gate = nightShiftGateProgress(
     1,
@@ -380,9 +401,24 @@ export function sortOpenSourceProjectIds(projectIds, state, mode = "default") {
  *   the cost, so the order recomputes live.
  */
 export function sortEmployeeTypes(employeeTypes, state, mode = "default", quantity = 1) {
-  if (mode !== "cheapest") return [...employeeTypes];
-  return sortIdsByCost(employeeTypes, (type) =>
-    BALANCE.employees[type]
+  // Agent Fleet (issue #267): from Series A the Coding Agent card
+  // follows the employees (Default) or sorts by its price (Cheapest).
+  const ids =
+    agentFleetUnlocked(state?.permanentStoreRanks) &&
+    !employeeTypes.includes(CODING_AGENT_CARD_ID)
+      ? [...employeeTypes, CODING_AGENT_CARD_ID]
+      : [...employeeTypes];
+  if (mode !== "cheapest") return ids;
+  return sortIdsByCost(ids, (type) =>
+    // Agent Fleet (issue #267): the Coding Agent card sorts by the
+    // price its Hire button charges (seconds of S at the buffed P).
+    type === CODING_AGENT_CARD_ID
+      ? agentHireBulkPriceCents(
+          state.agentFleet?.agents ?? 0,
+          quantity,
+          clientBuffedLocPerSecond(state)
+        )
+      : BALANCE.employees[type]
       ? employeeBulkCost(type, state.employees?.[type]?.count ?? 0, quantity, {
           activeStarEffects: state.activeStarEffects ?? [],
         })

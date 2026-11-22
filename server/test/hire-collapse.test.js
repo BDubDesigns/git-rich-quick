@@ -199,7 +199,8 @@ test("the Hire tab renders the control beside the sort, over every card", () => 
   assert.match(controls, /<SortControl tab="shop" \/>\s*<Button\s+onClick=\{toggleAllCards\}\s+className="game-button--inactive ml-auto tap-target-40"\s*>\s*\{collapseAllLabel\(anyCardOpen\)\}\s*<\/Button>/);
   // Every card: Night Shift plus every employee type, even ones not on
   // screen yet, so a newly revealed card follows the last choice.
-  assert.match(shop, /hireCardsStore\.setAllOpen\(\s*\[NIGHT_SHIFT_CARD_ID, \.\.\.Object\.keys\(EMPLOYEE_CONFIGS\)\],\s*!anyCardOpen\s*\)/);
+  // The Coding Agent card (issue #267) too.
+  assert.match(shop, /hireCardsStore\.setAllOpen\(\s*\[NIGHT_SHIFT_CARD_ID, \.\.\.Object\.keys\(EMPLOYEE_CONFIGS\), CODING_AGENT_CARD_ID\],\s*!anyCardOpen\s*\)/);
   // The label judges the cards on screen: Night Shift, unlocked types
   // and the teasers past their threshold.
   assert.match(shop, /const visibleCardIds = \[\s*NIGHT_SHIFT_CARD_ID,\s*\.\.\.employeeTypes\.filter\(\s*\(type\) =>\s*isEmployeeUnlocked\(type, state\) \|\|\s*hasCrossedUnlockThreshold\("employee", type, state\)\s*\),\s*\];/);

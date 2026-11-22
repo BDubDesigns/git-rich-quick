@@ -95,6 +95,7 @@ import {
   PRESTIGE_STORE_IDS,
   achievementsDecreased,
   achievementsStateError,
+  agentFleetStateError,
   canEquipCosmetic,
   claimableEquity,
   farmLlamaCountsByType,
@@ -201,6 +202,7 @@ function checkStateShape(state) {
       "achievements",
       "nightShiftLevel",
       "roadshowStage",
+      "agentFleet",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -433,6 +435,14 @@ function checkStateShape(state) {
   ) {
     return `roadshowStage must be an integer from 0 to ${ROADSHOW_MAX_STAGE}`;
   }
+  // Agent Fleet (issue #267): agents, the review queue (PR numbers,
+  // capped), tech debt (0..100), the PR seed and the mail flags. The
+  // rule is shared with the client's pre-write check
+  // (shared.agentFleetStateError). How LOC from approvals or cash spent
+  // on the token bill and sprints was earned is not policed, the same
+  // as every other balance change.
+  const agentFleetError = agentFleetStateError(state.agentFleet);
+  if (agentFleetError) return agentFleetError;
   // Achievements (issue #132): tier state and the lifetime counters
   // the achievements read. The rule is shared with the client's
   // pre-write payload check (shared.achievementsStateError), so the
@@ -984,6 +994,23 @@ export function validateSave(prev, body, nowMs, options = {}) {
         "MONOTONIC",
         `open-source unlock latch flipped back: ${projectId}`
       );
+    }
+  }
+  // Agent Fleet (issue #267): agents are never fired and PR numbers
+  // never go back within a company, and a mail flag, once set, stays
+  // set. A sale resets the fleet on the server (applyPrestigeSale),
+  // never here.
+  {
+    const prevFleet = prevState.agentFleet;
+    const newFleet = newState.agentFleet;
+    if (newFleet.agents < (prevFleet?.agents ?? 0)) {
+      return fail("MONOTONIC", "agentFleet.agents decreased");
+    }
+    if (newFleet.nextPr < (prevFleet?.nextPr ?? 1)) {
+      return fail("MONOTONIC", "agentFleet.nextPr decreased");
+    }
+    if (((prevFleet?.mails ?? 0) & ~newFleet.mails) !== 0) {
+      return fail("MONOTONIC", "agentFleet mail flag cleared");
     }
   }
   // Night Shift (issue #149): the level only rises within a company.

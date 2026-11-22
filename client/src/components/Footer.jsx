@@ -7,6 +7,7 @@ import { EmailNotificationBar } from "./EmailNotificationBar";
 import { Panel } from "./Panel.jsx";
 import { WorkModeToggle } from "./WorkModeToggle.jsx";
 import { ReviewPanel } from "./ReviewPanel.jsx";
+import { writeModeDebtLine } from "../utils/agentFleetPanel.js";
 import {
   WORK_MODE_AGENTS,
   claimWorkModeAnnouncement,
@@ -179,6 +180,26 @@ function useWorkMode() {
   return { unlocked, mode, chooseMode };
 }
 
+/**
+ * Agent Fleet (issue #267): in Write code mode, with any tech debt, one
+ * compact line above the Commit button says every commit pays it down
+ * (the reducer applies the paydown; the button is untouched). Nothing
+ * renders with no debt, so the Commit area is unchanged.
+ */
+function WriteModeDebtLine({ className = "" }) {
+  const { state } = useGameContext();
+  const line = writeModeDebtLine(state.agentFleet);
+  if (!line) return null;
+  return (
+    <p
+      className={`m-0 font-mono text-[11px] leading-4 text-amber-300 ${className}`}
+      data-write-debt-line
+    >
+      {line}
+    </p>
+  );
+}
+
 export function Footer() {
   const { unlocked, mode, chooseMode } = useWorkMode();
   // Manage agents mode swaps the Clicks/sec line and the Commit button
@@ -205,6 +226,7 @@ export function Footer() {
               className="mx-auto mb-2 w-[85%]"
             />
           ) : null}
+          {agents ? null : <WriteModeDebtLine className="mx-auto w-[85%]" />}
           {agents ? (
             <ReviewPanel className="mx-auto w-[85%]" />
           ) : (
@@ -226,15 +248,24 @@ export function Footer() {
             only confused which tab it belonged to. */}
         <NavBar />
 
-        <span className="inline-flex flex-1 items-center justify-center gap-8">
-          {/* Manage agents hides Clicks/sec but keeps its space, so the
-              toggle stays put when the mode changes. */}
-          <div
-            className={agents ? "invisible" : undefined}
-            aria-hidden={agents ? true : undefined}
-          >
+        {/* Once the toggle exists the group is pinned right, so the
+            toggle never moves when the mode changes; before Series A it
+            is centered as it always was. */}
+        <span
+          className={
+            unlocked
+              ? "inline-flex min-w-0 flex-1 items-center justify-end gap-6"
+              : "inline-flex flex-1 items-center justify-center gap-8"
+          }
+        >
+          {/* Manage agents (issue #267): the PR card sits where
+              Clicks/sec was, and its buttons go in the Commit column, so
+              the footer stays short. */}
+          {agents ? (
+            <ReviewPanel part="queue" className="min-w-52 max-w-[22rem] flex-1" />
+          ) : (
             <CPSMeter />
-          </div>
+          )}
           {/* Once the toggle exists the column has one fixed width, so
               the toggle does not resize or move when the mode changes. */}
           <div
@@ -251,7 +282,8 @@ export function Footer() {
                 className="w-full"
               />
             ) : null}
-            {agents ? <ReviewPanel className="w-full" /> : <ClickButton />}
+            {agents ? null : <WriteModeDebtLine className="w-full text-right" />}
+            {agents ? <ReviewPanel part="actions" className="w-full" /> : <ClickButton />}
             <SaveStatus />
           </div>
         </span>
