@@ -27,6 +27,7 @@ import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import { BreedingGuide } from "./BreedingGuide.jsx";
 import { MoodLightingGuide } from "./MoodLightingGuide.jsx";
 import { HerdBook } from "./HerdBook.jsx";
+import { herdBookCount } from "../utils/breedingGuide.js";
 import {
   FARM_CONFIG,
   FARM_LIGHTING,
@@ -319,6 +320,8 @@ export function Farm() {
   const breedCountdown = formatBreedCountdown(
     secondsUntilBreedCheck(state.farmBreedTicks)
   );
+  // The Herd book button's count, from the popup title's own helper.
+  const herdCount = herdBookCount(farm.unlockedTypes);
 
   return (
     <SectionLayout sectionId="farm">
@@ -659,9 +662,10 @@ export function Farm() {
         </Button>
         <Button
           onClick={() => setInfoOpen("herd")}
-          className="min-h-10 w-full leading-tight"
+          className="min-h-10 w-full leading-tight whitespace-nowrap"
+          aria-label={`Herd book, ${herdCount.discovered} of ${herdCount.total} discovered`}
         >
-          Herd book
+          Herd book ({herdCount.discovered}/{herdCount.total})
         </Button>
       </Panel>
       <BreedingGuide open={infoOpen === "guide"} onClose={closeInfo} />

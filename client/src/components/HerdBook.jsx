@@ -1,5 +1,5 @@
 import { InfoDialog } from "./InfoDialog.jsx";
-import { herdBookHiddenHint } from "../utils/breedingGuide.js";
+import { herdBookCount, herdBookHiddenHint } from "../utils/breedingGuide.js";
 import {
   llamaShopTypes,
   LLAMA_ECONOMY,
@@ -20,12 +20,13 @@ import { formatMoney } from "../../../shared/formatNumber.js";
  * (pricingRate), the same rate the stalls and the shop use.
  */
 export function HerdBook({ open, onClose, unlockedTypes, pricingRate }) {
+  const count = herdBookCount(unlockedTypes);
   return (
     <InfoDialog
       open={open}
       onClose={onClose}
       titleId="herd-book-title"
-      title={`Herd book (${unlockedTypes.length}/${LLAMA_TYPES.length} discovered)`}
+      title={`Herd book (${count.discovered}/${count.total} discovered)`}
     >
       <div className="flex flex-col gap-1">
         {LLAMA_TYPES.map((type) => {
