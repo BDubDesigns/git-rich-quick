@@ -19,8 +19,9 @@
 import { randomUUID } from "node:crypto";
 import {
   applyPrestigeSale,
-  availableEquity,
   completePrestigeIntermission,
+  roadshowBonusEquity,
+  spendableEquity,
   founderMultiplier,
   initialSaveState,
   normalizeSaveState,
@@ -33,6 +34,7 @@ import { METRICS_SAMPLING, deriveMetricsSnapshot } from "./metrics.js";
 import {
   validateCompleteIntermission,
   validatePrestigeSale,
+  validateRoadshowBuy,
   validateSave,
   validateStoreBuy,
 } from "./validate.js";
@@ -895,10 +897,7 @@ export function createStore(pool) {
               rank: body.rank,
               price: null,
               equitySpent: prevState.equitySpent,
-              availableEquity: availableEquity(
-                prevState.lifetimeEquityEarned,
-                prevState.equitySpent
-              ),
+              availableEquity: spendableEquity(prevState),
             },
           };
         }
@@ -959,10 +958,118 @@ export function createStore(pool) {
             rank: body.rank,
             price: buyVerdict.price,
             equitySpent: nextState.equitySpent,
-            availableEquity: availableEquity(
-              nextState.lifetimeEquityEarned,
-              nextState.equitySpent
-            ),
+            availableEquity: spendableEquity(nextState),
+          },
+        };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection is already broken; nothing to roll back.
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
+    /**
+     * Buy the next IPO Roadshow milestone (issue #266). `body` is
+     * `{ playerId, stage, state, actionsSinceLastSave }`: `stage` is the
+     * milestone being bought (always the next one), `state` the
+     * client's freshest state. Like the store buy, the sent state is
+     * first validated as an ordinary successor (minus the rate limit),
+     * then the purchase is validated (window, order, run LOC gate, cash
+     * at the sent state's buffed P) and applied on top of the sent
+     * state in the same transaction: money minus the price, stage plus
+     * one. The bonus Equity is derived from the stage, never sent.
+     *
+     * Idempotency: a milestone that is already bought returns
+     * "already-owned" with the stored state and no second charge.
+     *
+     * Returns one of:
+     * - `{ status: "unknown-player" }`
+     * - `{ status: "rejected", rule, detail, lastGood }`
+     * - `{ status: "already-owned", state, savedAtMs, purchase }`
+     * - `{ status: "ok", state, savedAtMs, purchase }` (purchase is
+     *   `{ stage, priceCents, bonusEquity, availableEquity }`)
+     */
+    async applyRoadshowBuy(playerId, body, nowMs) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const locked = await lockSaveRow(client, playerId, nowMs);
+        if (!locked) {
+          await client.query("ROLLBACK");
+          return { status: "unknown-player" };
+        }
+        if (locked.wiped) {
+          await client.query("COMMIT");
+          return wipedRejection(locked.snapshot);
+        }
+        const prev = locked.snapshot;
+        const prevState = normalizeSaveState(prev.state);
+        const sentState = normalizeSaveState(body.state);
+        const buyVerdict = validateRoadshowBuy(prevState, sentState, body.stage);
+        if (!buyVerdict.ok && buyVerdict.alreadyOwned) {
+          await client.query("COMMIT");
+          return {
+            status: "already-owned",
+            state: prev.state,
+            savedAtMs: prev.savedAtMs,
+            purchase: {
+              stage: body.stage,
+              priceCents: null,
+              bonusEquity: roadshowBonusEquity(prevState.roadshowStage),
+              availableEquity: spendableEquity(prevState),
+            },
+          };
+        }
+        if (!buyVerdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: buyVerdict.rule,
+            detail: buyVerdict.detail,
+            lastGood: prev,
+          };
+        }
+        const verdict = validateSave(prev, body, nowMs, {
+          skipRateLimit: true,
+        });
+        if (!verdict.ok) {
+          await client.query("ROLLBACK");
+          return {
+            status: "rejected",
+            rule: verdict.rule,
+            detail: verdict.detail,
+            lastGood: prev,
+          };
+        }
+        const nextState = {
+          ...sentState,
+          money: sentState.money - buyVerdict.priceCents,
+          roadshowStage: prevState.roadshowStage + 1,
+        };
+        await client.query(
+          `UPDATE git_saves SET state = $1, saved_at = $2 WHERE player_id = $3`,
+          [
+            JSON.stringify(nextState),
+            new Date(nowMs).toISOString(),
+            playerId,
+          ]
+        );
+        await client.query("COMMIT");
+        await recordMetricsSnapshot(pool, playerId, nextState, nowMs);
+        return {
+          status: "ok",
+          state: nextState,
+          savedAtMs: nowMs,
+          purchase: {
+            stage: nextState.roadshowStage,
+            priceCents: buyVerdict.priceCents,
+            bonusEquity: roadshowBonusEquity(nextState.roadshowStage),
+            availableEquity: spendableEquity(nextState),
           },
         };
       } catch (err) {

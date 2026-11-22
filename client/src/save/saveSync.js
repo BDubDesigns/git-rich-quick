@@ -46,6 +46,7 @@ import {
   resetSave,
   sellCompany,
   buyStoreRank,
+  buyRoadshowMilestone,
   completeIntermission,
 } from "./api.js";
 import {
@@ -1050,6 +1051,113 @@ export class SaveSync {
         detail: result.data.alreadyOwned
           ? "already owned (retry)"
           : null,
+      });
+      return {
+        ok: true,
+        state: postState,
+        purchase: result.data.purchase ?? null,
+        alreadyOwned: result.data.alreadyOwned ?? false,
+      };
+    } finally {
+      this._storeBusy = false;
+    }
+  }
+
+  /**
+   * Buy the next IPO Roadshow milestone (issue #266). Mirrors
+   * buyStoreRank: await an in-flight save, block requestSave while it
+   * runs, send the freshest state plus the actions since the baseline,
+   * and restore the server's returned state (money minus the price,
+   * the stage plus one) and re-baseline on it. The milestone number is
+   * computed here from the local stage, so the UI never tracks it.
+   * A retried purchase of an already-bought milestone restores the
+   * stored state and reports success (alreadyOwned: true), never a
+   * second charge. On failure the local state is untouched.
+   *
+   * Returns `{ ok: true, state, purchase, alreadyOwned }` or
+   * `{ ok: false, error, detail }` (error is "not-initialized" |
+   * "network" | "new-version" | a rule like "ROADSHOW" | `http-<status>`).
+   */
+  async buyRoadshowMilestone() {
+    if (!this.initialized || !this.playerId) {
+      return { ok: false, error: "not-initialized" };
+    }
+    if (await this.checkForNewVersion()) {
+      return { ok: false, error: "new-version" };
+    }
+    this._storeBusy = true;
+    try {
+      if (this._inFlight && this._currentSave) {
+        try {
+          await this._currentSave;
+        } catch {
+          // A failed in-flight save must not block the purchase.
+        }
+      }
+      this._pendingSave = false;
+      this._clearRetryTimer();
+      this.onRetry(null);
+      const current = this.getState();
+      const saveState = stateToSaveState(current);
+      const stage = (saveState.roadshowStage ?? 0) + 1;
+      const actions = this._actionsSinceBaseline(saveState);
+      let result;
+      try {
+        result = await buyRoadshowMilestone(this.apiBaseUrl, {
+          playerId: this.playerId,
+          stage,
+          state: saveState,
+          actionsSinceLastSave: actions,
+          clientBuild: this.clientBuild,
+        });
+      } catch (err) {
+        console.warn("[save] roadshow buy failed (network):", err);
+        this._recordSaveAttempt({
+          trigger: "roadshow-buy",
+          outcome: "offline",
+          status: null,
+          detail: errorDetail(err),
+        });
+        this.setStatus("error");
+        return { ok: false, error: "network" };
+      }
+      if (result.status !== 200) {
+        this._revertIfWiped(result);
+        console.warn(
+          `[save] roadshow buy failed (HTTP ${result.status}):`,
+          result.data?.rule,
+          result.data?.detail
+        );
+        this._recordSaveAttempt({
+          trigger: "roadshow-buy",
+          outcome: "error",
+          status: result.status,
+          detail: rejectionDetail(result.data),
+        });
+        this.setStatus("error");
+        return {
+          ok: false,
+          error: result.data?.rule ?? `http-${result.status}`,
+          detail: result.data?.detail ?? null,
+        };
+      }
+      const postState = result.data.state;
+      this.baseline = postState;
+      this.clicks = 0;
+      this._claimSavePending = false;
+      this._lastSeenBig = bigActionFields(postState);
+      this.needsLoad = false;
+      this.restore(postState);
+      if (!result.data?.alreadyOwned) {
+        this._reportServerTime(result.data?.savedAt);
+      }
+      this._reportSavedAt(Date.now());
+      this.setStatus("saved");
+      this._recordSaveAttempt({
+        trigger: "roadshow-buy",
+        outcome: "roadshow-buy",
+        status: 200,
+        detail: result.data.alreadyOwned ? "already owned (retry)" : null,
       });
       return {
         ok: true,

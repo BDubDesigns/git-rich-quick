@@ -16,6 +16,7 @@ const STATE_WRITE_PATHS = new Set([
   "/api/save",
   "/api/save/sell",
   "/api/save/store/buy",
+  "/api/save/roadshow/buy",
   "/api/save/intermission/complete",
 ]);
 

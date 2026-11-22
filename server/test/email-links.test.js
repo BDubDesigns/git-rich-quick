@@ -482,7 +482,7 @@ test("the save shape check accepts targets and trophies and rejects malformed on
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.equal(r.rule, "SHAPE", JSON.stringify(bad));
   }
-  assert.deepEqual([...EMAIL_LINK_TABS], ["shop", "projects", "openSource", "farm", "achievements"]);
+  assert.deepEqual([...EMAIL_LINK_TABS], ["shop", "projects", "openSource", "farm", "achievements", "settings"]);
 });
 
 test("targets and trophies survive the client save round trip; the highlight is never saved", () => {

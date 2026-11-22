@@ -120,10 +120,10 @@ export function PermanentStore() {
   const intermission = state.prestigeIntermission ?? null;
   const ranks = state.permanentStoreRanks ?? shared.zeroStoreRanks();
   const lifetimeEquityEarned = state.lifetimeEquityEarned ?? 0;
-  const spendable = shared.availableEquity(
-    lifetimeEquityEarned,
-    state.equitySpent ?? 0
-  );
+  // Earned plus the IPO Roadshow bonus, minus spent (issue #266): the
+  // one shared helper, the same one the server's store-buy check reads.
+  const spendable = shared.spendableEquity(state);
+  const roadshowBonus = shared.roadshowBonusEquity(state.roadshowStage);
   const lifetimeLoc = state.totalLinesOfCode ?? 0;
   const frozenRate = intermission?.frozenHealthyPassiveLocPerSec ?? 0;
   const money = state.money ?? 0;
@@ -221,6 +221,12 @@ export function PermanentStore() {
         {lifetimeEquityEarned} · The next company starts with{" "}
         {formatMoney(currentGrant)}.
       </p>
+      {roadshowBonus > 0 && (
+        <p className="m-0 text-sm">
+          Spendable includes {roadshowBonus} bonus Equity from the IPO
+          Roadshow. Bonus Equity does not count toward Equity earned.
+        </p>
+      )}
 
       {shared.PRESTIGE_STORE_IDS.map((storeId) => {
         const config = shared.PRESTIGE_STORE_CONFIG[storeId];

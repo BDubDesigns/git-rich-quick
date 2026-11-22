@@ -2884,11 +2884,17 @@ export function claimableEquity(lifetimeLoc, lifetimeEquityEarned) {
   );
 }
 
-/** Spendable Equity: claimed minus permanent-store spending (Slice 2). */
-export function availableEquity(lifetimeEquityEarned, equitySpent) {
+/**
+ * Spendable Equity: claimed plus the IPO Roadshow's bonus pool (issue
+ * #266, `bonusEquity`, 0 when omitted) minus permanent-store spending
+ * (Slice 2). The bonus is spendable only: it never joins
+ * lifetimeEquityEarned. Callers with a whole state use spendableEquity.
+ */
+export function availableEquity(lifetimeEquityEarned, equitySpent, bonusEquity = 0) {
   return Math.max(
     0,
-    Math.max(0, lifetimeEquityEarned ?? 0) -
+    Math.max(0, lifetimeEquityEarned ?? 0) +
+      Math.max(0, Number(bonusEquity) || 0) -
       Math.max(0, equitySpent ?? 0)
   );
 }
@@ -3676,6 +3682,291 @@ export function buildNightShiftEmail(report) {
         ? ` We clocked out after ${formatEstimateDuration(counted)}. Upgrade Night Shift for longer shifts.`
         : " Nobody touched the coffee machine. Probably."),
   };
+}
+
+/** ===== IPO Roadshow (issue #266) =====
+ *
+ * The Series C to IPO climb is one long wait (Brandon, Nov 21: 48
+ * unspent Equity against a 300 Equity IPO). The Roadshow breaks it into
+ * six milestones that pay 100 BONUS Equity in total. No production
+ * power is added: the bonus only shortens the Equity wall.
+ *
+ * Rules:
+ * - Open while Funding Rounds is Series C (rank 4) and IPO (rank 5) is
+ *   not owned. Hidden before Series C; shown as finished at IPO.
+ * - Six milestones, bought in order, one at a time. Each has a run LOC
+ *   gate (this company's LOC, companyLocEarned: totalLinesOfCode minus
+ *   lifetimeLocAtLastSale) and a cash price in minutes of S
+ *   (cashBasisCentsPerSecond at buffed P, the barn / llama / Night
+ *   Shift basis).
+ * - Progress (roadshowStage, 0..6) persists across company sales: a
+ *   milestone is bought once per save and is never re-farmed.
+ * - BONUS EQUITY IS A SEPARATE POOL. It is derived from the stage
+ *   (roadshowBonusEquity), adds to SPENDABLE Equity (spendableEquity)
+ *   and never counts toward lifetimeEquityEarned, so the next sale's
+ *   claimable Equity and the Founder multiplier are unchanged.
+ * - The stage only moves through the roadshow buy endpoint
+ *   (POST /api/save/roadshow/buy): the server checks the window, the
+ *   order, the gate and the cash, and deducts the price itself. An
+ *   ordinary save that changes the stage is rejected. Bonus Equity is
+ *   never sent by the client as a number.
+ *
+ * Copy rules: no em or en dashes in any player-facing string.
+ */
+export const ROADSHOW_CONFIG = Object.freeze({
+  /** The Funding Rounds rank the Roadshow runs at (Series C). */
+  fundingRank: 4,
+  /**
+   * THE TUNING TABLE, one row per milestone in order: the run LOC gate,
+   * the price in minutes of S, and the bonus Equity it pays (100 in
+   * total; a test pins the sum). Retune here only.
+   */
+  milestones: Object.freeze([
+    Object.freeze({
+      id: "cfo",
+      name: "Hire a CFO who has seen a spreadsheet",
+      quip: "Has opened a spreadsheet at least twice. Once on purpose.",
+      gateRunLoc: 25e12,
+      priceMinutes: 10,
+      equity: 10,
+    }),
+    Object.freeze({
+      id: "investorMeeting",
+      name: "Investor meeting in a WeWork",
+      quip: "Glass room, cold brew on tap, nobody asks about the burn rate.",
+      gateRunLoc: 75e12,
+      priceMinutes: 20,
+      equity: 15,
+    }),
+    Object.freeze({
+      id: "aiRebrand",
+      name: "Rebrand as an AI company",
+      quip: "Same product. New logo. The valuation doubled anyway.",
+      gateRunLoc: 150e12,
+      priceMinutes: 30,
+      equity: 15,
+    }),
+    Object.freeze({
+      id: "bankOnTv",
+      name: "Pay a bank to say your name on TV",
+      quip: "Slowly, twice, with a straight face. Analysts call it momentum.",
+      gateRunLoc: 300e12,
+      priceMinutes: 45,
+      equity: 20,
+    }),
+    Object.freeze({
+      id: "fileS1",
+      name: "File the S-1 (nobody reads it)",
+      quip: "Four hundred pages of risk factors. Page two is the llamas.",
+      gateRunLoc: 500e12,
+      priceMinutes: 60,
+      equity: 20,
+    }),
+    Object.freeze({
+      id: "brassBand",
+      name: "Hire a brass band for the bell",
+      quip: "They know four songs. Three are from car commercials.",
+      gateRunLoc: 800e12,
+      priceMinutes: 90,
+      equity: 20,
+    }),
+  ]),
+});
+
+/** The last stage: every milestone bought. */
+export const ROADSHOW_MAX_STAGE = ROADSHOW_CONFIG.milestones.length;
+
+/** A stage guarded to an integer 0..ROADSHOW_MAX_STAGE (junk reads 0). */
+export function roadshowStageOf(stage) {
+  const n = Math.floor(Number(stage));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(ROADSHOW_MAX_STAGE, n);
+}
+
+/** Milestone `n` (1..6), or null. */
+export function roadshowMilestone(n) {
+  const i = Math.floor(Number(n));
+  if (!Number.isFinite(i) || i < 1 || i > ROADSHOW_MAX_STAGE) return null;
+  return ROADSHOW_CONFIG.milestones[i - 1];
+}
+
+/**
+ * The bonus Equity a stage has paid: the sum of the first `stage`
+ * milestones' Equity. Derived, never stored.
+ */
+export function roadshowBonusEquity(stage) {
+  const s = roadshowStageOf(stage);
+  let total = 0;
+  for (let i = 0; i < s; i += 1) total += ROADSHOW_CONFIG.milestones[i].equity;
+  return total;
+}
+
+/** Whether the Roadshow can be bought from: Series C owned, IPO not. */
+export function roadshowOpen(storeRanks) {
+  return fundingRoundRank(storeRanks) === ROADSHOW_CONFIG.fundingRank;
+}
+
+/** Whether the Roadshow card shows at all: Series C or later. */
+export function roadshowVisible(storeRanks) {
+  return fundingRoundRank(storeRanks) >= ROADSHOW_CONFIG.fundingRank;
+}
+
+/**
+ * Milestone `n`'s price in whole cents at buffed P: priceMinutes x 60 x
+ * S (cashBasisCentsPerSecond, P floored so it is never free). 0 for a
+ * milestone that does not exist.
+ */
+export function roadshowPriceCents(n, buffedLocPerSec) {
+  const milestone = roadshowMilestone(n);
+  if (!milestone) return 0;
+  return Math.round(
+    milestone.priceMinutes * 60 * cashBasisCentsPerSecond(buffedLocPerSec)
+  );
+}
+
+/** Gate progress for milestone `n`: run LOC against its gate. Null if none. */
+export function roadshowGateProgress(n, runLoc) {
+  const milestone = roadshowMilestone(n);
+  if (!milestone) return null;
+  const raw = Number(runLoc);
+  const current = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  return { current, target: milestone.gateRunLoc, met: current >= milestone.gateRunLoc };
+}
+
+/**
+ * The next milestone a player could buy, or null when the Roadshow is
+ * not open (before Series C, at IPO) or every milestone is bought:
+ * { stage (the milestone number, 1..6), milestone, priceCents, gate,
+ * affordable, canBuy }. `runLoc` is companyLocEarned(state).
+ */
+export function roadshowNextPurchase({ stage, storeRanks, money, runLoc, buffedLocPerSec }) {
+  if (!roadshowOpen(storeRanks)) return null;
+  const next = roadshowStageOf(stage) + 1;
+  const milestone = roadshowMilestone(next);
+  if (!milestone) return null;
+  const priceCents = roadshowPriceCents(next, buffedLocPerSec);
+  const gate = roadshowGateProgress(next, runLoc);
+  const cash = Number(money);
+  const affordable = Number.isFinite(cash) && cash >= priceCents;
+  return { stage: next, milestone, priceCents, gate, affordable, canBuy: gate.met && affordable };
+}
+
+/**
+ * The milestone whose gate is met and is next to buy, or 0: the email
+ * trigger (no cash check, a mail is a heads-up, not a receipt). Reads
+ * a save-shaped or reducer state (roadshowStage, permanentStoreRanks
+ * and the LOC totals).
+ */
+export function roadshowReadyMilestone(state) {
+  if (!roadshowOpen(state?.permanentStoreRanks)) return 0;
+  if (intermissionOpen(state)) return 0;
+  const next = roadshowStageOf(state?.roadshowStage) + 1;
+  const gate = roadshowGateProgress(next, companyLocEarned(state ?? {}));
+  return gate?.met ? next : 0;
+}
+
+/**
+ * THE spendable Equity of a state, the one helper every spendable
+ * calculation reads (the permanent store, the sale screen, the store
+ * buy validation, the endpoints' purchase reports): Equity earned plus
+ * the Roadshow bonus, minus Equity spent. Never negative.
+ */
+export function spendableEquity(state) {
+  return availableEquity(
+    state?.lifetimeEquityEarned ?? 0,
+    state?.equitySpent ?? 0,
+    roadshowBonusEquity(state?.roadshowStage)
+  );
+}
+
+/** The Roadshow card's id in Settings, for email links. */
+export const ROADSHOW_EMAIL_ITEM_ID = "roadshow";
+
+/** The trigger key of milestone `n`'s ready mail (one per milestone, ever). */
+export function roadshowEmailTriggerKey(n) {
+  return `roadshow-ready:${n}`;
+}
+
+/** The ready mails, by milestone number: sender, subject, the pitch. */
+const ROADSHOW_EMAILS = Object.freeze({
+  1: Object.freeze({
+    sender: "Recruiting",
+    subject: "We found a CFO. They have seen a spreadsheet.",
+    pitch:
+      `Good news: the candidate has opened a spreadsheet before, and at ` +
+      `least once it was on purpose. Bad news: they want to be paid in ` +
+      `something other than vibes.\n\n` +
+      `The IPO Roadshow starts here: six steps between Series C and ` +
+      `ringing the bell, 100 bonus Equity in all.`,
+  }),
+  2: Object.freeze({
+    sender: "Investor Relations",
+    subject: "The investors want to meet. In a WeWork.",
+    pitch:
+      `A fund with a lot of money and very few questions wants a pitch. ` +
+      `They booked a glass room that smells like cold brew and broken ` +
+      `promises. Bring the deck. Bring a hoodie. Do not bring the burn ` +
+      `rate.`,
+  }),
+  3: Object.freeze({
+    sender: "Brand Strategy",
+    subject: "Have you considered being an AI company?",
+    pitch:
+      `Nothing about the product changes. We add "AI" to the logo, the ` +
+      `homepage and three of the error messages. The valuation doubles. ` +
+      `Nobody can explain why, and nobody wants to.`,
+  }),
+  4: Object.freeze({
+    sender: "Underwriting",
+    subject: "A bank will say your name on TV (for a fee)",
+    pitch:
+      `For a modest fee, a very serious bank will go on financial ` +
+      `television and say your company name slowly, twice, with a ` +
+      `straight face. Analysts will call it momentum. You will call it ` +
+      `a receipt.`,
+  }),
+  5: Object.freeze({
+    sender: "Legal",
+    subject: "The S-1 is ready. Nobody will read it.",
+    pitch:
+      `Four hundred pages of risk factors, including "the founder ` +
+      `commits at 3am" and "the llamas". It is the most honest document ` +
+      `this company has ever produced, and nobody will read past page ` +
+      `two.`,
+  }),
+  6: Object.freeze({
+    sender: "Exchange Events Desk",
+    subject: "About the bell",
+    pitch:
+      `Ringing the bell is a tradition. Ringing it with a full brass ` +
+      `band is a statement. The band knows four songs, and three of ` +
+      `them are from car commercials.\n\n` +
+      `This is the last stop. After the band, all that is left is the ` +
+      `IPO itself in the permanent store.`,
+  }),
+});
+
+/**
+ * Milestone `n`'s gate is met (the email trigger, roadshowReadyMilestone):
+ * the pitch, then what it costs and pays, with a link to the card. Null
+ * for a milestone that does not exist.
+ */
+export function buildRoadshowReadyEmail(n) {
+  const milestone = roadshowMilestone(n);
+  const mail = ROADSHOW_EMAILS[n];
+  if (!milestone || !mail) return null;
+  return withEmailTarget(emailTarget("settings", ROADSHOW_EMAIL_ITEM_ID), {
+    sender: mail.sender,
+    subject: mail.subject,
+    body:
+      `${mail.pitch}\n\n` +
+      `Roadshow ${n} of ${ROADSHOW_MAX_STAGE}: ${milestone.name}. It costs ` +
+      `${milestone.priceMinutes} minutes of shipping income and pays ` +
+      `${milestone.equity} bonus Equity, yours to spend in the permanent ` +
+      `store. Bonus Equity never counts toward Equity earned, so your ` +
+      `next sale pays exactly what it would have anyway. The card is ` +
+      `under Sell the Company in Settings.`,
+  });
 }
 
 /** ===== Prestige: SUBTRACTERALL (Slice 3, reworked in issue #150) =====
@@ -6082,6 +6373,9 @@ export function initialSaveState() {
     // 0..5. Company-local: a sale resets it (the Night Shift Contract
     // store rank grants level 1 at the next company start).
     nightShiftLevel: 0,
+    // IPO Roadshow (issue #266): milestones bought, 0..6. Persists
+    // across sales; the bonus Equity is derived from it.
+    roadshowStage: 0,
     overtimeReskin: false,
     // Timed golden-star buffs active right now. Each entry is
     // { effect, multiplier, expiresAtMs, employeeType }. Short-lived
@@ -6553,6 +6847,10 @@ export function normalizeSaveState(state) {
   // level. A fresh default of 0, no backfill; a present-but-wrong
   // value is left alone so the shape check rejects it.
   if (next.nightShiftLevel === undefined) next.nightShiftLevel = 0;
+  // IPO Roadshow (issue #266): a save from before it shipped starts at
+  // stage 0. No backfill; a present-but-wrong value is left alone so
+  // the shape check rejects it.
+  if (next.roadshowStage === undefined) next.roadshowStage = 0;
   if (next.overtimeReskin === undefined) next.overtimeReskin = false;
   // Achievements (issue #132): a save from before achievements has no
   // record at all. Default it to a fresh one (no backfill: every tier
@@ -6803,6 +7101,8 @@ export const EMAIL_LINK_TABS = Object.freeze([
   "openSource",
   "farm",
   "achievements",
+  // The IPO Roadshow card (issue #266), under Sell the Company.
+  "settings",
 ]);
 
 /** The ids a target's itemId may name on each tab (null: tab only). */
@@ -6817,6 +7117,8 @@ function emailTargetItemIds(tab) {
       return OPEN_SOURCE_IDS;
     case "achievements":
       return ACHIEVEMENTS.map((def) => def.id);
+    case "settings":
+      return [ROADSHOW_EMAIL_ITEM_ID];
     default:
       return [];
   }

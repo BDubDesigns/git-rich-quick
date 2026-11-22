@@ -95,14 +95,21 @@ import {
   PRESTIGE_STORE_IDS,
   achievementsDecreased,
   achievementsStateError,
-  availableEquity,
   canEquipCosmetic,
   claimableEquity,
   farmLlamaCountsByType,
   farmStallIsOpen,
   findCosmetic,
   NIGHT_SHIFT_CONFIG,
+  ROADSHOW_MAX_STAGE,
+  buffedLocPerSecond,
+  companyLocEarned,
+  intermissionOpen,
   normalizeSaveState,
+  roadshowBonusEquity,
+  roadshowNextPurchase,
+  roadshowOpen,
+  spendableEquity,
   normalizeActions,
   openSourceLevelCap,
   releaseManagerAssignedCount,
@@ -193,6 +200,7 @@ function checkStateShape(state) {
       "overtimeReskin",
       "achievements",
       "nightShiftLevel",
+      "roadshowStage",
     ])
   ) {
     return "state has unknown or missing keys";
@@ -414,6 +422,16 @@ function checkStateShape(state) {
     state.nightShiftLevel > NIGHT_SHIFT_CONFIG.maxLevel
   ) {
     return `nightShiftLevel must be an integer from 0 to ${NIGHT_SHIFT_CONFIG.maxLevel}`;
+  }
+  // IPO Roadshow (issue #266): milestones bought, an integer 0..6.
+  // It only moves through the roadshow buy endpoint (validateSave
+  // rejects any other change), and the bonus Equity is derived from it.
+  if (
+    !Number.isInteger(state.roadshowStage) ||
+    state.roadshowStage < 0 ||
+    state.roadshowStage > ROADSHOW_MAX_STAGE
+  ) {
+    return `roadshowStage must be an integer from 0 to ${ROADSHOW_MAX_STAGE}`;
   }
   // Achievements (issue #132): tier state and the lifetime counters
   // the achievements read. The rule is shared with the client's
@@ -1010,10 +1028,25 @@ export function validateSave(prev, body, nowMs, options = {}) {
   if (newState.saleCount < prevState.saleCount) {
     return fail("MONOTONIC", "saleCount decreased");
   }
-  if (newState.equitySpent > newState.lifetimeEquityEarned) {
+  // IPO Roadshow (issue #266): the stage only moves through the
+  // roadshow buy endpoint, never through an ordinary save, the same way
+  // store ranks only move through the store. So bonus Equity can never
+  // arrive as a client number.
+  if (newState.roadshowStage !== prevState.roadshowStage) {
+    return fail(
+      "ROADSHOW",
+      "roadshowStage changed outside the roadshow"
+    );
+  }
+  // Spending can never exceed what was spendable: Equity earned plus
+  // the Roadshow bonus (issue #266), which is spendable but never earned.
+  if (
+    newState.equitySpent >
+    newState.lifetimeEquityEarned + roadshowBonusEquity(newState.roadshowStage)
+  ) {
     return fail(
       "PRESTIGE",
-      "equitySpent exceeds lifetimeEquityEarned"
+      "equitySpent exceeds lifetimeEquityEarned plus the Roadshow bonus"
     );
   }
   if (newState.lifetimeLocAtLastSale > newState.totalLinesOfCode) {
@@ -1306,10 +1339,9 @@ export function validateStoreBuy(prevState, sentState, storeId, rank) {
   if (price === null) {
     return fail("STORE", `${storeId} has no rank ${rank}`);
   }
-  const spendable = availableEquity(
-    prevState.lifetimeEquityEarned,
-    prevState.equitySpent
-  );
+  // Earned plus the IPO Roadshow bonus, minus spent (issue #266): the
+  // one shared helper, from the STORED books.
+  const spendable = spendableEquity(prevState);
   if (price > spendable) {
     return fail(
       "STORE",
@@ -1344,4 +1376,82 @@ export function validateCompleteIntermission(prevState, sentState) {
     );
   }
   return { ok: true, alreadyCompleted: false };
+}
+
+/**
+ * Validate an IPO Roadshow purchase (issue #266). `prevState` is the
+ * stored state, `sentState` the client's freshest state (already
+ * validated as an ordinary successor, so it carries the same stage,
+ * store ranks and Equity books as the stored state). `stage` is the
+ * milestone being bought: always the next one after the stored stage.
+ *
+ * The checks mirror the client's (shared.roadshowNextPurchase), from
+ * the server's own reading of the state: the Roadshow is open (Series
+ * C owned, IPO not, no intermission), the milestone is the next one,
+ * this company's LOC meets its gate, and the sent cash covers its
+ * price at the sent state's buffed P. The caller deducts the price
+ * and raises the stage by one; the bonus Equity follows from the stage.
+ *
+ * Returns `{ ok: true, priceCents }` or `{ ok: false, rule, detail }`
+ * (rule ROADSHOW). `alreadyOwned` is true for a milestone the stored
+ * state already has: a retried purchase whose first response was lost.
+ * The caller returns the stored state for it, with no second charge.
+ */
+export function validateRoadshowBuy(prevState, sentState, stage) {
+  if (!Number.isInteger(stage) || stage < 1) {
+    return fail("ROADSHOW", "stage must be a positive integer");
+  }
+  const currentStage = prevState.roadshowStage ?? 0;
+  if (stage <= currentStage) {
+    return {
+      ok: false,
+      rule: "ROADSHOW",
+      detail: `roadshow milestone ${stage} is already bought`,
+      alreadyOwned: true,
+    };
+  }
+  if (stage !== currentStage + 1) {
+    return fail(
+      "ROADSHOW",
+      `roadshow milestone ${stage} is not the next one (current stage ${currentStage})`
+    );
+  }
+  if (intermissionOpen(prevState)) {
+    return fail(
+      "ROADSHOW",
+      "the roadshow is closed during the post-sale intermission"
+    );
+  }
+  if (!roadshowOpen(prevState.permanentStoreRanks)) {
+    return fail(
+      "ROADSHOW",
+      "the roadshow is only open at Series C, before the IPO"
+    );
+  }
+  if ((sentState.roadshowStage ?? 0) !== currentStage) {
+    return fail("ROADSHOW", "roadshowStage changed outside the roadshow");
+  }
+  const next = roadshowNextPurchase({
+    stage: currentStage,
+    storeRanks: prevState.permanentStoreRanks,
+    money: sentState.money,
+    runLoc: companyLocEarned(sentState),
+    buffedLocPerSec: buffedLocPerSecond(sentState),
+  });
+  if (!next) {
+    return fail("ROADSHOW", `roadshow has no milestone ${stage}`);
+  }
+  if (!next.gate.met) {
+    return fail(
+      "ROADSHOW",
+      `roadshow milestone ${stage} needs ${next.gate.target} LOC this company, only ${next.gate.current}`
+    );
+  }
+  if (!next.affordable) {
+    return fail(
+      "ROADSHOW",
+      `roadshow milestone ${stage} costs ${next.priceCents} cents, only ${sentState.money}`
+    );
+  }
+  return { ok: true, priceCents: next.priceCents };
 }

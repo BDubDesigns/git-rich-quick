@@ -217,6 +217,21 @@ export async function buyStoreRank(baseUrl, body) {
 }
 
 /**
+ * Buy the next IPO Roadshow milestone (issue #266). POST
+ * /api/save/roadshow/buy with `{ playerId, stage, state,
+ * actionsSinceLastSave }`. `stage` is the milestone being bought
+ * (always the next one). The server checks the gate and the cash,
+ * deducts the price and raises the stage; a retried purchase returns
+ * the already-owned state without charging again.
+ */
+export async function buyRoadshowMilestone(baseUrl, body) {
+  return request(baseUrl, "/api/save/roadshow/buy", {
+    method: "POST",
+    body,
+  });
+}
+
+/**
  * Complete the post-sale intermission (prestige, Slice 2). POST
  * /api/save/intermission/complete with `{ playerId, state,
  * actionsSinceLastSave }`. The server applies the Starting Capital

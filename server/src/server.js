@@ -19,6 +19,11 @@
  *   intermission, from the client's freshest state. Idempotent by
  *   rank: a retried purchase returns the already-owned state without
  *   charging again. Not rate limited. See store.applyStoreBuy.
+ * - POST /api/save/roadshow/buy — IPO Roadshow (issue #266): buy the
+ *   next milestone at Series C, from the client's freshest state. The
+ *   server checks the order, the run LOC gate and the cash, deducts the
+ *   price and raises the stage by one. Idempotent by stage. Not rate
+ *   limited. See store.applyRoadshowBuy.
  * - POST /api/save/intermission/complete — post-sale intermission
  *   (prestige, Slice 2): apply the Starting Capital grant once, from
  *   the frozen sale quote, and clear the intermission. A retried
@@ -1007,6 +1012,87 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
   }
 
   /**
+   * IPO Roadshow (issue #266): POST /api/save/roadshow/buy, body
+   * `{ playerId, stage, state, actionsSinceLastSave }`. `stage` is the
+   * milestone being bought (always the next one after the stored
+   * stage); `state` is the client's freshest state. The server
+   * validates the purchase (window, order, run LOC gate, cash) and
+   * applies it atomically (see store.applyRoadshowBuy). A retried
+   * purchase returns the already-owned state without charging again.
+   * 400 for a malformed body, 404 for an unknown player, 409 with the
+   * last good state when the purchase is not valid. Not rate limited,
+   * like the store buy.
+   */
+  async function handleRoadshowBuy(req, res) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      if (err.code === "BODY_TOO_LARGE") {
+        sendJson(res, 413, { error: "body-too-large" });
+        return;
+      }
+      sendJson(res, 400, { error: "invalid-json" });
+      return;
+    }
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.playerId !== "string" ||
+      !UUID_RE.test(body.playerId) ||
+      !Number.isInteger(body.stage) ||
+      body.state === null ||
+      typeof body.state !== "object" ||
+      Array.isArray(body.state) ||
+      body.actionsSinceLastSave === null ||
+      typeof body.actionsSinceLastSave !== "object" ||
+      Array.isArray(body.actionsSinceLastSave)
+    ) {
+      sendJson(res, 400, {
+        error: "invalid-roadshow-buy",
+        detail:
+          "playerId must be a UUID string, stage an integer, state and actionsSinceLastSave must be objects",
+      });
+      return;
+    }
+    if (await rejectStaleClient(res, body, "roadshow-buy")) return;
+    const nowMs = clock();
+    const result = await store.applyRoadshowBuy(body.playerId, body, nowMs);
+    if (result.status === "unknown-player") {
+      sendJson(res, 404, { error: "unknown-player" });
+      return;
+    }
+    if (result.status === "rejected") {
+      console.warn(
+        "[save] rejected roadshow buy",
+        JSON.stringify({
+          playerId: body.playerId,
+          stage: body.stage,
+          rule: result.rule,
+          detail: result.detail,
+          prevSavedAtMs: result.lastGood?.savedAtMs ?? null,
+        })
+      );
+      sendJson(res, 409, {
+        error: "roadshow-buy-rejected",
+        rule: result.rule,
+        detail: result.detail,
+        lastGoodState: snapshotBody(result.lastGood),
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      alreadyOwned: result.status === "already-owned",
+      playerId: body.playerId,
+      savedAt: iso(result.savedAtMs),
+      state: result.state,
+      purchase: result.purchase,
+    });
+  }
+
+  /**
    * Complete the post-sale intermission (prestige, Slice 2): POST
    * /api/save/intermission/complete, body `{ playerId, state,
    * actionsSinceLastSave }`. The server applies the Starting Capital
@@ -1134,6 +1220,11 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
         url.pathname === "/api/save/store/buy"
       ) {
         await handleStoreBuy(req, res);
+      } else if (
+        req.method === "POST" &&
+        url.pathname === "/api/save/roadshow/buy"
+      ) {
+        await handleRoadshowBuy(req, res);
       } else if (
         req.method === "POST" &&
         url.pathname === "/api/save/intermission/complete"

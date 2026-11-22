@@ -45,6 +45,8 @@ const LINK_ITEM = {
   openSource: OPEN_SOURCE_IDS[0],
   achievements: ACHIEVEMENTS[0]?.id,
   farm: null,
+  // The IPO Roadshow card (issue #266).
+  settings: "roadshow",
 };
 import {
   clearHighlight,

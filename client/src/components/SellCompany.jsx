@@ -66,12 +66,12 @@ export function SellCompany() {
 
   const lifetimeLoc = state.totalLinesOfCode ?? 0;
   const lifetimeEquityEarned = state.lifetimeEquityEarned ?? 0;
-  const equitySpent = state.equitySpent ?? 0;
   const claimable = shared.claimableEquity(lifetimeLoc, lifetimeEquityEarned);
-  const spendable = shared.availableEquity(
-    lifetimeEquityEarned,
-    equitySpent
-  );
+  // Earned plus the IPO Roadshow bonus, minus spent (issue #266): the
+  // one shared helper. The bonus never changes `claimable` (that reads
+  // lifetimeEquityEarned only), so selling pays the same either way.
+  const spendable = shared.spendableEquity(state);
+  const roadshowBonus = shared.roadshowBonusEquity(state.roadshowStage);
   const founderBefore = shared.founderMultiplier(lifetimeEquityEarned);
   const founderAfter = shared.founderMultiplier(
     lifetimeEquityEarned + claimable
@@ -411,7 +411,11 @@ export function SellCompany() {
           <p className="m-0 text-sm">
             Lifetime LOC: {formatNumber(lifetimeLoc)} · Company LOC earned:{" "}
             {formatNumber(companyLoc)} · Equity claimed:{" "}
-            {lifetimeEquityEarned} · Equity spendable: {spendable} · Sales:{" "}
+            {lifetimeEquityEarned} · Equity spendable: {spendable}
+            {roadshowBonus > 0
+              ? ` (includes ${roadshowBonus} Roadshow bonus)`
+              : ""}{" "}
+            · Sales:{" "}
             {state.saleCount ?? 0} · Founder multiplier:{" "}
             {formatMultiplier(founderBefore)}
           </p>
