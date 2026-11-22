@@ -16,6 +16,7 @@ import { createStore } from "../src/store.js";
 import { createServer } from "../src/server.js";
 import { createAuth } from "../src/auth.js";
 import { initialSaveState } from "../../shared/game-balance.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 const TEST_SECRET = "test-secret-for-auth-tests-only";
@@ -65,7 +66,7 @@ async function post(base, path, body, extraHeaders = {}) {
       origin: "http://localhost:3000",
       ...extraHeaders,
     },
-    body: typeof body === "string" ? body : JSON.stringify(body),
+    body: typeof body === "string" ? body : JSON.stringify(withClientBuild(path, body)),
   });
 }
 

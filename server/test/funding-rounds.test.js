@@ -51,6 +51,7 @@ import {
 import { SaveSync } from "../../client/src/save/saveSync.js";
 import { saveStateToGameFields } from "../../client/src/save/serialize.js";
 import { sortOpenSourceProjectIds } from "../../client/src/utils/unlockProgress.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 const GATED = [
@@ -91,7 +92,7 @@ async function post(base, path, body) {
   return fetch(`${base}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withClientBuild(path, body)),
   });
 }
 

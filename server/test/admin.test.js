@@ -18,6 +18,7 @@ import { createStore } from "../src/store.js";
 import { createServer } from "../src/server.js";
 import { TEST_ACCOUNT_EMAIL } from "../src/admin.js";
 import { initialSaveState } from "../../shared/game-balance.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 const ADMIN_TOKEN = "test-admin-token";
@@ -74,7 +75,7 @@ async function post(base, path, body, extraHeaders = {}) {
   return fetch(`${base}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...extraHeaders },
-    body: typeof body === "string" ? body : JSON.stringify(body),
+    body: typeof body === "string" ? body : JSON.stringify(withClientBuild(path, body)),
   });
 }
 

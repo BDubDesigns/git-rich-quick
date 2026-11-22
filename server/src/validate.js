@@ -670,10 +670,46 @@ function checkActionsShape(actions) {
   return null;
 }
 
+/**
+ * Longest `clientBuild` accepted. A build id is a git sha (40 chars)
+ * or an ISO build timestamp; the cap only keeps a junk value out of
+ * the rejection log.
+ */
+export const CLIENT_BUILD_MAX_LENGTH = 128;
+
+/**
+ * Stale-client guard: every state-writing request (save, sale, store
+ * buy, intermission completion) must carry `clientBuild`, the build id
+ * the client was built with. A client bundle from before the guard
+ * sends none, and its idea of the save can be missing fields it does
+ * not know about (a tab left open since an older deploy wiped every
+ * llama lock, PR #251, on each heartbeat). Such a request is a 409
+ * with rule STALE_CLIENT and the stored save as lastGoodState, so the
+ * old client reverts to the server copy instead of overwriting it.
+ * The value is request metadata, never part of the save state, and it
+ * is not compared against anything: any non-empty string passes. The
+ * client itself handles "a newer build is out" (see saveSync.js).
+ * Returns an error detail, or null when the build id is fine.
+ */
+export function clientBuildError(body) {
+  const build = body?.clientBuild;
+  if (typeof build !== "string" || build.trim() === "") {
+    return "clientBuild is missing: this tab is running an old version of the game";
+  }
+  if (build.length > CLIENT_BUILD_MAX_LENGTH) {
+    return `clientBuild is longer than ${CLIENT_BUILD_MAX_LENGTH} characters`;
+  }
+  return null;
+}
+
 function checkShape(body) {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return "body must be an object";
   }
+  // Body keys are not enumerated, so request metadata such as
+  // `clientBuild` (checked by the HTTP layer, see clientBuildError)
+  // is tolerated here; only `state` and `actionsSinceLastSave` are
+  // shape-checked.
   if (typeof body.playerId !== "string" || !UUID_RE.test(body.playerId)) {
     return "playerId must be a UUID string";
   }

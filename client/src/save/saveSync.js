@@ -63,9 +63,23 @@ import {
   initialSaveState,
 } from "../../../shared/game-balance.js";
 import { setOffsetFromSavedAt } from "./serverClock.js";
+import { defaultFetchDeployedBuild } from "./versionCheck.js";
+import { BUILD_ID } from "../version.js";
 
 /** Heartbeat interval (spec rule 9: "heartbeat is 60 seconds"). */
 export const SAVE_HEARTBEAT_MS = 60_000;
+/**
+ * Save status while a newer build is deployed (stale-client guard):
+ * this tab no longer saves, and the footer asks the player to reload.
+ * Sticky: once set, no other status replaces it.
+ */
+export const NEW_VERSION_STATUS = "update-available";
+/**
+ * Minimum gap between two version.json fetches before saves: one per
+ * heartbeat (a little under 60s, so timer jitter cannot skip one).
+ * Starting up and coming back to the tab check right away.
+ */
+export const VERSION_CHECK_INTERVAL_MS = SAVE_HEARTBEAT_MS - 5_000;
 /** Fallback retry delay when the server gives no retryAfterSeconds. */
 export const DEFAULT_RETRY_AFTER_SECONDS = 10;
 /**
@@ -186,6 +200,17 @@ export class SaveSync {
    * @param {(report: object) => void} [onNightShift] - called once with the
    *   load response's Night Shift report (issue #149) when the server
    *   settled offline production, after the settled state is restored.
+   * @param {string} [clientBuild] - this bundle's build id, sent with
+   *   every state-writing request (the server refuses one without it,
+   *   rule STALE_CLIENT). Defaults to BUILD_ID (__BUILD_ID__); tests
+   *   pass a fixed id.
+   * @param {(() => Promise<string | null>) | null} [fetchDeployedBuild] -
+   *   returns the deployed build id (version.json), or null when it
+   *   cannot be told. Defaults to the version.json fetch in a browser
+   *   and none in Node. When it answers an id other than clientBuild,
+   *   the engine stops saving and reports NEW_VERSION_STATUS.
+   * @param {() => number} [now] - clock for the version-check throttle
+   *   (defaults to Date.now).
    */
   constructor({
     apiBaseUrl = SAVE_API_URL,
@@ -200,6 +225,9 @@ export class SaveSync {
     clearTimeoutFn = clearTimeout,
     onServerTime = setOffsetFromSavedAt,
     onNightShift,
+    clientBuild = BUILD_ID,
+    fetchDeployedBuild = defaultFetchDeployedBuild(),
+    now = Date.now,
   } = {}) {
     this.apiBaseUrl = apiBaseUrl;
     this.getState = getState;
@@ -211,6 +239,14 @@ export class SaveSync {
     this.onServerTime = onServerTime || (() => {});
     this.onNightShift = onNightShift || (() => {});
     this.storage = storage || defaultStorage();
+    // Stale-client guard: this bundle's build id, and how to read the
+    // deployed one. newVersionAvailable latches true once they differ.
+    this.clientBuild = clientBuild;
+    this._fetchDeployedBuild = fetchDeployedBuild || null;
+    this._now = now;
+    this.newVersionAvailable = false;
+    this._versionCheckedAtMs = null;
+    this._versionCheckPromise = null;
     // Wrap the timers rather than storing them as-is: calling a stored
     // function as this._setTimeout(...) binds `this` to the SaveSync
     // instance, and the browser's window.setTimeout/clearTimeout throw
@@ -268,6 +304,9 @@ export class SaveSync {
   }
 
   setStatus(status) {
+    // A newer build is deployed: the reload prompt stays up whatever
+    // else happens (a failed sale, a load), until the player reloads.
+    if (this.newVersionAvailable && status !== NEW_VERSION_STATUS) return;
     this._saveStatus = status;
     this.onStatus(status);
   }
@@ -369,6 +408,70 @@ export class SaveSync {
     };
   }
 
+  /**
+   * Stale-client guard: is a newer build deployed than this one?
+   * Fetches version.json at most once per VERSION_CHECK_INTERVAL_MS
+   * (`force` skips the wait: start-up and coming back to the tab), and
+   * shares one fetch between callers. When the deployed id differs
+   * from clientBuild, latches newVersionAvailable, cancels a pending
+   * retry and reports NEW_VERSION_STATUS; from then on no save is
+   * sent. An unknown deployed id (offline, 404, `vite dev`) counts as
+   * "same version", so the save goes ahead. Resolves to
+   * newVersionAvailable; never throws.
+   */
+  async checkForNewVersion({ force = false } = {}) {
+    if (this.newVersionAvailable) return true;
+    if (!this._fetchDeployedBuild) return false;
+    if (this._versionCheckPromise) return this._versionCheckPromise;
+    if (
+      !force &&
+      this._versionCheckedAtMs != null &&
+      this._now() - this._versionCheckedAtMs < VERSION_CHECK_INTERVAL_MS
+    ) {
+      return false;
+    }
+    this._versionCheckedAtMs = this._now();
+    this._versionCheckPromise = (async () => {
+      let deployed = null;
+      try {
+        deployed = await this._fetchDeployedBuild();
+      } catch {
+        deployed = null;
+      }
+      if (
+        typeof deployed === "string" &&
+        deployed !== "" &&
+        deployed !== this.clientBuild
+      ) {
+        this._markNewVersion(deployed);
+      }
+      return this.newVersionAvailable;
+    })();
+    try {
+      return await this._versionCheckPromise;
+    } finally {
+      this._versionCheckPromise = null;
+    }
+  }
+
+  _markNewVersion(deployed) {
+    if (this.newVersionAvailable) return;
+    console.warn(
+      `[save] a newer build is deployed (${deployed}, this tab runs ${this.clientBuild}); saves are paused until reload`
+    );
+    this._recordSaveAttempt({
+      trigger: "version-check",
+      outcome: "new-version",
+      status: null,
+      detail: `deployed ${deployed}, running ${this.clientBuild}`,
+    });
+    this._pendingSave = false;
+    this._clearRetryTimer();
+    this.onRetry(null);
+    this.newVersionAvailable = true;
+    this.setStatus(NEW_VERSION_STATUS);
+  }
+
   /** Start: init (mint/load), then the 60s heartbeat. Safe to call twice. */
   async start() {
     if (this._startPromise) return this._startPromise;
@@ -380,6 +483,8 @@ export class SaveSync {
       if (!this._started) return;
       this.startHeartbeat();
       this._attachPageHideSave();
+      // Stale-client guard: check once on load, without holding up start.
+      this.checkForNewVersion({ force: true });
     })();
     return this._startPromise;
   }
@@ -418,7 +523,12 @@ export class SaveSync {
   _attachPageHideSave() {
     if (typeof document === "undefined") return;
     this._onVisibilityChange = () => {
-      if (document.hidden) this.requestSave("page-hide");
+      if (document.hidden) {
+        this.requestSave("page-hide");
+      } else {
+        // Back on the tab (maybe after hours): look for a newer build.
+        this.checkForNewVersion({ force: true });
+      }
     };
     this._onPageHide = () => {
       // keepalive lets the request finish after the tab unloads.
@@ -699,6 +809,11 @@ export class SaveSync {
     if (!this.initialized || !this.playerId) {
       return { ok: false, error: "not-initialized" };
     }
+    // Stale-client guard: a tab behind the deployed build must not
+    // write its older state (the reload prompt is already up).
+    if (await this.checkForNewVersion()) {
+      return { ok: false, error: "new-version" };
+    }
     this._selling = true;
     try {
       // Wait for an in-flight save so it cannot land after the sale.
@@ -724,6 +839,7 @@ export class SaveSync {
           saleId: newSaleId(),
           state: saveState,
           actionsSinceLastSave: actions,
+          clientBuild: this.clientBuild,
         });
       } catch (err) {
         console.warn("[save] sale failed (network):", err);
@@ -847,6 +963,11 @@ export class SaveSync {
     if (!this.initialized || !this.playerId) {
       return { ok: false, error: "not-initialized" };
     }
+    // Stale-client guard: a tab behind the deployed build must not
+    // write its older state (the reload prompt is already up).
+    if (await this.checkForNewVersion()) {
+      return { ok: false, error: "new-version" };
+    }
     this._storeBusy = true;
     try {
       if (this._inFlight && this._currentSave) {
@@ -871,6 +992,7 @@ export class SaveSync {
           rank,
           state: saveState,
           actionsSinceLastSave: actions,
+          clientBuild: this.clientBuild,
         });
       } catch (err) {
         console.warn("[save] store buy failed (network):", err);
@@ -960,6 +1082,11 @@ export class SaveSync {
     if (!this.initialized || !this.playerId) {
       return { ok: false, error: "not-initialized" };
     }
+    // Stale-client guard: a tab behind the deployed build must not
+    // write its older state (the reload prompt is already up).
+    if (await this.checkForNewVersion()) {
+      return { ok: false, error: "new-version" };
+    }
     this._storeBusy = true;
     try {
       if (this._inFlight && this._currentSave) {
@@ -981,6 +1108,7 @@ export class SaveSync {
           playerId: this.playerId,
           state: saveState,
           actionsSinceLastSave: actions,
+          clientBuild: this.clientBuild,
         });
       } catch (err) {
         console.warn("[save] intermission completion failed (network):", err);
@@ -1057,6 +1185,11 @@ export class SaveSync {
    * retry timer) just ignore the return.
    */
   requestSave(reason, { keepalive } = {}) {
+    if (this.newVersionAvailable) {
+      // A newer build is deployed: this tab's idea of the save may lack
+      // fields the new build writes, so it must not save at all.
+      return Promise.resolve(false);
+    }
     if (this._resetting || this._selling || this._storeBusy) {
       // A reset, a sale, or a store/intermission step is running: no
       // save may start (or queue) while it runs, or a stale save could
@@ -1140,6 +1273,15 @@ export class SaveSync {
       attemptDetail = d ?? null;
     };
     try {
+      // Stale-client guard: before saving, make sure no newer build is
+      // deployed (throttled to one fetch per heartbeat). A page-hide
+      // keepalive save skips the fetch, since the tab may be unloading,
+      // and goes by the last answer.
+      if (!keepalive) await this.checkForNewVersion();
+      if (this.newVersionAvailable) {
+        outcome = "new-version";
+        return;
+      }
       // Offline at init: load the server state before saving, so we never
       // overwrite a real save with a local initial state.
       if (this.needsLoad) {
@@ -1235,7 +1377,12 @@ export class SaveSync {
       try {
         result = await saveGame(
           this.apiBaseUrl,
-          { playerId: this.playerId, state: saveState, actionsSinceLastSave: actions },
+          {
+            playerId: this.playerId,
+            state: saveState,
+            actionsSinceLastSave: actions,
+            clientBuild: this.clientBuild,
+          },
           { keepalive }
         );
       } catch (err) {

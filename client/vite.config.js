@@ -13,12 +13,39 @@ import tailwindcss from "@tailwindcss/vite"; // <-- Import tailwindcss plugin
 const commitSha =
   process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "";
 const shortCommit = commitSha ? commitSha.slice(0, 7) : "dev";
+const buildTime = new Date().toISOString();
+
+// Stale-client guard: one id per build, the full commit sha when the
+// build has one, else the build time. The bundle carries it as
+// __BUILD_ID__ (sent with every save as clientBuild) and the build
+// writes it to version.json; a tab whose id differs from the deployed
+// version.json stops saving and asks the player to reload (see
+// src/save/versionCheck.js).
+const BUILD_ID = commitSha || buildTime;
+
+// Writes dist/version.json with the build id. Build only: under
+// `vite dev` the file does not exist, the version fetch gets
+// index.html back, and the client saves normally.
+function versionJsonPlugin(buildId) {
+  return {
+    name: "grq-version-json",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: JSON.stringify({ buildId }) + "\n",
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), versionJsonPlugin(BUILD_ID)],
   define: {
     __APP_COMMIT__: JSON.stringify(shortCommit),
-    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __APP_BUILD_TIME__: JSON.stringify(buildTime),
+    __BUILD_ID__: JSON.stringify(BUILD_ID),
   },
   server: {
     proxy: {
