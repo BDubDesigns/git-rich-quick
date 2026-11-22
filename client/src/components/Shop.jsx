@@ -29,6 +29,13 @@ import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import { SortControl } from "./SortControl.jsx";
 import { useSortMode } from "../hooks/useSortMode.js";
 import { sortEmployeeTypes } from "../utils/unlockProgress.js";
+import {
+  anyHireCardOpen,
+  collapseAllLabel,
+  hireCardsStore,
+  NIGHT_SHIFT_CARD_ID,
+} from "../utils/hireCards.js";
+import { useHireCardsSnapshot } from "../hooks/useHireCards.js";
 
 // Bulk-buy quantities for the Hire buttons. One selector for the whole
 // list; the selected quantity applies to every Hire button (its total
@@ -54,6 +61,26 @@ export function Shop() {
   // cards also show the price without it while one is live.
   const activeStarEffects = state.activeStarEffects ?? [];
   const hireCostMultiplier = hiringCostMultiplier(activeStarEffects);
+
+  // Collapsible cards (Brandon, Nov 21): Collapse all / Expand all
+  // sets every card, the Night Shift card included. Its label says
+  // what a tap will do, judged by the cards on screen (unlocked types
+  // and the teasers past their threshold).
+  const hireCards = useHireCardsSnapshot();
+  const visibleCardIds = [
+    NIGHT_SHIFT_CARD_ID,
+    ...employeeTypes.filter(
+      (type) =>
+        isEmployeeUnlocked(type, state) ||
+        hasCrossedUnlockThreshold("employee", type, state)
+    ),
+  ];
+  const anyCardOpen = anyHireCardOpen(hireCards, visibleCardIds);
+  const toggleAllCards = () =>
+    hireCardsStore.setAllOpen(
+      [NIGHT_SHIFT_CARD_ID, ...Object.keys(EMPLOYEE_CONFIGS)],
+      !anyCardOpen
+    );
 
   const handleBuyEmployee = (employeeType) => {
     dispatch({
@@ -85,6 +112,12 @@ export function Shop() {
           ))}
         </div>
         <SortControl tab="shop" />
+        <Button
+          onClick={toggleAllCards}
+          className="game-button--inactive ml-auto tap-target-40"
+        >
+          {collapseAllLabel(anyCardOpen)}
+        </Button>
       </div>
       {/* Night Shift (issue #149): the offline-production upgrade. At
           the top of the tab, outside the sorted list (issue #195), so
@@ -173,6 +206,7 @@ export function Shop() {
           return (
             <HighlightAnchor key={employeeType} tab="shop" itemId={employeeType}>
               <EmployeeCard
+                cardId={employeeType}
                 config={cardConfig}
                 currentCost={currentCost}
                 ownedCount={ownedCount}
@@ -182,14 +216,16 @@ export function Shop() {
                 effectMultiplier={effectMultiplier}
                 hireCostMultiplier={hireCostMultiplier}
                 listCost={listCost}
-              />
-              {/* Release Manager shipping summary (issue #163): the
-                  in / out / net readout and the unassigned count. The
-                  assignment controls live on the project cards. Hidden
-                  while no manager is owned. */}
-              {employeeType === "releaseManager" && (
-                <ReleaseManagerShippingSummary />
-              )}
+              >
+                {/* Release Manager shipping summary (issue #163): the
+                    in / out / net readout and the unassigned count. The
+                    assignment controls live on the project cards. Hidden
+                    while no manager is owned, and while the card is
+                    collapsed. */}
+                {employeeType === "releaseManager" && (
+                  <ReleaseManagerShippingSummary />
+                )}
+              </EmployeeCard>
             </HighlightAnchor>
           );
         }
@@ -210,6 +246,7 @@ export function Shop() {
                 unlock progress bars. */}
             <HighlightAnchor tab="shop" itemId={employeeType}>
               <LockedEmployeeCard
+                cardId={employeeType}
                 config={config}
                 progress={progress}
                 price={employeeCost(employeeType, 0, { activeStarEffects })}

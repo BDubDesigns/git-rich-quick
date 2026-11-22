@@ -14,7 +14,9 @@
  *   cash figure at the current LOC/s), the gate as @requires progress
  *   bars, then the Night Shift Contract note.
  * - Collapsed by default. The choice is a device preference
- *   (utils/nightShiftCard.js, `grq:nightShiftOpen`), never the save.
+ *   (`grq:nightShiftOpen`), never the save, kept in the Hire tab's one
+ *   card store (utils/hireCards.js) so Collapse all / Expand all sets
+ *   it with the employee cards.
  *   An email link that targets the card (item id "nightShift") opens it
  *   before its HighlightAnchor scrolls and flashes, so the link lands
  *   on the requirements it talks about.
@@ -28,7 +30,7 @@
  * shared Panel component.
  */
 
-import { useId, useState } from "react";
+import { useId } from "react";
 import { BsMoonStarsFill } from "react-icons/bs";
 import { useGameContext } from "../context/useGameContext";
 import {
@@ -38,12 +40,9 @@ import {
 import * as shared from "../../../shared/game-balance.js";
 import { formatMoney, formatNumber } from "../../../shared/formatNumber.js";
 import { formatCondition } from "../utils/formatCondition.js";
-import {
-  nightShiftRowModel,
-  readNightShiftOpen,
-  writeNightShiftOpen,
-} from "../utils/nightShiftCard.js";
-import { highlightMatches } from "../navigation/highlight.js";
+import { nightShiftRowModel } from "../utils/nightShiftCard.js";
+import { NIGHT_SHIFT_CARD_ID } from "../utils/hireCards.js";
+import { useHireCardOpen } from "../hooks/useHireCards.js";
 import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
 import { Panel } from "./Panel.jsx";
 import { Button } from "./Button.jsx";
@@ -70,24 +69,12 @@ export function NightShiftCard() {
   const { state, dispatch } = useGameContext();
   const showBar = useProgressBarEnabled("unlock");
   const detailId = useId();
-  const [open, setOpen] = useState(() => readNightShiftOpen());
-
-  // An email link to this card opens it, during render so the expanded
-  // card is already in the DOM when the HighlightAnchor around it
-  // scrolls and flashes (its effect runs after this commit). Not saved
-  // as the device choice: only the chevron changes that.
-  const targeted = highlightMatches(
-    state.highlightTarget,
-    "shop",
-    shared.NIGHT_SHIFT_EMAIL_ITEM_ID
-  );
-  if (targeted && !open) setOpen(true);
-
-  const toggle = () => {
-    const nextOpen = !open;
-    setOpen(nextOpen);
-    writeNightShiftOpen(nextOpen);
-  };
+  // Open or collapsed: the Hire tab's shared card store (the chevron,
+  // Collapse all / Expand all, and email links all go through it; the
+  // choice is still remembered under `grq:nightShiftOpen`). An email
+  // link to this card opens it during render, before its
+  // HighlightAnchor scrolls and flashes, for the session only.
+  const [open, toggle] = useHireCardOpen(NIGHT_SHIFT_CARD_ID);
 
   const level = shared.nightShiftLevelOf(state.nightShiftLevel);
   const maxLevel = shared.NIGHT_SHIFT_CONFIG.maxLevel;
@@ -117,7 +104,7 @@ export function NightShiftCard() {
       <div className="flex items-center gap-2 min-h-10">
         <button
           type="button"
-          className="flex flex-1 min-w-0 items-center gap-2 py-1 text-left bg-transparent border-0 p-0 text-[#cccccc] cursor-pointer rounded outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#0078d4]"
+          className="flex flex-1 min-w-0 items-center gap-2 min-h-10 py-1 text-left bg-transparent border-0 p-0 text-[#cccccc] cursor-pointer rounded outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#0078d4]"
           onClick={toggle}
           aria-expanded={open}
           aria-controls={detailId}
@@ -155,7 +142,7 @@ export function NightShiftCard() {
         </button>
         {!row.maxed && (
           <Button
-            className="shrink-0 whitespace-nowrap"
+            className="shrink-0 whitespace-nowrap tap-target-40"
             disabled={!next.canBuy}
             onClick={() => dispatch({ type: "BUY_NIGHT_SHIFT_LEVEL" })}
             aria-label={`${row.buyLabel} (${price})`}

@@ -14,17 +14,24 @@ import { useProgressBarEnabled } from "../hooks/useProgressBarPrefs.js";
  *  (or any other block content) the caller passes as children.
  *  `titleAfter` (optional) is a node rendered right after the title
  *  text, inside the title line (the Open Source card's rolling version,
- *  issue #216). */
-export function JsDocBlock({ title, titleAfter = null, description, children }) {
-  return (
-    <div className="text-xs font-mono">
-      <span className="comment-text">{`/** `}</span>
-      <br />
-      <span className="text-sm font-bold">
-        {brandNodes(title)}
-        {titleAfter}
-      </span>
-      <br />
+ *  issue #216).
+ *
+ *  The collapsible Hire cards pass two more (optional) props:
+ *  `header` replaces the opener and title lines (the card's disclosure
+ *  button renders them itself, with the chevron), and `bodyId` wraps
+ *  the rest (description, tag lines, closer) in a div with that id, so
+ *  the disclosure's aria-controls can point at it. Without them the
+ *  block renders exactly as before. */
+export function JsDocBlock({
+  title,
+  titleAfter = null,
+  description,
+  children,
+  header = null,
+  bodyId = null,
+}) {
+  const body = (
+    <>
       {description ? (
         <>
           <span>{description}</span>
@@ -33,6 +40,22 @@ export function JsDocBlock({ title, titleAfter = null, description, children }) 
       ) : null}
       {children}
       <span className="comment-text">{`*/`}</span>
+    </>
+  );
+  return (
+    <div className="text-xs font-mono">
+      {header ?? (
+        <>
+          <span className="comment-text">{`/** `}</span>
+          <br />
+          <span className="text-sm font-bold">
+            {brandNodes(title)}
+            {titleAfter}
+          </span>
+          <br />
+        </>
+      )}
+      {bodyId ? <div id={bodyId}>{body}</div> : body}
     </div>
   );
 }
