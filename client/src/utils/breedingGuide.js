@@ -108,6 +108,6 @@ export function herdBookHiddenHint() {
 export const BREEDING_GUIDE_LIGHTING_INTRO =
   "Tap a stall, then Lighting, to change its light. The light on the EMPTY stall sets both odds: more kids, or more new kinds.";
 
-/** The line under the lighting table, pointing at the herd book. */
+/** The line under the lighting table, pointing at the Herd book button. */
 export const BREEDING_GUIDE_HERD_BOOK_LINE =
-  "The herd book below lists every kind. A ??? entry is still out there.";
+  "The Herd book button under the stalls lists every kind. A ??? entry is still out there.";

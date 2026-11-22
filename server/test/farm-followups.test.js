@@ -220,7 +220,9 @@ test("the breeding guide says Mamas are shop-only and a Mama-only stall makes no
 // --- 3. ??? rows hide their prices ---
 
 test("an undiscovered ??? row shows only its label and the hint, with no price", () => {
-  const book = farmCard.slice(farmCard.indexOf("Herd book ("));
+  // The herd book is a popup now (HerdBook.jsx).
+  const herdBook = src("components/HerdBook.jsx");
+  const book = herdBook.slice(herdBook.indexOf("Herd book ("));
   const start = book.indexOf("if (!forSale) {");
   const hidden = book.slice(start, book.indexOf("</p>", start));
   assert.match(hidden, /<strong>\?\?\? \(undiscovered\)<\/strong>\. Breed one to find it\./);

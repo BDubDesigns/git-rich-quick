@@ -25,15 +25,14 @@ import "./LlamaBirth.css";
 import { Panel } from "./Panel.jsx";
 import { HighlightAnchor } from "./HighlightAnchor.jsx";
 import { BreedingGuide } from "./BreedingGuide.jsx";
-import { herdBookHiddenHint } from "../utils/breedingGuide.js";
+import { MoodLightingGuide } from "./MoodLightingGuide.jsx";
+import { HerdBook } from "./HerdBook.jsx";
 import {
   FARM_CONFIG,
   FARM_LIGHTING,
   FARM_LIGHTING_COLORS,
   llamaShopTypes,
   LLAMA_ECONOMY,
-  LLAMA_TYPES,
-  LLAMA_TYPE_DESCRIPTIONS,
   LLAMA_TYPE_NAMES,
   farmEligibleBreedingStalls,
   farmLlamaCount,
@@ -96,8 +95,10 @@ export function Farm() {
   // llama is being moved (the next empty stall clicked receives it).
   const [selectedStall, setSelectedStall] = useState(null);
   const [moving, setMoving] = useState(false);
-  // Issue #238: the breeding guide popup.
-  const [guideOpen, setGuideOpen] = useState(false);
+  // Which Farm info popup is open: "guide" (issue #238), "lighting",
+  // "herd", or null. One at a time.
+  const [infoOpen, setInfoOpen] = useState(null);
+  const closeInfo = () => setInfoOpen(null);
   const pricingRate = getBaseLocPerSecond(state);
   // Progress bar toggles (issue #128): the farm's unlock bar follows
   // the "unlock" toggle, like every other unlock bar.
@@ -332,11 +333,6 @@ export function Farm() {
                 : "No empty stall sits between two llamas right now, so nothing can breed. Move some llamas into a nest."}{" "}
             Click a stall to select it.
           </p>
-          {/* Issue #238: how breeding and discovery work, in a popup. */}
-          <div>
-            <Button onClick={() => setGuideOpen(true)}>How breeding works</Button>
-          </div>
-          <BreedingGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
           {/* Issue #240: Sell All sells every llama that is not locked.
               The label says what it will do; nothing sellable disables it. */}
           <div className="flex flex-wrap items-center gap-2">
@@ -449,7 +445,7 @@ export function Farm() {
                   and a lighting dot; the full sentence ("Blockchain
                   Llama, sells for $X, Warm Amber lighting") stays in the
                   aria-label and the chip, and the dot's colors are
-                  spelled out in the Mood lighting legend below. */}
+                  spelled out in the Mood lighting popup below. */}
               {isClosed && (
                 <>
                   <FaDoorClosed className="text-lg text-gray-400" aria-hidden="true" />
@@ -637,72 +633,45 @@ export function Farm() {
         })}
       </div>
 
-      {/* Lighting legend: what each mood does, and the Mama boost. */}
-      <Panel className="flex flex-col gap-1 p-3 text-sm">
-        <p className="m-0 font-semibold">Mood lighting</p>
-        {FARM_LIGHTING_COLORS.map((colorId) => {
-          const lighting = FARM_LIGHTING[colorId];
-          return (
-            <p key={colorId} className="m-0">
-              <span style={{ color: lighting.color }}>●</span>{" "}
-              <strong>{lighting.label}:</strong> {lighting.description}{" "}
-              <span className="text-xs">
-                (kid {Math.round(lighting.kidChance * 100)}% per tick, new
-                type {Math.round(lighting.newTypeChance * 100)}% of kids)
-              </span>
-            </p>
-          );
-        })}
-        <p className="m-0">
-          <strong>Mama Llama:</strong> an empty stall beside a Mama rolls
-          kids {LLAMA_ECONOMY.mamaKidChanceMultiplier}x as often (up to{" "}
-          {Math.round(LLAMA_ECONOMY.maxKidChance * 100)}% per tick). Her
-          kids take the other parent's type. Breed fast, sell the kids.
-        </p>
+      {/* Brandon, Nov 21: "Mood lighting and herd book should be popups
+          also like how breeding works and those 3 buttons should be
+          together in a panel at the bottom." One panel under the stalls
+          (and under the chip, which lives inside the grid), three
+          buttons, one popup each. The game font is monospace, so three
+          in a row wrap to three lines at 360px: the guide takes the
+          full first row and the other two share the second. */}
+      <Panel
+        className="grid grid-cols-2 gap-2 p-3"
+        role="group"
+        aria-label="Farm info"
+      >
+        <Button
+          onClick={() => setInfoOpen("guide")}
+          className="col-span-2 min-h-10 w-full leading-tight"
+        >
+          How breeding works
+        </Button>
+        <Button
+          onClick={() => setInfoOpen("lighting")}
+          className="min-h-10 w-full leading-tight"
+        >
+          Mood lighting
+        </Button>
+        <Button
+          onClick={() => setInfoOpen("herd")}
+          className="min-h-10 w-full leading-tight"
+        >
+          Herd book
+        </Button>
       </Panel>
-
-      {/* The herd book: every type, its price as time, and its value. */}
-      <Panel className="flex flex-col gap-1 p-3">
-        <p className="m-0 text-sm font-semibold">
-          Herd book ({farm.unlockedTypes.length}/{LLAMA_TYPES.length} discovered)
-        </p>
-        {LLAMA_TYPES.map((type) => {
-          const discovered = farm.unlockedTypes.includes(type);
-          const forSale = llamaShopTypes(farm.unlockedTypes).includes(type);
-          // Issue #238: an undiscovered bred type (not in the shop yet)
-          // reads ??? so its name stays a surprise. Brandon, Nov 21: it
-          // hides its prices too, and shows only ??? and the hint.
-          if (!forSale) {
-            return (
-              <p key={type} className="m-0 text-sm">
-                {"· "}
-                <strong>??? (undiscovered)</strong>. Breed one to find it.
-              </p>
-            );
-          }
-          return (
-            <p key={type} className="m-0 text-sm">
-              {discovered ? "🦙 " : "· "}
-              <strong>{LLAMA_TYPE_NAMES[type]}</strong>{" "}
-              <span className="text-xs text-gray-400">
-                (buy{" "}
-                {formatMoney(llamaBuyPriceCents(type, pricingRate))},{" "}
-                {formatEstimateDuration(LLAMA_ECONOMY.typeSeconds[type])} of
-                shipping; sells for{" "}
-                {formatMoney(llamaSellPriceCents(type, pricingRate))})
-              </span>
-              {discovered ? (
-                <>: {LLAMA_TYPE_DESCRIPTIONS[type]}</>
-              ) : (
-                ", in the shop. Buy one to meet it."
-              )}
-            </p>
-          );
-        })}
-        {LLAMA_TYPES.some((type) => !llamaShopTypes(farm.unlockedTypes).includes(type)) && (
-          <p className="m-0 text-xs text-gray-400">{herdBookHiddenHint()}</p>
-        )}
-      </Panel>
+      <BreedingGuide open={infoOpen === "guide"} onClose={closeInfo} />
+      <MoodLightingGuide open={infoOpen === "lighting"} onClose={closeInfo} />
+      <HerdBook
+        open={infoOpen === "herd"}
+        onClose={closeInfo}
+        unlockedTypes={farm.unlockedTypes}
+        pricingRate={pricingRate}
+      />
     </SectionLayout>
   );
 }
