@@ -50,6 +50,7 @@ import {
   getReleaseManagerEconomics,
 } from "./gameLogic.js";
 import {
+  addAgentFleetToggleEmail,
   addEmail,
   collectTriggerEmails,
   deleteEmail,
@@ -1383,6 +1384,28 @@ function gameReducer(state, action) {
         state.emails,
         shared.buildShootingStarsChainEmail({ stars, totalLoc, reason }),
         `shooting-stars-chain:${Date.now()}`,
+        Date.now()
+      );
+      if (!added) return state;
+      return {
+        ...state,
+        emails,
+        emailNotification:
+          isSectionOnScreen(state, "email")
+            ? state.emailNotification
+            : { emailId: added.id },
+      };
+    }
+
+    // Agent Fleet, slice 1 (issue #267): the Write code / Manage agents
+    // toggle appeared (Series A owned), so the Footer asks for its one
+    // announcement mail. Store ranks only change through a restore,
+    // which never mails, so the Footer sends this once per device
+    // (utils/workMode.js) and the trigger key dedupes it in the inbox.
+    case "ANNOUNCE_AGENT_FLEET_TOGGLE": {
+      const { emails, added } = addAgentFleetToggleEmail(
+        state.emails,
+        state.permanentStoreRanks,
         Date.now()
       );
       if (!added) return state;

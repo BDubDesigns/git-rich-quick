@@ -3969,6 +3969,32 @@ export function buildRoadshowReadyEmail(n) {
   });
 }
 
+/** ===== Agent Fleet (issue #267), slice 1: the toggle's unlock mail =====
+ *
+ * Series A owned: the Commit button's spot gains a Write code / Manage
+ * agents toggle. One mail, once (trigger key below, plus a per-device
+ * flag in client/src/utils/workMode.js). Copy only, no game logic, no
+ * link target (the toggle is not on a tab). No em or en dashes.
+ */
+export const AGENT_FLEET_TOGGLE_EMAIL_TRIGGER_KEY = "agent-fleet-unlocked:toggle";
+
+/** The mail announcing the Write code / Manage agents toggle. */
+export function buildAgentFleetToggleEmail() {
+  return {
+    sender: "Investor Relations",
+    subject: "The Series A came with one slide about AI",
+    body:
+      `The new investors asked one question: are we an AI company yet? ` +
+      `There is now a toggle above the Commit button: Write code or ` +
+      `Manage agents.\n\n` +
+      `Write code is the button you know. Typing every line yourself as ` +
+      `a purity test is a valid lifestyle choice. Manage agents swaps the ` +
+      `button for a review queue. It is empty: no agents are on payroll ` +
+      `yet. The board has been told they are coming. The board has been ` +
+      `told a lot of things.`,
+  };
+}
+
 /** ===== Prestige: SUBTRACTERALL (Slice 3, reworked in issue #150) =====
  *
  * An optional stimulant burst with diminishing returns (Brandon,
