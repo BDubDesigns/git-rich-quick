@@ -5,6 +5,16 @@ import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";
 import { EmailNotificationBar } from "./EmailNotificationBar";
 import { Panel } from "./Panel.jsx";
+import { WorkModeToggle } from "./WorkModeToggle.jsx";
+import { ReviewPanel } from "./ReviewPanel.jsx";
+import {
+  WORK_MODE_AGENTS,
+  claimWorkModeAnnouncement,
+  effectiveWorkMode,
+  readWorkMode,
+  workModeUnlocked,
+  writeWorkMode,
+} from "../utils/workMode.js";
 import {
   NEW_VERSION_STATUS,
   SAVE_RATE_LIMIT_SECONDS,
@@ -144,7 +154,37 @@ function SaveStatus() {
   );
 }
 
+/**
+ * Agent Fleet, slice 1 (issue #267): the Commit area's mode. Below
+ * Series A there is no toggle and the mode is always "write", so the
+ * area renders exactly as before. The choice is one per device
+ * (utils/workMode.js), held here once so the mobile and desktop
+ * layouts (both mounted, one hidden by CSS) can never disagree. When
+ * the toggle first appears on this device, one announcement mail is
+ * asked for; the trigger key dedupes it in the inbox.
+ */
+function useWorkMode() {
+  const { state, dispatch } = useGameContext();
+  const unlocked = workModeUnlocked(state.permanentStoreRanks);
+  const [storedMode, setStoredMode] = useState(() => readWorkMode());
+  const mode = effectiveWorkMode(storedMode, unlocked);
+  const chooseMode = (next) => {
+    setStoredMode(next);
+    writeWorkMode(next);
+  };
+  useEffect(() => {
+    if (!unlocked || !claimWorkModeAnnouncement()) return;
+    dispatch({ type: "ANNOUNCE_AGENT_FLEET_TOGGLE" });
+  }, [unlocked, dispatch]);
+  return { unlocked, mode, chooseMode };
+}
+
 export function Footer() {
+  const { unlocked, mode, chooseMode } = useWorkMode();
+  // Manage agents mode swaps the Clicks/sec line and the Commit button
+  // for the Review panel. The Commit button is not rendered at all, so
+  // no manual commit can happen (there is no keyboard shortcut).
+  const agents = mode === WORK_MODE_AGENTS;
   // The email notification bar renders in the normal flow above the
   // nav/commit panels (issue #104), so it takes layout space and
   // never covers panel content.
@@ -157,9 +197,22 @@ export function Footer() {
         <Panel className="flex justify-evenly gap-4 mt-1 py-4 bg-[#181818]">
           <NavBar />
         </Panel>
-        <Panel className="text-center mt-2 pb-5">
-          <CPSMeter />
-          <ClickButton />
+        <Panel className={unlocked ? "text-center mt-2 pt-3 pb-5" : "text-center mt-2 pb-5"}>
+          {unlocked ? (
+            <WorkModeToggle
+              mode={mode}
+              onChange={chooseMode}
+              className="mx-auto mb-2 w-[85%]"
+            />
+          ) : null}
+          {agents ? (
+            <ReviewPanel className="mx-auto w-[85%]" />
+          ) : (
+            <>
+              <CPSMeter />
+              <ClickButton />
+            </>
+          )}
           <SaveStatus />
         </Panel>
       </div>
@@ -174,11 +227,31 @@ export function Footer() {
         <NavBar />
 
         <span className="inline-flex flex-1 items-center justify-center gap-8">
-          <div>
+          {/* Manage agents hides Clicks/sec but keeps its space, so the
+              toggle stays put when the mode changes. */}
+          <div
+            className={agents ? "invisible" : undefined}
+            aria-hidden={agents ? true : undefined}
+          >
             <CPSMeter />
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <ClickButton />
+          {/* Once the toggle exists the column has one fixed width, so
+              the toggle does not resize or move when the mode changes. */}
+          <div
+            className={
+              unlocked
+                ? "flex w-72 flex-col items-end gap-1"
+                : "flex flex-col items-end gap-1"
+            }
+          >
+            {unlocked ? (
+              <WorkModeToggle
+                mode={mode}
+                onChange={chooseMode}
+                className="w-full"
+              />
+            ) : null}
+            {agents ? <ReviewPanel className="w-full" /> : <ClickButton />}
             <SaveStatus />
           </div>
         </span>

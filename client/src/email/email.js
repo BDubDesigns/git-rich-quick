@@ -28,6 +28,7 @@
 
 import {
   ACHIEVEMENT_EMAIL_OUTRO,
+  AGENT_FLEET_TOGGLE_EMAIL_TRIGGER_KEY,
   EMAIL_CONFIG,
   EMPLOYEE_DISPLAY_NAMES,
   EMPLOYEE_TYPES,
@@ -41,6 +42,7 @@ import {
   OPEN_SOURCE_IDS,
   ROADSHOW_EMAIL_ITEM_ID,
   achievementEmailEntries,
+  buildAgentFleetToggleEmail,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
   buildFarmNewTypeEmail,
@@ -77,6 +79,7 @@ import {
   isNightShiftUnlockMet,
 } from "../utils/unlockProgress.js";
 import { formatCondition } from "../utils/formatCondition.js";
+import { workModeUnlocked } from "../utils/workMode.js";
 
 // NOTE: this module deliberately imports only shared/game-balance.js and
 // pure client utils (unlockProgress, formatCondition) — never the display
@@ -570,6 +573,25 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
   }
 
   return { emails, newEmailId };
+}
+
+/**
+ * Agent Fleet, slice 1 (issue #267): the Write code / Manage agents
+ * toggle's announcement. Added only at Series A or later, and deduped
+ * by its fixed trigger key like every one-time mail. Returns addEmail's
+ * `{ emails, added }`. The caller (the Footer, through the reducer)
+ * asks once per device; see utils/workMode.js.
+ */
+export function addAgentFleetToggleEmail(emails, storeRanks, nowMs) {
+  if (!workModeUnlocked(storeRanks)) {
+    return { emails: emails ?? [], added: null };
+  }
+  return addEmail(
+    emails,
+    buildAgentFleetToggleEmail(),
+    AGENT_FLEET_TOGGLE_EMAIL_TRIGGER_KEY,
+    nowMs
+  );
 }
 
 /** ===== Email links (issue #173): what the detail view renders ===== */
