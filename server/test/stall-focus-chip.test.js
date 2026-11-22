@@ -89,7 +89,8 @@ test("the old below-grid selected-stall panel is gone: one home for stall contro
   assert.equal((farm.match(/id="farm-stall-chip"/g) ?? []).length, 1);
   assert.equal((farm.match(/onClick=\{handleSellLlama\}/g) ?? []).length, 1);
   assert.equal((farm.match(/onClick=\{\(\) => handleBuyLlama\(type\)\}/g) ?? []).length, 1);
-  // The legend and the herd book stay below the grid.
+  // The Mood lighting and Herd book buttons sit below the grid (their
+  // popups are pinned in farm-info-popups.test.js).
   assert.ok(afterGrid.includes("Mood lighting"));
   assert.ok(afterGrid.includes("Herd book"));
 });

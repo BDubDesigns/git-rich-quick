@@ -165,7 +165,9 @@ test("wiring: the reducer and the shop UI both read llamaShopTypes; the copy has
   assert.ok(!/LLAMA_BASE_TYPES/.test(context), "the reducer no longer hardcodes the base list");
   const farm = src("components/Farm.jsx");
   assert.match(farm, /\{llamaShopTypes\(farm\.unlockedTypes\)\.map\(\(type\) => \{\s*const price = llamaBuyPriceCents\(type, pricingRate\);/);
-  assert.match(farm, /const forSale = llamaShopTypes\(farm\.unlockedTypes\)\.includes\(type\);/);
+  // The herd book popup reads the same list, from the barn's unlockedTypes.
+  assert.match(src("components/HerdBook.jsx"), /const forSale = llamaShopTypes\(unlockedTypes\)\.includes\(type\);/);
+  assert.match(farm, /unlockedTypes=\{farm\.unlockedTypes\}/);
   assert.ok(!/LLAMA_BASE_TYPES/.test(farm));
   assert.ok(!farm.includes("—") && !farm.includes("–"), "no em or en dashes in Farm.jsx");
   assert.match(farm, /a fancy type joins the shop once you\s*have bred one\./);

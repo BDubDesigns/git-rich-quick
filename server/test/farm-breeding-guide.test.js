@@ -41,6 +41,9 @@ const src = (path) =>
   readFileSync(new URL(`../../client/src/${path}`, import.meta.url), "utf8");
 const farmCard = src("components/Farm.jsx");
 const guideCard = src("components/BreedingGuide.jsx");
+const shellCard = src("components/InfoDialog.jsx");
+const herdBookCard = src("components/HerdBook.jsx");
+const lightingCard = src("components/MoodLightingGuide.jsx");
 const guideUtil = src("utils/breedingGuide.js");
 
 const allText = () =>
@@ -184,10 +187,13 @@ test("the discovery light is the one with the best new-kind odds, and the herd b
 });
 
 test("the herd book shows found kinds in full, shop kinds by name, and unfound bred kinds as ???", () => {
-  const book = farmCard.slice(farmCard.indexOf("Herd book ("));
+  // The herd book is a popup now (HerdBook.jsx), fed the barn's own
+  // unlockedTypes and the Farm's pricing rate.
+  assert.match(farmCard, /unlockedTypes=\{farm\.unlockedTypes\}\s*pricingRate=\{pricingRate\}/);
+  const book = herdBookCard.slice(herdBookCard.indexOf("Herd book ("));
   // A kind is named when it is discovered or in the shop (the base
   // kinds always are); anything else is ???.
-  assert.match(book, /const forSale = llamaShopTypes\(farm\.unlockedTypes\)\.includes\(type\);/);
+  assert.match(book, /const forSale = llamaShopTypes\(unlockedTypes\)\.includes\(type\);/);
   // Brandon, Nov 21: a ??? row shows only its label and the hint, no prices.
   assert.match(book, /if \(!forSale\) \{[\s\S]*?<strong>\?\?\? \(undiscovered\)<\/strong>\. Breed one to find it\.[\s\S]*?\}/);
   assert.match(book, /<strong>\{LLAMA_TYPE_NAMES\[type\]\}<\/strong>/);
@@ -197,20 +203,28 @@ test("the herd book shows found kinds in full, shop kinds by name, and unfound b
 });
 
 test("the guide is a real dialog: opened from the Farm, Escape and a Close button close it, focus is managed", () => {
-  // Reachable from the owned Farm's top panel.
-  assert.match(farmCard, /setGuideOpen\(true\)\}>How breeding works</);
-  assert.match(farmCard, /<BreedingGuide open=\{guideOpen\} onClose=\{\(\) => setGuideOpen\(false\)\} \/>/);
-  // A native modal dialog: dialog role, focus kept inside, Escape closes.
-  assert.match(guideCard, /<dialog\b/);
-  assert.match(guideCard, /showModal/);
-  assert.match(guideCard, /aria-labelledby="breeding-guide-title"/);
-  assert.match(guideCard, /id="breeding-guide-title"/);
-  assert.match(guideCard, /onClose=\{handleClose\}/);
+  // Reachable from the owned Farm's bottom info panel.
+  assert.match(farmCard, /onClick=\{\(\) => setInfoOpen\("guide"\)\}[\s\S]*?>\s*How breeding works\s*</);
+  assert.match(farmCard, /<BreedingGuide open=\{infoOpen === "guide"\} onClose=\{closeInfo\} \/>/);
+  // It renders in the shared InfoDialog shell, labelled by its title.
+  assert.match(guideCard, /<InfoDialog\b[\s\S]*?titleId="breeding-guide-title"[\s\S]*?title="How breeding works"/);
+  assert.doesNotMatch(guideCard, /<dialog\b/);
+  // The shell: a native modal dialog (dialog role, focus kept inside,
+  // Escape closes), labelled by the title it renders.
+  assert.match(shellCard, /<dialog\b/);
+  assert.match(shellCard, /showModal/);
+  assert.match(shellCard, /aria-labelledby=\{titleId\}/);
+  assert.match(shellCard, /<h2 id=\{titleId\}/);
+  assert.match(shellCard, /onClose=\{handleClose\}/);
   // Close button, focused on open; focus returns to the opener.
-  assert.match(guideCard, /ref=\{closeRef\}[\s\S]*?>\s*Close\s*</);
-  assert.match(guideCard, /closeRef\.current\?\.focus\(\)/);
-  assert.match(guideCard, /returnFocusRef\.current = document\.activeElement/);
-  assert.match(guideCard, /opener\.focus\(\)/);
+  assert.match(shellCard, /ref=\{closeRef\}[\s\S]*?>\s*Close\s*</);
+  assert.match(shellCard, /closeRef\.current\?\.focus\(\)/);
+  assert.match(shellCard, /returnFocusRef\.current = document\.activeElement/);
+  assert.match(shellCard, /opener\.focus\(\)/);
+  // Got it and a backdrop tap close it too; the title and Close stay pinned.
+  assert.match(shellCard, />Got it</);
+  assert.match(shellCard, /event\.target === dialogRef\.current/);
+  assert.match(shellCard, /sticky top-0/);
   // The lighting table has both odds per light.
   assert.match(guideCard, /Kid per check/);
   assert.match(guideCard, /With a Mama/);
@@ -218,12 +232,14 @@ test("the guide is a real dialog: opened from the Farm, Escape and a Close butto
 });
 
 test("no browser popups, no animation, no em or en dashes", () => {
-  for (const file of [guideCard, guideUtil, farmCard]) {
+  for (const file of [guideCard, guideUtil, farmCard, shellCard, herdBookCard, lightingCard]) {
     assert.doesNotMatch(file, /window\.(alert|confirm|prompt)/);
     assert.doesNotMatch(file, /[–—]/);
   }
   assert.doesNotMatch(allText(), /[–—]/);
-  assert.doesNotMatch(guideCard, /animate-|transition|@keyframes/);
+  for (const file of [guideCard, shellCard, herdBookCard, lightingCard]) {
+    assert.doesNotMatch(file, /animate-|transition|@keyframes/);
+  }
 });
 
 test("the Commit float's behavior is unchanged: its files have no diff", () => {
