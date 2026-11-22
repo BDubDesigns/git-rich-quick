@@ -11,10 +11,20 @@
  * "dev" instead of throwing.
  */
 
-/* global __APP_COMMIT__ __APP_BUILD_TIME__ */
+/* global __APP_COMMIT__ __APP_BUILD_TIME__ __BUILD_ID__ */
 
 export const APP_COMMIT =
   typeof __APP_COMMIT__ !== "undefined" ? __APP_COMMIT__ : "dev";
+
+/**
+ * The build id (stale-client guard): the full commit sha on Vercel or
+ * CI, else the build timestamp. Sent with every save as `clientBuild`
+ * and written to version.json, so a tab can tell when a newer build
+ * is deployed (see save/versionCheck.js). "dev" when the define is
+ * absent (Node tests import this file directly).
+ */
+export const BUILD_ID =
+  typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev";
 export const APP_BUILD_TIME =
   typeof __APP_BUILD_TIME__ !== "undefined" ? __APP_BUILD_TIME__ : null;
 

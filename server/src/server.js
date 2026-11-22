@@ -69,7 +69,10 @@
  * arrives too soon after the last accepted save is 429 — the client keeps
  * its local actions and retries on the next heartbeat instead of
  * discarding them (the 409 path discards local state, which is wrong for
- * a rate limit).
+ * a rate limit). A save, sale, store buy or intermission completion with
+ * no `clientBuild` (a client bundle from before the stale-client guard)
+ * is a 409 with rule STALE_CLIENT and the stored save, written nowhere
+ * (see rejectStaleClient).
  *
  * CORS allows the Vercel-hosted client and local Vite dev/preview. The
  * client stays on Vercel; only the API lives on Hetzner. The client
@@ -106,7 +109,11 @@ import {
   pruneInactiveGuestSaves,
   startPruneScheduler,
 } from "./prune.js";
-import { SAVE_RATE_LIMIT_SECONDS, validateSeedState } from "./validate.js";
+import {
+  SAVE_RATE_LIMIT_SECONDS,
+  clientBuildError,
+  validateSeedState,
+} from "./validate.js";
 import {
   LEGACY_METRICS_REASONS,
   METRICS_REASONS,
@@ -635,6 +642,47 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
     sendJson(res, 200, { ok: true, playerId });
   }
 
+  /**
+   * Stale-client guard: refuse a state-writing request that carries no
+   * valid `clientBuild` (see validate.clientBuildError). A client
+   * bundle from before the guard never sends one, so its saves can no
+   * longer overwrite the stored copy with an older idea of the game
+   * (fields it does not know about, such as llama locks, would be
+   * dropped). The answer is the ordinary 409 shape, rule STALE_CLIENT,
+   * with the stored save as lastGoodState: the old client's 409 path
+   * reverts to it and waits for its next heartbeat. Nothing is written.
+   * Returns true when it has already answered (409 or 404); the caller
+   * then returns.
+   */
+  async function rejectStaleClient(res, body, kind) {
+    const detail = clientBuildError(body);
+    if (!detail) return false;
+    const snapshot = await store.get(body.playerId);
+    if (!snapshot) {
+      sendJson(res, 404, { error: "unknown-player" });
+      return true;
+    }
+    const nowMs = clock();
+    // One short line (no state): an old tab repeats this every heartbeat.
+    console.warn(
+      "[save] rejected stale client",
+      JSON.stringify({ playerId: body.playerId, kind, rule: "STALE_CLIENT" })
+    );
+    recordRejectedSave({
+      playerId: body.playerId,
+      rule: "STALE_CLIENT",
+      detail,
+      rejectedAtMs: nowMs,
+    });
+    sendJson(res, 409, {
+      error: `${kind}-rejected`,
+      rule: "STALE_CLIENT",
+      detail,
+      lastGoodState: snapshotBody(snapshot),
+    });
+    return true;
+  }
+
   async function handleSave(req, res) {
     let body;
     try {
@@ -661,6 +709,7 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       });
       return;
     }
+    if (await rejectStaleClient(res, body, "save")) return;
     const nowMs = clock();
     const result = await store.applySave(body.playerId, body, nowMs);
     if (result.status === "unknown-player") {
@@ -833,6 +882,7 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       });
       return;
     }
+    if (await rejectStaleClient(res, body, "sale")) return;
     const nowMs = clock();
     const result = await store.applySale(body.playerId, body, nowMs);
     if (result.status === "unknown-player") {
@@ -918,6 +968,7 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       });
       return;
     }
+    if (await rejectStaleClient(res, body, "store-buy")) return;
     const nowMs = clock();
     const result = await store.applyStoreBuy(body.playerId, body, nowMs);
     if (result.status === "unknown-player") {
@@ -998,6 +1049,7 @@ export function createServer(store, { clock = Date.now, auth, adminToken } = {})
       });
       return;
     }
+    if (await rejectStaleClient(res, body, "intermission-complete")) return;
     const nowMs = clock();
     const result = await store.completeIntermission(
       body.playerId,

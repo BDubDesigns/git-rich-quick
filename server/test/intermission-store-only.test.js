@@ -41,6 +41,7 @@ import {
   INTERMISSION_ALLOWED_ACTIONS,
   isActionBlockedDuringIntermission,
 } from "../../client/src/context/intermissionGate.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 const src = (path) =>
@@ -73,7 +74,7 @@ async function post(base, path, body) {
   return fetch(`${base}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withClientBuild(path, body)),
   });
 }
 

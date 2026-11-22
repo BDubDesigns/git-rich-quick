@@ -5,7 +5,10 @@ import { CPSMeter } from "./CPSMeter";
 import { NavBar } from "./NavBar";
 import { EmailNotificationBar } from "./EmailNotificationBar";
 import { Panel } from "./Panel.jsx";
-import { SAVE_RATE_LIMIT_SECONDS } from "../save/saveSync.js";
+import {
+  NEW_VERSION_STATUS,
+  SAVE_RATE_LIMIT_SECONDS,
+} from "../save/saveSync.js";
 
 // Save status (Slice 2, server-authoritative saves). The engine reports it
 // via context; the footer just renders it, it never drives a save.
@@ -15,7 +18,38 @@ const SAVE_STATUS_LABELS = {
   saved: "Progress saved",
   offline: "Offline. Progress will sync when reconnected",
   error: "Save error. Progress reverted to the last good save",
+  [NEW_VERSION_STATUS]: "Saving paused until you reload",
 };
+
+/** The reload prompt (stale-client guard). No dashes: player-facing. */
+export const NEW_VERSION_MESSAGE = "A new version is out. Reload to keep playing.";
+
+/**
+ * Stale-client guard: a newer build is deployed, so this tab has
+ * stopped saving (its idea of the save may lack fields the new build
+ * writes). The prompt stays until the player reloads: there is no
+ * dismiss, and the engine keeps the status pinned. It sits in the
+ * normal flow above the nav, like the email bar, so it never covers
+ * the game, and spans the width on a phone.
+ */
+function NewVersionBanner() {
+  const { saveStatus } = useGameContext();
+  if (saveStatus !== NEW_VERSION_STATUS) return null;
+  return (
+    <Panel className="mt-1 flex items-center justify-between gap-3 border border-amber-400 bg-amber-950 px-3 py-2 text-amber-100">
+      <span role="alert" className="text-sm leading-snug">
+        {NEW_VERSION_MESSAGE}
+      </span>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="shrink-0 rounded bg-amber-400 px-3 py-1.5 text-sm font-semibold text-black hover:bg-amber-300"
+      >
+        Reload
+      </button>
+    </Panel>
+  );
+}
 
 // "Saved just now" right after a save, then "Saved 5s ago", "Saved 2m ago".
 function formatSavedAgo(savedAtMs, nowMs) {
@@ -85,6 +119,7 @@ function SaveStatus() {
     saveStatus === "retrying" ||
     saveStatus === "offline" ||
     saveStatus === "loading" ||
+    saveStatus === NEW_VERSION_STATUS ||
     onCooldown;
 
   return (
@@ -115,6 +150,7 @@ export function Footer() {
   // never covers panel content.
   return (
     <div>
+      <NewVersionBanner />
       <EmailNotificationBar />
       {/* Mobile: Stacked (nav + commit button) */}
       <div className="lg:hidden">

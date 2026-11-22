@@ -36,6 +36,7 @@ import {
   saveStateToGameFields,
   stateToSaveState,
 } from "../../client/src/save/serialize.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 const WIPE_KEY = "save-wipe:v3";
@@ -67,7 +68,7 @@ async function post(base, path, body) {
   return fetch(`${base}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withClientBuild(path, body)),
   });
 }
 

@@ -49,6 +49,7 @@ import {
   saveStateToGameFields,
   stateToSaveState,
 } from "../../client/src/save/serialize.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 const PLAYER_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -415,7 +416,7 @@ async function post(base, path, body) {
   return fetch(`${base}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withClientBuild(path, body)),
   });
 }
 

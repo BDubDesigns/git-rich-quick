@@ -57,6 +57,7 @@ import {
   PRESTIGE_STORE_CONFIG,
   PRESTIGE_STORE_IDS,
 } from "../../shared/game-balance.js";
+import { withClientBuild } from "./helpers/client-build.js";
 
 const T0 = 1_700_000_000_000;
 
@@ -90,7 +91,7 @@ async function post(base, path, body) {
   return fetch(`${base}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withClientBuild(path, body)),
   });
 }
 
