@@ -299,6 +299,21 @@ body {
   }
 }
 
+/* Collapsible Hire cards: a compact button (the 31px game-button) with
+   a 41px tall tap area, so the one-line rows and the Collapse all
+   control keep the controls' look and still meet the 40px touch
+   target. The ::after only widens the hit box; nothing is drawn. Its
+   inset counts from the padding box, inside the 1px border: 29 + 12. */
+.tap-target-40 {
+  position: relative;
+}
+
+.tap-target-40::after {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
+}
+
 
 /* Email deep links (issue #173): the card an email link lands on
    flashes once. HighlightAnchor adds the class for 1.6s; the outline

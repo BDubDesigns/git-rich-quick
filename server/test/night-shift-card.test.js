@@ -172,7 +172,10 @@ test("row model at max level: 'L5/5 Maxed' and no buy button", () => {
 
 test("collapsed by default, the toggle is a disclosure button with aria-expanded and aria-controls", () => {
   const c = card();
-  assert.match(c, /useState\(\(\) => readNightShiftOpen\(\)\)/);
+  // Open state comes from the Hire tab's one card store (#hire-collapse),
+  // which reads and writes grq:nightShiftOpen for this card.
+  assert.match(c, /const \[open, toggle\] = useHireCardOpen\(NIGHT_SHIFT_CARD_ID\);/);
+  assert.match(src("utils/hireCards.js"), /\[NIGHT_SHIFT_CARD_ID\]: readNightShiftOpen\(storage\)/);
   assert.match(c, /const detailId = useId\(\);/);
   assert.match(c, /<button\s+type="button"[\s\S]*?onClick=\{toggle\}\s+aria-expanded=\{open\}\s+aria-controls=\{detailId\}/);
   assert.match(c, /<div id=\{detailId\} hidden=\{!open\}/);
@@ -180,8 +183,9 @@ test("collapsed by default, the toggle is a disclosure button with aria-expanded
   assert.match(c, /info-toggle-chevron/);
   const css = readFileSync(new URL("../../client/src/index.css", import.meta.url), "utf8");
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.info-toggle-chevron \{\s*transition: none;/);
-  // A tap remembers the choice.
-  assert.match(c, /const toggle = \(\) => \{\s*const nextOpen = !open;\s*setOpen\(nextOpen\);\s*writeNightShiftOpen\(nextOpen\);/);
+  // A tap remembers the choice (the shared store's setOpen writes it).
+  assert.match(src("hooks/useHireCards.js"), /const toggle = \(\) => hireCardsStore\.setOpen\(cardId, !open\);/);
+  assert.match(src("utils/hireCards.js"), /writeNightShiftOpen\(saved\[NIGHT_SHIFT_CARD_ID\], storage\)/);
 });
 
 test("the collapsed row: moon, title, chip, short reason, price button", () => {
@@ -239,12 +243,19 @@ test("an email link to the card opens it before its anchor scrolls and flashes",
     false
   );
 
-  // The card reads the same match and opens during render, so the
-  // expanded card is in the DOM when HighlightAnchor's effect scrolls.
+  // The card reads the same match (through the shared hook, with its
+  // own id) and opens during render, so the expanded card is in the DOM
+  // when HighlightAnchor's effect scrolls.
   const c = card();
-  assert.match(c, /const targeted = highlightMatches\(\s*state\.highlightTarget,\s*"shop",\s*shared\.NIGHT_SHIFT_EMAIL_ITEM_ID\s*\);\s*if \(targeted && !open\) setOpen\(true\);/);
-  // It does not persist the link's open as the device choice.
-  assert.equal((c.match(/writeNightShiftOpen\(/g) ?? []).length, 1);
+  assert.match(c, /useHireCardOpen\(NIGHT_SHIFT_CARD_ID\)/);
+  assert.match(src("utils/hireCards.js"), /export const NIGHT_SHIFT_CARD_ID = NIGHT_SHIFT_EMAIL_ITEM_ID;/);
+  const hook = src("hooks/useHireCards.js");
+  assert.match(hook, /const targeted = highlightMatches\(state\.highlightTarget, "shop", cardId\);/);
+  assert.match(hook, /const open = targeted \|\| isHireCardOpen\(cards, cardId\);/);
+  // It does not persist the link's open as the device choice: the link
+  // path is openForSession, which never writes storage.
+  assert.match(hook, /if \(targeted\) hireCardsStore\.openForSession\(cardId\);/);
+  assert.ok(!/writeNightShiftOpen|setItem/.test(c), "the card itself never writes storage");
   // The anchor around it is unchanged.
   assert.match(
     src("components/Shop.jsx"),
