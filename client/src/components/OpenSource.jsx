@@ -139,12 +139,17 @@ export function OpenSource() {
       {activeCards.map((card) => card.element)}
       {maxedCards.length > 0 && (
         <>
-          {/* Same visual language as the tab's SectionTitleBar (GRQ
-              prefix, dark bar, blue top border), minus the description
-              toggle; this is a grouping label, not a section. */}
-          <div className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border-t border-[#0078d4] text-sm text-[#cccccc] w-fit">
-            <span className="text-[#c5c53f]">GRQ</span>
-            <h2 className="m-0">Maxed Out</h2>
+          {/* A tab strip divider in the SectionTitleBar's language
+              (issue #231): the recessed strip with its 1px baseline,
+              holding one INACTIVE tab. No accent line and no lift, dim
+              text and a dim GRQ icon, so it reads as a second open file
+              behind the section's own tab. A grouping label, not a
+              section: no picker, no Info toggle. */}
+          <div className="maxed-strip mt-2 flex items-stretch h-8 w-full bg-[var(--main-bg-color)] border-y border-[var(--title-bar-color)] text-sm text-[#9d9d9d]">
+            <h2 className="maxed-tab m-0 flex items-center gap-2 px-3 bg-[var(--main-bg-color)] border-r border-[var(--title-bar-color)] text-sm font-normal">
+              <span className="shrink-0 text-[11px] font-bold text-[#c5c53f] opacity-60" aria-hidden="true">GRQ</span>
+              <span>Maxed Out</span>
+            </h2>
           </div>
           {maxedCards.map((card) => card.element)}
         </>

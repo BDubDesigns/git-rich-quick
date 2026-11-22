@@ -12,6 +12,7 @@ import {
   FARM_LIGHTING,
   FARM_LIGHTING_COLORS,
   LLAMA_ECONOMY,
+  LLAMA_TYPES,
   LLAMA_TYPE_NAMES,
   farmKidChance,
   formatEstimateDuration,
@@ -97,6 +98,15 @@ export function bestDiscoveryLighting() {
   return FARM_LIGHTING_COLORS.reduce((best, id) =>
     FARM_LIGHTING[id].newTypeChance > FARM_LIGHTING[best].newTypeChance ? id : best
   );
+}
+
+/**
+ * How many kinds the barn has discovered, out of every kind. The one
+ * source for the Herd book popup's title ("Herd book (5/7 discovered)")
+ * and the Farm button that opens it ("Herd book (5/7)").
+ */
+export function herdBookCount(unlockedTypes) {
+  return { discovered: unlockedTypes.length, total: LLAMA_TYPES.length };
 }
 
 export function herdBookHiddenHint() {

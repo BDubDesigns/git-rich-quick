@@ -41,3 +41,28 @@ test("the pinned-pane flash lights the tab, steady under reduced motion", () => 
     assert.ok(!/[—–]/.test(src(file)), `no em or en dash in ${file}`);
   }
 });
+
+test("Open Source's Maxed Out label is an inactive tab in the same strip language", () => {
+  const os = src("components/OpenSource.jsx");
+  const start = os.indexOf("{maxedCards.length > 0 && (");
+  const group = os.slice(start, os.indexOf("{maxedCards.map(", start));
+  // The strip: the recessed shell color with title-bar-color edges.
+  const strip = group.match(/className="maxed-strip ([^"]*)"/);
+  assert.ok(strip, "the label sits in a strip");
+  for (const cls of ["bg-[var(--main-bg-color)]", "border-y", "border-[var(--title-bar-color)]", "w-full"]) {
+    assert.ok(strip[1].split(" ").includes(cls), `strip has ${cls}`);
+  }
+  // The tab: inactive, so no accent line, no lift onto the panel color,
+  // and dim text; one edge on the right like an inactive VS Code tab.
+  const tab = group.match(/<h2 className="maxed-tab ([^"]*)"/);
+  assert.ok(tab, "the h2 is the tab");
+  assert.ok(tab[1].split(" ").includes("border-r"));
+  assert.ok(!/#0078d4|panel-background-color|border-t/.test(group), "no accent line, no lift");
+  assert.match(strip[1], /text-\[#9d9d9d\]/);
+  // GRQ is the file-type icon, dimmed; the heading reads "Maxed Out".
+  assert.match(group, /text-\[#c5c53f\] opacity-60" aria-hidden="true">GRQ</);
+  assert.match(group, /<span>Maxed Out<\/span>\s*<\/h2>/);
+  // The old floating bar is gone.
+  assert.doesNotMatch(os, /bg-\[#1e1e1e\]/);
+  assert.ok(!/[—–]/.test(os), "no em or en dash in OpenSource.jsx");
+});

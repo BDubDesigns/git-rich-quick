@@ -29,8 +29,9 @@ const infoPanel = owned.slice(panelStart, owned.indexOf("</Panel>", panelStart))
 const BUTTONS = [
   ["guide", "How breeding works"],
   ["lighting", "Mood lighting"],
-  ["herd", "Herd book"],
+  ["herd", "Herd book ({herdCount.discovered}/{herdCount.total})"],
 ];
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 test("the three buttons sit together in one panel after the stall grid and the chip", () => {
   assert.ok(gridStart > 0 && panelStart > gridStart, "the info panel comes after the grid");
@@ -55,7 +56,7 @@ test("the three buttons sit together in one panel after the stall grid and the c
 });
 
 test("each button is the game's Button with a 40px tap target", () => {
-  assert.equal((infoPanel.match(/className="(col-span-2 )?min-h-10 w-full leading-tight"/g) ?? []).length, 3);
+  assert.equal((infoPanel.match(/className="(col-span-2 )?min-h-10 w-full leading-tight( whitespace-nowrap)?"/g) ?? []).length, 3);
   assert.match(infoPanel, /setInfoOpen\("guide"\)\}\s*className="col-span-2 min-h-10/);
   assert.match(farm, /import \{ Button \} from "\.\/Button\.jsx";/);
 });
@@ -76,7 +77,7 @@ test("each button opens its own popup; one popup is open at a time", () => {
   for (const [key, label] of BUTTONS) {
     assert.match(
       infoPanel,
-      new RegExp(`onClick=\\{\\(\\) => setInfoOpen\\("${key}"\\)\\}[^<]*>\\s*${label}\\s*<`),
+      new RegExp(`onClick=\\{\\(\\) => setInfoOpen\\("${key}"\\)\\}[^<]*>\\s*${escapeRe(label)}\\s*<`),
       label
     );
   }
@@ -90,7 +91,7 @@ test("all three popups share one dialog shell, with distinct titles", () => {
   for (const [file, id, title] of [
     [guide, "breeding-guide-title", /title="How breeding works"/],
     [lighting, "mood-lighting-title", /title="Mood lighting"/],
-    [herdBook, "herd-book-title", /title=\{`Herd book \(\$\{unlockedTypes\.length\}\/\$\{LLAMA_TYPES\.length\} discovered\)`\}/],
+    [herdBook, "herd-book-title", /title=\{`Herd book \(\$\{count\.discovered\}\/\$\{count\.total\} discovered\)`\}/],
   ]) {
     assert.match(file, /import \{ InfoDialog \} from "\.\/InfoDialog\.jsx";/);
     assert.match(file, new RegExp(`titleId="${id}"`));
@@ -116,7 +117,9 @@ test("the legend and the herd book are no longer rendered inline on the Farm tab
   assert.doesNotMatch(farm, /<p className="m-0 font-semibold">Mood lighting<\/p>/);
   assert.doesNotMatch(farm, /lighting\.newTypeChance|lighting\.kidChance/);
   assert.doesNotMatch(farm, /Mama Llama:<\/strong>/);
-  assert.doesNotMatch(farm, /Herd book \(/);
+  // The button shows the count; the popup's title and list stay out.
+  assert.doesNotMatch(farm, /discovered\)/);
+  assert.doesNotMatch(farm, /unlockedTypes\.length/);
   assert.doesNotMatch(farm, /\?\?\? \(undiscovered\)/);
   assert.doesNotMatch(farm, /herdBookHiddenHint|LLAMA_TYPE_DESCRIPTIONS/);
   assert.doesNotMatch(farm, /\{LLAMA_TYPES\.map/);
@@ -130,6 +133,30 @@ test("Mood lighting keeps every light's dot, name, flavour and odds, read from t
   assert.match(lighting, /Her\s+kids take the other parent's type\. Breed fast, sell the kids\./);
   // No literal odds: every number is interpolated.
   assert.doesNotMatch(lighting.replace(/\* 100/g, ""), /\d+%/);
+});
+
+test("the Herd book button shows the popup title's discovered count, from the same helper", () => {
+  // One helper feeds both: the popup title and the button.
+  assert.match(herdBook, /import \{ herdBookCount, herdBookHiddenHint \} from "\.\.\/utils\/breedingGuide\.js";/);
+  assert.match(herdBook, /const count = herdBookCount\(unlockedTypes\);/);
+  assert.match(farm, /import \{ herdBookCount \} from "\.\.\/utils\/breedingGuide\.js";/);
+  assert.match(owned, /const herdCount = herdBookCount\(farm\.unlockedTypes\);/);
+  const start = infoPanel.indexOf('setInfoOpen("herd")');
+  const button = infoPanel.slice(start, infoPanel.indexOf("</Button>", start));
+  // "Herd book (5/7)" on one line at 360px; it reads naturally aloud.
+  assert.match(button, /className="min-h-10 w-full leading-tight whitespace-nowrap"/);
+  assert.match(button, /aria-label=\{`Herd book, \$\{herdCount\.discovered\} of \$\{herdCount\.total\} discovered`\}/);
+  assert.match(button, />\s*Herd book \(\{herdCount\.discovered\}\/\{herdCount\.total\}\)\s*$/);
+  // No copy of the count anywhere on the Farm.
+  assert.doesNotMatch(farm, /LLAMA_TYPES\.length/);
+});
+
+test("herdBookCount is the barn's discovered kinds out of every kind", async () => {
+  const { herdBookCount } = await import("../../client/src/utils/breedingGuide.js");
+  const { LLAMA_TYPES } = await import("../../shared/game-balance.js");
+  assert.deepEqual(herdBookCount([]), { discovered: 0, total: LLAMA_TYPES.length });
+  assert.deepEqual(herdBookCount(LLAMA_TYPES.slice(0, 5)), { discovered: 5, total: LLAMA_TYPES.length });
+  assert.deepEqual(herdBookCount([...LLAMA_TYPES]), { discovered: LLAMA_TYPES.length, total: LLAMA_TYPES.length });
 });
 
 test("the herd book keeps every line and the ??? rules exactly", () => {
