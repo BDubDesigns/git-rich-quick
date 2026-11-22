@@ -31,6 +31,7 @@ import {
   AGENT_PR_FLAG_TYPES,
   AGENT_PR_KINDS,
   AGENT_PR_TITLES,
+  AGENT_SPECIAL_PRS,
   CODING_AGENT_CARD_ID,
   EMAIL_CONFIG,
   EMPLOYEE_TYPES,
@@ -51,6 +52,7 @@ import {
   agentPrPayoutLoc,
   agentPrRedFlags,
   agentPullRequest,
+  agentSpecialPrIndex,
   agentTokenBillCents,
   applyAgentHire,
   applyManualCommitDebt,
@@ -99,13 +101,22 @@ const S = cashBasisCentsPerSecond(P);
 const ranksAt = (fundingRounds) => ({ ...zeroStoreRanks(), fundingRounds });
 const fleetWith = (overrides = {}) => ({ ...zeroAgentFleetState(), seed: 4242, ...overrides });
 
-/** The first PR numbers of a seed whose PR matches `pred`. */
+/** The first PR numbers of a seed whose GENERATED (not special) PR matches `pred`. */
 function findPrs(seed, pred, count = 1) {
   const found = [];
   for (let n = 1; found.length < count && n < 100_000; n += 1) {
-    if (pred(agentPullRequest(seed, n))) found.push(n);
+    const pr = agentPullRequest(seed, n);
+    if (pr.special === null && pred(pr)) found.push(n);
   }
   return found;
+}
+
+/** The first PR number of a seed that is special PR `index`. */
+function findSpecial(seed, index) {
+  for (let n = 1; n < 100_000; n += 1) {
+    if (agentSpecialPrIndex(seed, n) === index) return n;
+  }
+  return null;
 }
 
 // --- The table ---
@@ -123,6 +134,8 @@ test("the tuning table holds Brandon's starting numbers, and the toggle shares t
       prPayoutSeconds: 20,
       slopChance: 0.35,
       slopDebt: 5,
+      goodPrDebt: 1,
+      specialPrChance: 1 / 6,
       maxDebt: 100,
       dragPerDebt: 0.005,
       commitPaydown: 0.2,
@@ -130,7 +143,7 @@ test("the tuning table holds Brandon's starting numbers, and the toggle shares t
       sprintSeconds: 60,
       sprintKeep: 0.2,
       sprintResidue: 2,
-      tokenBillShare: 0.005,
+      tokenBillShare: 0.04,
       debtMailThreshold: 50,
     }
   );
@@ -176,15 +189,32 @@ test("hiring: Series A only, cash only, seeds the PR generator once, never past 
   );
 });
 
-test("token bill: 0.5% of S per agent per second, deducted every tick while agents work", () => {
-  assert.equal(agentTokenBillCents(1, P), Math.round(0.005 * S));
-  assert.equal(agentTokenBillCents(6, P), Math.round(6 * 0.005 * S));
+test("token bill: 4% of S per agent per second, deducted every tick while agents work", () => {
+  assert.equal(agentTokenBillCents(1, P), Math.round(0.04 * S));
+  assert.equal(agentTokenBillCents(6, P), Math.round(6 * 0.04 * S));
   assert.equal(agentTokenBillCents(0, P), 0);
   const money = 1e12;
   const r = advanceAgentFleet(fleetWith({ agents: 6 }), { money, buffedLocPerSec: P });
   assert.equal(r.billCents, agentTokenBillCents(6, P));
   assert.equal(r.money, money - agentTokenBillCents(6, P));
   assert.equal(r.status, "working");
+});
+
+test("the bill is about 12% of what one agent's approved PRs are worth in cash", () => {
+  const { prPayoutSeconds, prIntervalSeconds, tokenBillShare } = AGENT_FLEET_CONFIG;
+  // One agent: one PR per 60s, 20 seconds of P each, so P/3 LOC per second.
+  const locPerSecond = (prPayoutSeconds / prIntervalSeconds) * P;
+  // S prices LOC at the cash basis rate: S / P cents per LOC (21).
+  const centsPerLoc = S / P;
+  assert.equal(Math.round(centsPerLoc), 21);
+  const prCashPerSecond = locPerSecond * centsPerLoc; // S / 3
+  assert.ok(Math.abs(prCashPerSecond - S / 3) < 1e-6 * S);
+  const share = agentTokenBillCents(1, P) / prCashPerSecond;
+  assert.ok(Math.abs(share - 0.12) < 0.001, `${share}`);
+  assert.ok(Math.abs(tokenBillShare / (prPayoutSeconds / prIntervalSeconds) - 0.12) < 1e-9);
+  // Paused agents still bill nothing (backlog full).
+  const full = fleetWith({ agents: 6, queue: Array.from({ length: 20 }, (_, i) => i + 1), nextPr: 21 });
+  assert.equal(advanceAgentFleet(full, { money: 1e15, buffedLocPerSec: P }).billCents, 0);
 });
 
 test("too little cash for the bill pauses the agents: no bill, no PRs, never negative money", () => {
@@ -276,13 +306,18 @@ test("PR titles: about 40 in one list, half topical and half evergreen, no dashe
   }
 });
 
-test("PR generation is deterministic from (seed, number), and slop runs near 35%", () => {
+test("PR generation is deterministic from (seed, number), and generated slop runs near 35%", () => {
   assert.deepEqual(agentPullRequest(99, 7), agentPullRequest(99, 7));
   assert.notDeepEqual(agentPullRequest(99, 7), agentPullRequest(100, 7));
   let slop = 0;
-  const N = 20_000;
-  for (let n = 1; n <= N; n += 1) if (agentPullRequest(31337, n).slop) slop += 1;
-  assert.ok(Math.abs(slop / N - AGENT_FLEET_CONFIG.slopChance) < 0.02, `${slop / N}`);
+  let generated = 0;
+  for (let n = 1; n <= 24_000; n += 1) {
+    const pr = agentPullRequest(31337, n);
+    if (pr.special !== null) continue;
+    generated += 1;
+    if (pr.slop) slop += 1;
+  }
+  assert.ok(Math.abs(slop / generated - AGENT_FLEET_CONFIG.slopChance) < 0.02, `${slop / generated}`);
 });
 
 test("titles are independent of slop: every title shows up both as slop and as good", () => {
@@ -290,6 +325,7 @@ test("titles are independent of slop: every title shows up both as slop and as g
   for (const seed of [1, 2, 3]) {
     for (let n = 1; n <= 6_000; n += 1) {
       const pr = agentPullRequest(seed, n);
+      if (pr.special !== null) continue;
       seen[pr.titleIndex][pr.slop ? "slop" : "good"] += 1;
     }
   }
@@ -307,6 +343,11 @@ test("every slop PR has 1 or 2 red flags in its diff or checks; every good PR ha
     for (let n = 1; n <= 10_000; n += 1) {
       const pr = agentPullRequest(seed, n);
       const red = agentPrRedFlags(pr);
+      if (pr.special !== null) {
+        // Specials have their own rules (see the special PR tests).
+        assert.equal(red.length > 0, pr.slop, pr.title);
+        continue;
+      }
       if (pr.slop) {
         assert.ok(red.length >= 1 && red.length <= 2, `slop #${n}: ${red}`);
         assert.deepEqual(red, pr.flags, "the generated flags are what a reviewer sees");
@@ -368,14 +409,15 @@ test("approve and reject: payouts, debt, the good catch bonus, the HR complaint"
 
   const merged = reviewAgentPr(fleet(good), good, "approve", P);
   assert.equal(merged.outcome, "merged");
-  assert.equal(merged.loc, 20 * P);
-  assert.equal(merged.fleet.debt, 10);
+  assert.equal(merged.loc, 20 * P, "the payout is unchanged");
+  assert.equal(merged.fleet.debt, 11, "a good PR adds +1 debt: somebody has to maintain it");
+  assert.equal(merged.message, `Merged #${good}. +20M LOC. Somebody has to maintain it now.`);
   assert.deepEqual(merged.fleet.queue, []);
 
   const mergedSlop = reviewAgentPr(fleet(slop), slop, "approve", P);
   assert.equal(mergedSlop.outcome, "mergedSlop");
   assert.equal(mergedSlop.loc, 20 * P, "slop pays just as much");
-  assert.equal(mergedSlop.fleet.debt, 15);
+  assert.equal(mergedSlop.fleet.debt, 15, "slop still adds +5");
   assert.ok(mergedSlop.message.includes(agentPullRequest(seed, slop).why));
 
   const caught = reviewAgentPr(fleet(slop), slop, "reject", P);
@@ -395,10 +437,116 @@ test("approve and reject: payouts, debt, the good catch bonus, the HR complaint"
   assert.equal(reviewAgentPr(zeroAgentFleetState(), 1, "approve", P), null);
   // Debt never passes 100.
   assert.equal(reviewAgentPr(fleetWith({ queue: [slop], nextPr: slop + 1, debt: 98 }), slop, "approve", P).fleet.debt, 100);
+  assert.equal(reviewAgentPr(fleetWith({ queue: [good], nextPr: good + 1, debt: 99.5 }), good, "approve", P).fleet.debt, 100);
+  // Rejecting never adds debt; the zero-debt start goes to exactly 1 on a good merge.
+  assert.equal(reviewAgentPr(fleetWith({ queue: [good], nextPr: good + 1 }), good, "approve", P).fleet.debt, 1);
   // "It made the tests pass by deleting them." is one of the reasons.
   const [deleted] = findPrs(seed, (pr) => pr.flags[0] === "tests");
   assert.equal(agentPullRequest(seed, deleted).why, "It made the tests pass by deleting them.");
   for (const r of [merged, mergedSlop, caught, wrong]) assert.ok(!DASHES.test(r.message), r.message);
+});
+
+// --- Special PRs ---
+
+test("special PRs: about 15 hand-written ones, half topical, no dashes, every kind known, custom messages", () => {
+  assert.ok(AGENT_SPECIAL_PRS.length >= 13 && AGENT_SPECIAL_PRS.length <= 17, `${AGENT_SPECIAL_PRS.length}`);
+  const titles = new Set([...AGENT_SPECIAL_PRS.map((s) => s.title), ...AGENT_PR_TITLES.map((t) => t.title)]);
+  assert.equal(titles.size, AGENT_SPECIAL_PRS.length + AGENT_PR_TITLES.length, "no title is shared");
+  const topical = AGENT_SPECIAL_PRS.filter((s) => s.topical).length;
+  assert.ok(Math.abs(topical - (AGENT_SPECIAL_PRS.length - topical)) <= 2, "about half topical");
+  const good = AGENT_SPECIAL_PRS.filter((s) => !s.slop).length;
+  assert.ok(good >= 3 && good < AGENT_SPECIAL_PRS.length / 2, "a few good specials");
+  for (const s of AGENT_SPECIAL_PRS) {
+    assert.ok(AGENT_PR_KINDS[s.kind], s.title);
+    for (const text of [s.title, s.approve, s.reject]) {
+      assert.ok(typeof text === "string" && text.length > 0 && !DASHES.test(text), text);
+    }
+    assert.ok(s.approve.length <= 90 && s.reject.length <= 100, `short enough for two lines: ${s.title}`);
+    assert.ok(["passing", "failing", "skipped"].includes(s.ci), s.title);
+    assert.ok(["added", "unchanged", "deleted"].includes(s.tests.status), s.title);
+    assert.ok(["none", "verified", "missing"].includes(s.deps.status), s.title);
+  }
+});
+
+test("special PRs: slop specials have a red flag, good specials have none by the game's own rule", () => {
+  for (const [index, s] of AGENT_SPECIAL_PRS.entries()) {
+    const n = findSpecial(42, index);
+    assert.ok(n, `special ${index} occurs`);
+    const pr = agentPullRequest(42, n);
+    assert.equal(pr.special, index);
+    assert.equal(pr.titleIndex, null);
+    assert.equal(pr.title, s.title);
+    assert.equal(pr.slop, s.slop);
+    const red = agentPrRedFlags(pr);
+    assert.deepEqual(pr.flags, red);
+    if (s.slop) {
+      assert.ok(red.length >= 1, `slop special flagged: ${s.title}`);
+      assert.equal(pr.why, s.reject);
+    } else {
+      assert.deepEqual(red, [], `good special unflagged: ${s.title}`);
+      assert.equal(pr.why, null);
+    }
+  }
+  // The scary but fine ones: a 40,000-line lockfile is in scale for a
+  // lockfile, and a huge REMOVED count is never a red flag.
+  const lockfile = AGENT_SPECIAL_PRS.findIndex((s) => s.kind === "lockfile");
+  const lock = agentPullRequest(42, findSpecial(42, lockfile));
+  assert.ok(lock.added >= 20_000 && !lock.slop);
+  assert.deepEqual(agentPrRedFlags(lock), []);
+  assert.ok(AGENT_SPECIAL_PRS.some((s) => !s.slop && s.removed >= 100_000), "a huge good deletion");
+  // Every flag type is somebody's punchline.
+  const seen = new Set(AGENT_SPECIAL_PRS.flatMap((s, i) => agentPullRequest(42, findSpecial(42, i)).flags));
+  for (const f of AGENT_PR_FLAG_TYPES) assert.ok(seen.has(f), `a special uses ${f}`);
+});
+
+test("special PRs appear about 1 in 6, deterministically from (seed, number), and every one shows up", () => {
+  for (const seed of [1, 31337, 0x7fffffff]) {
+    const per = AGENT_SPECIAL_PRS.map(() => 0);
+    let specials = 0;
+    const N = 30_000;
+    for (let n = 1; n <= N; n += 1) {
+      const pr = agentPullRequest(seed, n);
+      assert.equal(pr.special, agentSpecialPrIndex(seed, n));
+      if (pr.special !== null) {
+        specials += 1;
+        per[pr.special] += 1;
+      }
+    }
+    assert.ok(Math.abs(specials / N - 1 / 6) < 0.01, `seed ${seed}: ${specials / N}`);
+    for (const [i, count] of per.entries()) assert.ok(count > 0, `${seed}: ${AGENT_SPECIAL_PRS[i].title}`);
+  }
+  const n = findSpecial(9, 0);
+  assert.deepEqual(agentPullRequest(9, n), agentPullRequest(9, n), "deterministic");
+  // The save is unchanged: PR numbers only, no new fleet keys.
+  assert.deepEqual(Object.keys(zeroAgentFleetState()), [...AGENT_FLEET_KEYS]);
+});
+
+test("special PRs: their own approve and reject lines, and the same payouts and debt", () => {
+  const seed = 42;
+  const fleet = (n) => fleetWith({ seed, agents: 3, queue: [n], nextPr: n + 1, debt: 10 });
+  for (const [index, s] of AGENT_SPECIAL_PRS.entries()) {
+    const n = findSpecial(seed, index);
+    const approved = reviewAgentPr(fleet(n), n, "approve", P);
+    const rejected = reviewAgentPr(fleet(n), n, "reject", P);
+    assert.equal(approved.loc, 20 * P);
+    if (s.slop) {
+      assert.equal(approved.outcome, "mergedSlop");
+      assert.equal(approved.message, `${s.approve} Tech debt +5%.`);
+      assert.equal(approved.fleet.debt, 15);
+      assert.equal(rejected.outcome, "goodCatch");
+      assert.equal(rejected.message, `Good catch. ${s.reject} +3M LOC.`);
+      assert.equal(rejected.loc, 3 * P);
+    } else {
+      assert.equal(approved.outcome, "merged");
+      assert.equal(approved.message, `${s.approve} +20M LOC.`);
+      assert.equal(approved.fleet.debt, 11);
+      assert.equal(rejected.outcome, "wrongReject");
+      assert.equal(rejected.message, s.reject);
+      assert.equal(rejected.loc, 0);
+    }
+    assert.equal(rejected.fleet.debt, 10);
+    for (const r of [approved, rejected]) assert.ok(!DASHES.test(r.message), r.message);
+  }
 });
 
 // --- Tech debt ---
@@ -800,11 +948,13 @@ test("end to end: hiring, approving, catching slop, commits and sprints save wit
   await save();
   const outcomes = new Set();
   let catches = 0;
+  let specials = 0;
   for (let minute = 0; minute < 12; minute += 1) {
     for (let s = 0; s < 60; s += 1) state = tick(state);
     // Review everything: approve slop now and then, catch the rest.
     while (state.agentFleet.queue.length > 0) {
       const top = agentPullRequest(state.agentFleet.seed, state.agentFleet.queue[0]);
+      if (top.special !== null) specials += 1;
       const decision = top.slop && catches % 3 !== 0 ? "reject" : "approve";
       if (top.slop && decision === "reject") catches += 1;
       if (top.slop && decision === "approve") catches += 1;
@@ -830,6 +980,7 @@ test("end to end: hiring, approving, catching slop, commits and sprints save wit
   }
   assert.ok(outcomes.has("merged") && outcomes.has("mergedSlop") && outcomes.has("goodCatch"), [...outcomes].join());
   assert.ok(outcomes.has("sprint"));
+  assert.ok(specials > 0, "special PRs were reviewed and saved like any other");
   const stored = await loadState(srv.base, playerId);
   assert.equal(stored.agentFleet.agents, 6);
   assert.ok(stored.agentFleet.nextPr > 60, "about 72 PRs opened");
