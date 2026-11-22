@@ -31,6 +31,13 @@ import { CosmeticsPanel } from "./CosmeticsPanel.jsx";
 import { SellCompany } from "./SellCompany.jsx";
 import { ProgressBarSettings } from "./ProgressBarSettings.jsx";
 import { SubtracterallCard } from "./SubtracterallCard.jsx";
+import { RoadshowCard } from "./RoadshowCard.jsx";
+import { HighlightAnchor } from "./HighlightAnchor.jsx";
+import {
+  ROADSHOW_EMAIL_ITEM_ID,
+  intermissionOpen,
+  roadshowVisible,
+} from "../../../shared/game-balance.js";
 import { Panel } from "./Panel.jsx";
 import { APP_COMMIT, buildTimeLabel } from "../version.js";
 import {
@@ -127,8 +134,12 @@ async function copyText(text) {
 export function Settings() {
   const { data: session, isPending } = useSession();
   const user = session?.user ?? null;
-  const { resetProgress, savePlayerId, getSaveDiagnostics } =
+  const { state, resetProgress, savePlayerId, getSaveDiagnostics } =
     useGameContext();
+  // IPO Roadshow (issue #266): shown from Series C on, outside the
+  // post-sale intermission (the permanent store has the screen then).
+  const showRoadshow =
+    roadshowVisible(state.permanentStoreRanks) && !intermissionOpen(state);
 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null); // { kind: "ok" | "error", text }
@@ -480,6 +491,16 @@ export function Settings() {
           on purpose: a sale keeps your lifetime progress, a reset
           wipes it. */}
       <SellCompany />
+
+      {/* IPO Roadshow (issue #266): right under Sell the Company, where
+          the Funding Rounds rank is shown during a run. Its milestones
+          are bought mid-run (this company's LOC and cash) and pay bonus
+          Equity for the permanent store. Email links land here. */}
+      {showRoadshow && (
+        <HighlightAnchor tab="settings" itemId={ROADSHOW_EMAIL_ITEM_ID}>
+          <RoadshowCard />
+        </HighlightAnchor>
+      )}
 
       {/* SUBTRACTERALL (prestige, Slice 3): the burst card. Below
           Sell the Company on purpose: a dose borrows future

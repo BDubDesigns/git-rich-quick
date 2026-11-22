@@ -122,6 +122,8 @@ const initialState = {
   // Night Shift (issue #149): the purchased offline-production level
   // (0..5). Company-local; settled by the server on load.
   nightShiftLevel: 0,
+  // IPO Roadshow (issue #266): milestones bought (0..6), saved.
+  roadshowStage: 0,
   // Achievements (issue #132): tier state and the lifetime counters
   // the achievements read (hires per type, clicks, peak LOC/s, llamas
   // bought and sold). Saved with the game state; a save without it
@@ -2082,6 +2084,17 @@ export function GameProvider({ children }) {
     return saveSyncRef.current.buyStoreRank(storeId);
   }, []);
 
+  // IPO Roadshow (issue #266): buy the next milestone, on the server
+  // AND locally. The server checks the gate and the cash, deducts the
+  // price and raises the stage; the engine restores the returned
+  // state, so the bonus Equity (derived from the stage) can never
+  // disagree with the save. Returns `{ ok: true, state, purchase,
+  // alreadyOwned }` or `{ ok: false, error, detail }`; the caller
+  // (RoadshowCard) shows the result.
+  const buyRoadshowMilestone = useCallback(async () => {
+    return saveSyncRef.current.buyRoadshowMilestone();
+  }, []);
+
   // Post-sale intermission (prestige, Slice 2): apply the Starting
   // Capital grant once, from the frozen sale quote, and clear the
   // intermission, on the server AND locally. The engine restores the
@@ -2190,6 +2203,7 @@ export function GameProvider({ children }) {
         resetProgress,
         sellCompany,
         buyStoreRank,
+        buyRoadshowMilestone,
         completeIntermission,
         requestClaimSave,
         measureTapLatency,

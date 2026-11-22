@@ -19,7 +19,8 @@
  * The adapters at the bottom translate game events into mail:
  * employee visible / unlocked, open-source visible / unlocked /
  * level-up, freelance project visible / unlocked, star rewards, the
- * farm, and Night Shift visible / unlocked.
+ * farm, Night Shift visible / unlocked, and the IPO Roadshow
+ * milestones (one mail each, when its gate is met).
  * Each adapter only fires on a transition
  * (a latch flip, a level increase, a claim), so the same event never
  * mails twice, and a restored save never re-mails old unlocks.
@@ -38,6 +39,7 @@ import {
   NIGHT_SHIFT_EMAIL_ITEM_ID,
   OPEN_SOURCE_DISPLAY_NAMES,
   OPEN_SOURCE_IDS,
+  ROADSHOW_EMAIL_ITEM_ID,
   achievementEmailEntries,
   buildEmployeeUnlockedEmail,
   buildEmployeeVisibleEmail,
@@ -52,10 +54,13 @@ import {
   buildOpenSourceLevelEmail,
   buildOpenSourceUnlockedEmail,
   buildOpenSourceVisibleEmail,
+  buildRoadshowReadyEmail,
   buildStarRewardEmail,
   starEffectFlavor,
   findAchievement,
   nightShiftLevelOf,
+  roadshowEmailTriggerKey,
+  roadshowReadyMilestone,
   sanitizeEmailTarget,
   sanitizeEmailTrophies,
   starEffectName,
@@ -549,6 +554,21 @@ export function collectTriggerEmails(prevState, newState, starClaim = null) {
     }
   }
 
+  // IPO Roadshow (issue #266): one mail per milestone, when it is the
+  // next one and its run LOC gate is met (no cash check: a heads-up,
+  // not a receipt). Keyed by milestone and deduped against the inbox,
+  // so every tick that finds it ready sends nothing new. It is not a
+  // strict transition on purpose: a milestone is bought through the
+  // server (a restore, which never mails), so the next milestone can be
+  // ready the moment the purchase lands, and a save that loads at
+  // Series C with the gate already met (an existing player) still gets
+  // its first mail on the next tick.
+  const readyMilestone = roadshowReadyMilestone(newState);
+  if (readyMilestone > 0) {
+    const mail = buildRoadshowReadyEmail(readyMilestone);
+    if (mail) send(mail, roadshowEmailTriggerKey(readyMilestone));
+  }
+
   return { emails, newEmailId };
 }
 
@@ -601,6 +621,11 @@ export function emailLinkLabel(email, target) {
       return teaser ? "See the Farm unlock progress" : "Go to the Farm";
     case "achievements":
       return name ? `See ${name} in the Trophy Case` : "Go to Trophies";
+    case "settings":
+      // The IPO Roadshow card (issue #266), under Sell the Company.
+      return target.itemId === ROADSHOW_EMAIL_ITEM_ID
+        ? "Open the IPO Roadshow"
+        : "Go to Settings";
     default:
       return "Go there";
   }
