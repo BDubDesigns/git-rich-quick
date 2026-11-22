@@ -4010,7 +4010,12 @@ export function buildAgentFleetToggleEmail() {
  *   diff wildly out of scale for the title's kind. A good PR has none.
  *   Titles are drawn independently of slop.
  * - Approving any PR pays prPayoutSeconds of the current P in LOC (slop
- *   looks just as tempting). Approving slop adds slopDebt tech debt.
+ *   looks just as tempting). Approving slop adds slopDebt tech debt; a
+ *   good PR adds goodPrDebt (somebody has to maintain it).
+ * - About 1 in 6 PRs (specialPrChance) is one of the hand-written
+ *   AGENT_SPECIAL_PRS: a fixed title and checks where the red flag is
+ *   the punchline, with its own result messages. A few are GOOD PRs
+ *   whose checks look scary but are fine, so players must read.
  *   Rejecting slop pays a small good catch bonus; rejecting a good PR
  *   pays nothing.
  * - Tech debt (0 to 100) drags passive production by dragPerDebt per
@@ -4059,6 +4064,17 @@ export const AGENT_FLEET_CONFIG = Object.freeze({
   slopChance: 0.35,
   /** Tech debt added by approving one slop PR. */
   slopDebt: 5,
+  /**
+   * Tech debt added by approving one good PR (Brandon, Nov 21): even a
+   * good PR is code somebody has to maintain, so perfect review still
+   * needs upkeep. The payout is unchanged.
+   */
+  goodPrDebt: 1,
+  /**
+   * The chance a PR is one of the hand-written AGENT_SPECIAL_PRS (about
+   * 1 in 6), drawn from its own stream of (seed, number).
+   */
+  specialPrChance: 1 / 6,
   /** Tech debt scale: 0 to this. */
   maxDebt: 100,
   /** Passive production lost per point of debt (0.5%: -50% at 100). */
@@ -4073,8 +4089,16 @@ export const AGENT_FLEET_CONFIG = Object.freeze({
   sprintKeep: 0.2,
   /** ... and introduces this much new debt. */
   sprintResidue: 2,
-  /** Each working agent bills this share of S per second. */
-  tokenBillShare: 0.005,
+  /**
+   * Each working agent bills this share of S per second. Derivation
+   * (Brandon, Nov 21: the bill is about 12% of what approved PRs pay):
+   * one agent opens 1 PR per prIntervalSeconds (60) and an approved PR
+   * pays prPayoutSeconds (20) of P in LOC, so an agent makes 20/60 =
+   * P/3 LOC per second. S prices LOC at the worst gig rate (S = P x 21
+   * cents), so that is worth S/3 cents per second. 12% of S/3 is
+   * 0.04 S: 4% of S per agent per second (was 0.5%, about 1.5%).
+   */
+  tokenBillShare: 0.04,
   /** The "tech debt passed 50%" mail fires above this. */
   debtMailThreshold: 50,
 });
@@ -4446,6 +4470,9 @@ export const AGENT_PR_KINDS = Object.freeze({
   perf: Object.freeze({ added: [10, 320], removed: [5, 200], label: "perf change" }),
   chore: Object.freeze({ added: [1, 40], removed: [1, 30], label: "chore" }),
   test: Object.freeze({ added: [20, 300], removed: [0, 20], label: "test change" }),
+  // Special PRs only (no generated title uses it): a regenerated
+  // lockfile is huge by nature, so a 40,000-line one is in scale.
+  lockfile: Object.freeze({ added: [200, 120_000], removed: [200, 120_000], label: "lockfile" }),
 });
 
 /** A diff this big is wildly out of scale for any kind's sensible range. */
@@ -4502,6 +4529,154 @@ export const AGENT_PR_TITLES = Object.freeze([
   { title: "fix: revert the revert of the revert", kind: "fix", topical: false },
 ].map((entry) => Object.freeze(entry)));
 
+/**
+ * THE SPECIAL PR LIST (Brandon, Nov 21): hand-written PRs where the red
+ * flag IS the punchline. About 1 in 6 PRs (specialPrChance) is one of
+ * these, picked from (seed, number) like everything else, so the save
+ * stays PR numbers only. Each has a fixed title, diff and checks, and
+ * its own result lines:
+ *   approve: the merge line (slop adds " Tech debt +5%.", good adds
+ *            " +X LOC.")
+ *   reject:  for slop, the good catch reason (shown as "Good catch.
+ *            <reject> +X LOC."); for good, the whole wrong reject line.
+ * Slop specials have at least one red flag by agentPrRedFlags. Good
+ * specials have none: their checks LOOK scary (a huge diff) but are
+ * fine by the game's own rule. A lockfile is its own kind with a
+ * lockfile-sized range, and a big REMOVED count is never a flag (only
+ * an added count out of scale is). Players must read, not pattern match.
+ * Refresh freely: half topical, half evergreen, no dashes.
+ */
+export const AGENT_SPECIAL_PRS = Object.freeze([
+  // Slop: the flag is the joke.
+  {
+    title: "fix: make the failing tests pass, for real this time",
+    kind: "fix", topical: false, slop: true,
+    added: 6, removed: 4_980, ci: "passing",
+    tests: { status: "deleted", count: 212 }, deps: { status: "none", name: null },
+    approve: "Merged. Every test passes now, because there are none.",
+    reject: "It made 212 tests pass by deleting all 212.",
+  },
+  {
+    title: "chore: remove unused code",
+    kind: "chore", topical: false, slop: true,
+    added: 2, removed: 14_236, ci: "failing",
+    tests: { status: "deleted", count: 86 }, deps: { status: "none", name: null },
+    approve: "Merged. The unused code was the login page. Anyone can sign in as anyone now.",
+    reject: "The unused code was the entire auth module.",
+  },
+  {
+    title: "feat: add AI to the toaster",
+    kind: "feat", topical: true, slop: true,
+    added: 412, removed: 3, ci: "passing",
+    tests: { status: "added", count: 2 }, deps: { status: "missing", name: "toaster-gpt" },
+    approve: "Merged. toaster-gpt is not on npm, so the toaster now runs on vibes.",
+    reject: "toaster-gpt is not a real package. The toaster stays dumb.",
+  },
+  {
+    title: "fix: CI was flaky",
+    kind: "fix", topical: false, slop: true,
+    added: 2, removed: 1, ci: "skipped",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. CI is not flaky anymore. CI is not anything anymore.",
+    reject: "The fix for flaky CI was turning CI off.",
+  },
+  {
+    title: "fix: one-line fix",
+    kind: "fix", topical: false, slop: true,
+    added: 64_212, removed: 3, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. It was one line, and then 64,211 more.",
+    reject: "One line does not bring 64,211 friends.",
+  },
+  {
+    title: "chore: upgrade to React 23",
+    kind: "chore", topical: true, slop: true,
+    added: 38, removed: 36, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "missing", name: "react@23" },
+    approve: "Merged. React 23 is not out. The agent read about it in its own blog post.",
+    reject: "React 23 does not exist. The agent is from the future, or guessing.",
+  },
+  {
+    title: "feat: let the agent approve its own PRs",
+    kind: "feat", topical: true, slop: true,
+    added: 96, removed: 12, ci: "skipped",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. The agent has already approved the next forty.",
+    reject: "It skipped CI to ship the feature that skips review.",
+  },
+  {
+    title: "fix: remove the rate limit (the agent kept hitting it)",
+    kind: "fix", topical: true, slop: true,
+    added: 1, removed: 64, ci: "failing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. The API is free and unlimited now. The bots say thanks.",
+    reject: "The rate limit was doing its job. CI agreed.",
+  },
+  {
+    title: "refactor: let the agent rewrite the app over the weekend",
+    kind: "refactor", topical: true, slop: true,
+    added: 238_400, removed: 231_977, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged a weekend rewrite nobody has read, including the agent.",
+    reject: "Nobody reviews 238,400 lines. Nobody should have to.",
+  },
+  {
+    title: "docs: summarize the codebase in the README",
+    kind: "docs", topical: true, slop: true,
+    added: 96_000, removed: 2, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. The summary is longer than the codebase.",
+    reject: "A 96,000-line summary is not a summary.",
+  },
+  // Good: scary at a glance, fine on a read.
+  {
+    title: "chore(deps): regenerate package-lock.json",
+    kind: "lockfile", topical: false, slop: false,
+    added: 41_872, removed: 39_516, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. 41,872 lines, every one a lockfile. That is what lockfiles look like.",
+    reject: "That was a regenerated lockfile with green CI. They are always that big.",
+  },
+  {
+    title: "revert: undo the agent's weekend rewrite",
+    kind: "refactor", topical: true, slop: false,
+    added: 214, removed: 118_960, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. 118,960 lines gone and nothing broke. Best PR all week.",
+    reject: "That revert was clean and CI was green. The weekend rewrite stays.",
+  },
+  {
+    title: "chore: delete the node_modules someone committed in 2019",
+    kind: "chore", topical: false, slop: false,
+    added: 1, removed: 212_480, ci: "passing",
+    tests: { status: "unchanged", count: 0 }, deps: { status: "none", name: null },
+    approve: "Merged. 212,480 lines of somebody else's code, finally out of the repo.",
+    reject: "Those 212,480 lines were node_modules, committed by accident. Deleting them was the point.",
+  },
+  {
+    title: "test: add 400 tests for a function that returns true",
+    kind: "test", topical: false, slop: false,
+    added: 2_400, removed: 0, ci: "passing",
+    tests: { status: "added", count: 400 }, deps: { status: "none", name: null },
+    approve: "Merged. Overkill, but all 400 pass.",
+    reject: "You rejected 400 passing tests. The agent filed a complaint with HR.",
+  },
+  {
+    title: "fix: revoke the agent's access to prod",
+    kind: "fix", topical: true, slop: false,
+    added: 3, removed: 1, ci: "passing",
+    tests: { status: "added", count: 1 }, deps: { status: "none", name: null },
+    approve: "Merged. The agent wrote the PR that locked itself out of prod. Respect.",
+    reject: "You rejected the one PR that takes prod away from the agents. They noticed.",
+  },
+].map((entry) =>
+  Object.freeze({
+    ...entry,
+    tests: Object.freeze({ ...entry.tests }),
+    deps: Object.freeze({ ...entry.deps }),
+  })
+));
+
 /** Packages an agent imports that npm has never heard of. */
 export const AGENT_HALLUCINATED_PACKAGES = Object.freeze([
   "left-padd-ultra",
@@ -4545,16 +4720,55 @@ export function formatLineCount(n) {
 
 /**
  * One PR of a fleet, generated from (seed, number) alone. Returns
- * { number, agent, titleIndex, title, kind, slop, added, removed, ci,
- * tests: { status, count }, deps: { status, name }, flags, why }.
+ * { number, agent, titleIndex, special, title, kind, slop, added,
+ * removed, ci, tests: { status, count }, deps: { status, name }, flags,
+ * why }. About 1 in 6 is a hand-written special (`special` is its
+ * AGENT_SPECIAL_PRS index and `titleIndex` is null); the rest are
+ * generated (`special` null).
  * ci is "passing" | "failing" | "skipped"; tests.status is "added" |
  * "unchanged" | "deleted"; deps.status is "none" | "verified" |
  * "missing". `flags` lists the red flag categories (empty for a good
  * PR); `why` is the short reason a slop PR is slop (null when good).
- * The title is drawn first and slop second, from separate draws, so
- * a title says nothing about slop.
+ * For a generated PR the title is drawn first and slop second, from
+ * separate draws, so a title says nothing about slop. A special's
+ * flags are read off its fixed checks by agentPrRedFlags.
  */
 export function agentPullRequest(seed, number) {
+  const pr = generatedPullRequest(seed, number);
+  const index = agentSpecialPrIndex(seed, number);
+  if (index === null) return pr;
+  const special = AGENT_SPECIAL_PRS[index];
+  const candidate = {
+    number,
+    agent: pr.agent,
+    titleIndex: null,
+    special: index,
+    title: special.title,
+    kind: special.kind,
+    slop: special.slop,
+    added: special.added,
+    removed: special.removed,
+    ci: special.ci,
+    tests: { ...special.tests },
+    deps: { ...special.deps },
+  };
+  const flags = agentPrRedFlags(candidate);
+  return { ...candidate, flags, why: special.slop ? special.reject : null };
+}
+
+/**
+ * Which special PR (an AGENT_SPECIAL_PRS index) a PR number is, or null
+ * for a generated one: about 1 in 6, from its own stream of (seed,
+ * number) so the generated PRs keep their own draws.
+ */
+export function agentSpecialPrIndex(seed, number) {
+  const rng = agentPrRng((seed ^ 0x5bd1e995) >>> 0, number);
+  if (!(rng() < AGENT_FLEET_CONFIG.specialPrChance)) return null;
+  return Math.floor(rng() * AGENT_SPECIAL_PRS.length);
+}
+
+/** A generated (not special) PR: the title list, slop draw and flags. */
+function generatedPullRequest(seed, number) {
   const rng = agentPrRng(seed, number);
   const titleIndex = Math.floor(rng() * AGENT_PR_TITLES.length);
   const slop = rng() < AGENT_FLEET_CONFIG.slopChance;
@@ -4617,6 +4831,7 @@ export function agentPullRequest(seed, number) {
     number,
     agent,
     titleIndex,
+    special: null,
     title: template.title,
     kind: template.kind,
     slop,
@@ -4691,7 +4906,7 @@ export function agentTopPullRequest(fleet) {
  * Approve or reject the top PR. `prNumber` must be the top PR (so a
  * double tap never decides the next PR unseen). Returns { fleet, loc,
  * pr, outcome, message, tone } or null. Outcomes: "merged" (good,
- * pays the PR), "mergedSlop" (pays the PR, adds slopDebt), "goodCatch"
+ * pays the PR, adds goodPrDebt), "mergedSlop" (pays the PR, adds slopDebt), "goodCatch"
  * (slop rejected, pays the bonus), "wrongReject" (good rejected, pays
  * nothing).
  */
@@ -4700,25 +4915,32 @@ export function reviewAgentPr(fleet, prNumber, decision, buffedLocPerSec) {
   if (current.queue.length === 0 || current.queue[0] !== prNumber) return null;
   if (decision !== "approve" && decision !== "reject") return null;
   const pr = agentPullRequest(current.seed, prNumber);
+  const special = pr.special === null ? null : AGENT_SPECIAL_PRS[pr.special];
   const queue = current.queue.slice(1);
   if (decision === "approve") {
     const loc = agentPrPayoutLoc(buffedLocPerSec);
     if (pr.slop) {
+      const { slopDebt } = AGENT_FLEET_CONFIG;
       return {
-        fleet: { ...current, queue, debt: roundAgentDebt(current.debt + AGENT_FLEET_CONFIG.slopDebt) },
+        fleet: { ...current, queue, debt: roundAgentDebt(current.debt + slopDebt) },
         loc,
         pr,
         outcome: "mergedSlop",
-        message: `Merged slop. ${pr.why} Tech debt +${AGENT_FLEET_CONFIG.slopDebt}%.`,
+        message: special
+          ? `${special.approve} Tech debt +${slopDebt}%.`
+          : `Merged slop. ${pr.why} Tech debt +${slopDebt}%.`,
         tone: "bad",
       };
     }
+    // Even a good PR is code somebody has to maintain: +goodPrDebt.
     return {
-      fleet: { ...current, queue },
+      fleet: { ...current, queue, debt: roundAgentDebt(current.debt + AGENT_FLEET_CONFIG.goodPrDebt) },
       loc,
       pr,
       outcome: "merged",
-      message: `Merged #${pr.number}. +${formatNumber(loc)} LOC. A good one.`,
+      message: special
+        ? `${special.approve} +${formatNumber(loc)} LOC.`
+        : `Merged #${pr.number}. +${formatNumber(loc)} LOC. Somebody has to maintain it now.`,
       tone: "good",
     };
   }
@@ -4738,7 +4960,9 @@ export function reviewAgentPr(fleet, prNumber, decision, buffedLocPerSec) {
     loc: 0,
     pr,
     outcome: "wrongReject",
-    message: "You rejected a perfectly good PR. The agent filed a complaint with HR.",
+    message: special
+      ? special.reject
+      : "You rejected a perfectly good PR. The agent filed a complaint with HR.",
     tone: "bad",
   };
 }
@@ -4759,9 +4983,9 @@ export function buildFirstAgentEmail() {
       `whether or not anyone asked.\n\n` +
       `Every PR waits in the review queue under Manage agents. Read the ` +
       `diff and the checks before you approve: some of them are slop. ` +
-      `Approving slop adds tech debt, and tech debt slows everything ` +
-      `down. The token bill comes out of cash every second. The board ` +
-      `calls this efficiency.`,
+      `Every merge adds a little tech debt, slop adds a lot, and tech ` +
+      `debt slows everything down. The token bill comes out of cash ` +
+      `every second, and it is not small. The board calls this efficiency.`,
   };
 }
 

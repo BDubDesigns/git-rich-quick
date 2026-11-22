@@ -1444,8 +1444,8 @@ function gameReducer(state, action) {
     // Agent Fleet (issue #267): approve or reject the top PR. Payload:
     // { prNumber, decision: "approve" | "reject" }. prNumber must be
     // the top of the queue, so a double tap never decides the next PR
-    // unseen. Approving pays 20 seconds of P in LOC (slop too, and slop
-    // adds tech debt); rejecting slop pays the good catch bonus;
+    // unseen. Approving pays 20 seconds of P in LOC (slop too). Slop
+    // adds 5 tech debt, a good PR 1; rejecting slop pays the good catch bonus;
     // rejecting a good PR pays nothing. The result line says why.
     case "REVIEW_AGENT_PR": {
       const { prNumber, decision } = action.payload ?? {};
